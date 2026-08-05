@@ -2,7 +2,12 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
 import type { Pool, PoolClient } from 'pg'
-import { ApiError, requireRepositoryWriteAccess } from './github.js'
+import {
+  ApiError,
+  createRepositoryPullRequest,
+  createRepositorySnapshot,
+  requireRepositoryWriteAccess,
+} from './github.js'
 
 export interface RoomBinding {
   owner: string
@@ -42,7 +47,6 @@ export interface RoomStoreLike {
 
 const roomPattern = /^[A-Za-z0-9_-]{8,100}$/
 const repositoryPartPattern = /^[A-Za-z0-9_.-]+$/
-const branchPattern = /^[A-Za-z0-9._/-]+$/
 
 export const validateRoomName = (roomName: string) => {
   if (!roomPattern.test(roomName)) {
@@ -80,17 +84,21 @@ const validatePath = (value: unknown) => {
   return parsed
 }
 
-const validateBranch = (value: unknown, field: string) => {
-  const parsed = readBindingString(value, field)
-  if (
-    !branchPattern.test(parsed) ||
-    parsed.startsWith('/') ||
-    parsed.endsWith('/') ||
-    parsed.includes('..')
-  ) {
-    throw new ApiError(400, `${field} is not a valid Git branch name.`)
+const readText = (value: unknown, field: string) => {
+  if (typeof value !== 'string') {
+    throw new ApiError(400, `${field} must be text.`)
   }
-  return parsed
+  return value
+}
+
+const requireBinding = (room: RoomRecord) => {
+  if (!room.binding) {
+    throw new ApiError(409, 'Bind this room to a repository before publishing.')
+  }
+  return {
+    ...room.binding,
+    branchName: `demystify/${room.roomName.slice(0, 12)}`,
+  }
 }
 
 export class RoomStore implements RoomStoreLike {
@@ -335,8 +343,7 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
     const owner = validateRepositoryPart(request.body.owner, 'owner')
     const repository = validateRepositoryPart(request.body.repository, 'repository')
     const path = validatePath(request.body.path)
-    const baseBranch = validateBranch(request.body.baseBranch, 'baseBranch')
-    const branchName = validateBranch(request.body.branchName, 'branchName')
+    const branchName = `demystify/${roomName.slice(0, 12)}`
     const repositoryAccess = await requireRepositoryWriteAccess(
       request,
       owner,
@@ -350,10 +357,41 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       isFork: repositoryAccess.fork,
       parentFullName: repositoryAccess.parent?.full_name ?? null,
       path,
-      baseBranch,
+      baseBranch: repositoryAccess.default_branch,
       branchName,
     }
     response.json(await roomStore.setBinding(roomName, user, binding))
+  })
+
+  router.post('/rooms/:roomName/snapshots', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const binding = requireBinding(room)
+    const content = readText(request.body.content, 'content')
+    const commitMessage =
+      typeof request.body.commitMessage === 'string'
+        ? request.body.commitMessage
+        : undefined
+
+    response.json(
+      await createRepositorySnapshot(
+        request,
+        binding,
+        content,
+        commitMessage,
+      ),
+    )
+  })
+
+  router.post('/rooms/:roomName/pull-requests', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const binding = requireBinding(room)
+    const title = readBindingString(request.body.title, 'title').slice(0, 200)
+
+    response.json(
+      await createRepositoryPullRequest(request, binding, title),
+    )
   })
 
   return router

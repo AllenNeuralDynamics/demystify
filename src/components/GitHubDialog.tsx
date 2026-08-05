@@ -173,7 +173,7 @@ export const GitHubDialog = ({
     try {
       if (!(await onSave())) return
       const pullRequest = await createPullRequest(
-        binding,
+        roomName,
         `Update ${documentTitle}`,
       )
       window.open(pullRequest.htmlUrl, '_blank', 'noopener,noreferrer')

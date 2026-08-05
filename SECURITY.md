@@ -4,6 +4,8 @@
 
 DeMystify is not yet approved for confidential or regulated manuscripts. The local MVP requires GitHub authentication and verifies repository write access on room claims and WebSocket upgrades, but it still uses single-instance room, session, and Yjs persistence without production audit or retention controls.
 
+Repository permission revocation is enforced on the next room claim or WebSocket reconnect. An already established socket is not continuously reauthorized, so the controlled pilot must use short infrastructure timeouts and treat reconnect authorization as the revocation boundary.
+
 ## Reporting
 
 Report suspected vulnerabilities privately through GitHub's **Security → Report a vulnerability** feature once private vulnerability reporting is enabled for this repository. Do not include secrets, private manuscripts, or exploit details in a public issue.

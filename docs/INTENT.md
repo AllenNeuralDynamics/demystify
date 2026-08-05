@@ -41,4 +41,4 @@ The intended workflow is:
 
 ## Current Status
 
-The repository contains a validated MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. Before broad deployment it needs repository-aware asset resolution, server-rendered previews using each repository's actual MyST configuration, horizontal WebSocket fan-out, and operational controls.
+The repository contains a tested MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. Before broad deployment it needs repository-aware asset resolution, server-rendered previews using each repository's actual MyST configuration, horizontal WebSocket fan-out, and operational controls.

@@ -164,7 +164,10 @@ function App() {
 
     setIsSaving(true)
     try {
-      const snapshot = await createSnapshot(repositoryBinding, collaboration.content)
+      const snapshot = await createSnapshot(
+        roomName,
+        collaboration.getSnapshotContent(),
+      )
       showNotice(
         snapshot.unchanged
           ? `${snapshot.branchName} is already current`
@@ -359,9 +362,9 @@ function App() {
               )}
             </section>
 
-            <section className="preview-pane" aria-label="Publication preview">
+            <section className="preview-pane" aria-label="Browser preview">
               <div className="preview-label">
-                <span>Publication preview</span>
+                <span>Browser preview</span>
                 <span>{collaboration.isSynced ? 'MyST 1.0' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>

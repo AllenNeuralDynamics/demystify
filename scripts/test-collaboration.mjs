@@ -62,7 +62,10 @@ const waitForServer = async () => {
 
 const waitForSync = (provider) =>
   new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Timed out waiting for sync')), 5_000)
+    const timeout = setTimeout(
+      () => reject(new Error(`Timed out waiting for sync.\n${serverOutput}`)),
+      5_000,
+    )
     provider.once('sync', () => {
       clearTimeout(timeout)
       resolve()
@@ -174,6 +177,42 @@ try {
     headers: { Cookie: sessionCookie },
   })
   assert.equal(claimResponse.status, 201)
+
+  const unboundSnapshotResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/snapshots`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content: '# Unauthorized target test' }),
+    },
+  )
+  assert.equal(unboundSnapshotResponse.status, 409)
+
+  const unboundPullRequestResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/pull-requests`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Unauthorized target test' }),
+    },
+  )
+  assert.equal(unboundPullRequestResponse.status, 409)
+
+  const unscopedSnapshotResponse = await fetch(`${httpUrl}/api/github/snapshots`, {
+    method: 'POST',
+    headers: {
+      Cookie: sessionCookie,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content: '# Unscoped write test' }),
+  })
+  assert.equal(unscopedSnapshotResponse.status, 404)
 
   await expectSocketRejection(401)
 

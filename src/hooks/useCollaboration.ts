@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import type { CollaboratorProfile } from '../lib/profile'
+import {
+  normalizeSourceText,
+  serializeSourceText,
+  type SourceLineEnding,
+} from '../lib/sourceText'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -40,6 +45,13 @@ const isCollaboratorProfile = (value: unknown): value is CollaboratorProfile => 
   if (!value || typeof value !== 'object') return false
   const profile = value as Partial<CollaboratorProfile>
   return Boolean(profile.id && profile.name && profile.color && profile.colorLight)
+}
+
+const getSourceLineEnding = (
+  metadata: Y.Map<string | number | boolean>,
+): SourceLineEnding => {
+  const lineEnding = metadata.get('lineEnding')
+  return lineEnding === 'crlf' || lineEnding === 'cr' ? lineEnding : 'lf'
 }
 
 export const useCollaboration = (
@@ -96,8 +108,10 @@ export const useCollaboration = (
           !metadata.get('initialized') &&
           metadata.get('initializationCandidate') === candidate
         ) {
+          const normalized = normalizeSourceText(initialContent)
           document.transact(() => {
-            text.insert(0, initialContent)
+            text.insert(0, normalized.content)
+            metadata.set('lineEnding', normalized.lineEnding)
             metadata.set('initialized', true)
           })
         }
@@ -156,11 +170,21 @@ export const useCollaboration = (
 
   const replaceContent = (nextContent: string) => {
     if (!session) return
+    const normalized = normalizeSourceText(nextContent)
     session.document.transact(() => {
       session.text.delete(0, session.text.length)
-      session.text.insert(0, nextContent)
+      session.text.insert(0, normalized.content)
+      session.metadata.set('lineEnding', normalized.lineEnding)
       session.metadata.set('initialized', true)
     })
+  }
+
+  const getSnapshotContent = () => {
+    if (!session) return content
+    return serializeSourceText(
+      session.text.toString(),
+      getSourceLineEnding(session.metadata),
+    )
   }
 
   return {
@@ -174,5 +198,6 @@ export const useCollaboration = (
     addComment,
     toggleComment,
     replaceContent,
+    getSnapshotContent,
   }
 }

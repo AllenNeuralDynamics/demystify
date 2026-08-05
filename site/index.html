@@ -57,7 +57,7 @@
             src="./assets/editor.png"
             width="1440"
             height="900"
-            alt="DeMystify showing a shared MyST source editor beside its publication preview"
+            alt="DeMystify showing a shared MyST source editor beside its browser preview"
           />
           <figcaption>
             A shared source editor, live MyST preview, collaborator presence, and comments.
@@ -108,10 +108,11 @@
       <section class="source-band" aria-labelledby="source-title">
         <div class="source-copy">
           <span class="eyebrow">MyST stays MyST</span>
-          <h2 id="source-title">No lossy document conversion</h2>
+          <h2 id="source-title">No document-format round trip</h2>
           <p>
-            Equations, directives, figures, citations, tables, and readable source remain in
-            the manuscript. The browser preview is immediate; repository CI remains authoritative.
+            Equations, directives, figures, citations, tables, and readable source are not
+            flattened into another format. The browser preview is immediate; repository CI
+            remains authoritative.
           </p>
         </div>
         <pre aria-label="Example MyST figure directive"><code>:::{figure} ./images/result.svg
@@ -150,7 +151,7 @@ Caption with methods, units, and provenance.
         </div>
         <div class="architecture-notes">
           <p><strong>Identity</strong><span>GitHub App OAuth for every collaborator</span></p>
-          <p><strong>Preview</strong><span>Fast browser render plus repository-aware MyST builds</span></p>
+          <p><strong>Preview</strong><span>Fast browser MyST render; repository CI remains authoritative</span></p>
           <p><strong>Access</strong><span>Repository permissions checked before joining a room</span></p>
         </div>
       </section>
@@ -163,14 +164,14 @@ Caption with methods, units, and provenance.
         <p>
           The production design uses an organization-approved GitHub App with contents and pull
           request permissions only. User authorization remains server-side, and repository access
-          can be revoked by the owner at any time.
+          is rechecked when collaborators join or reconnect after an owner revokes access.
         </p>
       </section>
 
       <section class="status-section section" id="status" aria-labelledby="status-title">
         <div class="section-heading">
           <span class="eyebrow">Project status</span>
-          <h2 id="status-title">A validated MVP packaged for a controlled pilot</h2>
+          <h2 id="status-title">A tested MVP packaged for a controlled pilot</h2>
           <p>
             The local prototype already supports simultaneous source editing, presence, shared
             comments, MyST and KaTeX preview, persistence, GitHub file loading, branch snapshots,

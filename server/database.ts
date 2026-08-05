@@ -7,6 +7,118 @@ import type * as Yjs from 'yjs'
 const require = createRequire(import.meta.url)
 const Y = require('yjs') as typeof Yjs
 
+interface LeveldbProvider {
+  getYDoc(roomName: string): Promise<Yjs.Doc>
+  storeUpdate(roomName: string, update: Uint8Array): Promise<number>
+  flushDocument(roomName: string): Promise<void>
+  destroy(): Promise<void>
+}
+
+const { LeveldbPersistence } = require('y-leveldb') as {
+  LeveldbPersistence: new (location: string) => LeveldbProvider
+}
+
+export interface ReadyYjsPersistence {
+  readonly provider: unknown
+  bindState(roomName: string, document: Yjs.Doc): void
+  waitForHydration(document: Yjs.Doc): Promise<void>
+  writeState(roomName: string, document: Yjs.Doc): Promise<void>
+}
+
+const normalizePersistedSource = (document: Yjs.Doc, origin: unknown) => {
+  const text = document.getText('content')
+  const source = text.toString()
+  if (!source.includes('\r')) return false
+
+  const metadata = document.getMap<string | number | boolean>('metadata')
+  const firstLineEnding = source.match(/\r\n|\r/)?.[0]
+  const normalized = source.replace(/\r\n?|\n/g, '\n')
+  document.transact(
+    () => {
+      text.delete(0, text.length)
+      text.insert(0, normalized)
+      if (!metadata.get('lineEnding')) {
+        metadata.set('lineEnding', firstLineEnding === '\r\n' ? 'crlf' : 'cr')
+      }
+    },
+    origin,
+  )
+  return true
+}
+
+export class LocalYjsPersistence implements ReadyYjsPersistence {
+  readonly provider: LeveldbProvider
+  private readonly persistenceOrigin = Symbol('leveldb-yjs-persistence')
+  private readonly hydrations = new WeakMap<Yjs.Doc, Promise<void>>()
+  private readonly pendingWrites = new WeakMap<Yjs.Doc, Set<Promise<number>>>()
+
+  constructor(location: string) {
+    this.provider = new LeveldbPersistence(location)
+  }
+
+  bindState = (roomName: string, document: Yjs.Doc) => {
+    const hydration = this.hydrate(roomName, document)
+    this.hydrations.set(document, hydration)
+    void hydration.catch((error: unknown) => {
+      console.error(`Could not hydrate local Yjs room ${roomName}:`, error)
+    })
+  }
+
+  waitForHydration = async (document: Yjs.Doc) => {
+    const hydration = this.hydrations.get(document)
+    if (!hydration) {
+      throw new Error('The Yjs document was not registered for LevelDB hydration.')
+    }
+    await hydration
+  }
+
+  writeState = async (roomName: string, document: Yjs.Doc) => {
+    try {
+      await this.waitForHydration(document)
+    } catch {
+      this.hydrations.delete(document)
+      return
+    }
+
+    await Promise.all(this.pendingWrites.get(document) ?? [])
+    await this.provider.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
+    await this.provider.flushDocument(roomName)
+    this.pendingWrites.delete(document)
+    this.hydrations.delete(document)
+  }
+
+  destroy = () => this.provider.destroy()
+
+  private async hydrate(roomName: string, document: Yjs.Doc) {
+    const persistedDocument = await this.provider.getYDoc(roomName)
+    try {
+      Y.applyUpdate(
+        document,
+        Y.encodeStateAsUpdate(persistedDocument),
+        this.persistenceOrigin,
+      )
+    } finally {
+      persistedDocument.destroy()
+    }
+
+    normalizePersistedSource(document, this.persistenceOrigin)
+    await this.provider.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
+
+    const pendingWrites = new Set<Promise<number>>()
+    this.pendingWrites.set(document, pendingWrites)
+    document.on('update', (update: Uint8Array, origin: unknown) => {
+      if (origin === this.persistenceOrigin) return
+      const write = this.provider.storeUpdate(roomName, update)
+      pendingWrites.add(write)
+      void write
+        .catch((error: unknown) => {
+          console.error(`Could not persist local Yjs room ${roomName}:`, error)
+        })
+        .finally(() => pendingWrites.delete(write))
+    })
+  }
+}
+
 const databaseConfigured = () =>
   Boolean(process.env.DATABASE_URL || process.env.PGHOST)
 
@@ -37,10 +149,10 @@ export const createPostgresSessionStore = (pool: Pool) => {
   })
 }
 
-export class PostgresYjsPersistence {
+export class PostgresYjsPersistence implements ReadyYjsPersistence {
   readonly provider = this
   private readonly persistenceOrigin = Symbol('postgres-yjs-persistence')
-  private readonly hydrations = new WeakMap<Yjs.Doc, Promise<boolean>>()
+  private readonly hydrations = new WeakMap<Yjs.Doc, Promise<void>>()
 
   constructor(private readonly pool: Pool) {}
 
@@ -60,20 +172,29 @@ export class PostgresYjsPersistence {
   }
 
   bindState = (roomName: string, document: Yjs.Doc) => {
-    const hydration = this.hydrate(roomName, document).then(
-      () => true,
-      (error: unknown) => {
-        console.error(`Could not hydrate Yjs room ${roomName}:`, error)
-        return false
-      },
-    )
+    const hydration = this.hydrate(roomName, document)
     this.hydrations.set(document, hydration)
+    void hydration.catch((error: unknown) => {
+      console.error(`Could not hydrate Yjs room ${roomName}:`, error)
+    })
+  }
+
+  waitForHydration = async (document: Yjs.Doc) => {
+    const hydration = this.hydrations.get(document)
+    if (!hydration) {
+      throw new Error('The Yjs document was not registered for PostgreSQL hydration.')
+    }
+    await hydration
   }
 
   writeState = async (roomName: string, document: Yjs.Doc) => {
-    const hydrated = await this.hydrations.get(document)
+    try {
+      await this.waitForHydration(document)
+    } catch {
+      this.hydrations.delete(document)
+      return
+    }
     this.hydrations.delete(document)
-    if (hydrated === false) return
 
     const client = await this.pool.connect()
     try {
@@ -128,6 +249,9 @@ export class PostgresYjsPersistence {
         new Uint8Array(row.update_data),
         this.persistenceOrigin,
       )
+    }
+    if (normalizePersistedSource(document, this.persistenceOrigin)) {
+      await this.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
     }
   }
 

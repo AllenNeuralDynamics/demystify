@@ -8,7 +8,9 @@ import { WebSocketServer } from 'ws'
 import {
   createDatabasePool,
   createPostgresSessionStore,
+  LocalYjsPersistence,
   PostgresYjsPersistence,
+  type ReadyYjsPersistence,
   verifyDatabaseConnection,
 } from './database.js'
 import { ApiError, githubRouter } from './github.js'
@@ -25,6 +27,9 @@ const host = process.env.HOST ?? '127.0.0.1'
 const isProduction = process.env.NODE_ENV === 'production'
 const collaborationPrefix = '/collaboration/'
 const databasePool = createDatabasePool()
+const localPersistencePath = databasePool
+  ? null
+  : (process.env.YPERSISTENCE ?? '.data/yjs')
 
 if (isProduction && !databasePool) {
   throw new Error('PostgreSQL configuration is required in production.')
@@ -37,17 +42,24 @@ if (databasePool) {
   })
   delete process.env.YPERSISTENCE
 } else {
-  const persistencePath = process.env.YPERSISTENCE ?? '.data/yjs'
-  process.env.YPERSISTENCE = persistencePath
-  await mkdir(dirname(persistencePath), { recursive: true })
+  await mkdir(dirname(localPersistencePath as string), { recursive: true })
+  delete process.env.YPERSISTENCE
 }
 
-const { setPersistence, setupWSConnection } = await import('y-websocket/bin/utils')
+const { docs, getYDoc, setPersistence, setupWSConnection } = await import(
+  'y-websocket/bin/utils'
+)
+let yjsPersistence: ReadyYjsPersistence | null = null
 if (databasePool) {
-  const yjsPersistence = new PostgresYjsPersistence(databasePool)
-  await yjsPersistence.initialize()
+  const postgresPersistence = new PostgresYjsPersistence(databasePool)
+  await postgresPersistence.initialize()
+  yjsPersistence = postgresPersistence
   setPersistence(yjsPersistence)
   console.log('Persisting rooms, sessions, and Yjs updates in PostgreSQL')
+} else {
+  yjsPersistence = new LocalYjsPersistence(localPersistencePath as string)
+  setPersistence(yjsPersistence)
+  console.log(`Persisting Yjs updates in LevelDB at ${localPersistencePath}`)
 }
 
 const roomStore = databasePool
@@ -199,14 +211,35 @@ server.on('upgrade', (request, socket, head) => {
         return
       }
 
+      let document: ReturnType<typeof getYDoc> | null = null
       try {
         await authorizeRoomRequest(request as express.Request, roomStore, roomName)
+        if (yjsPersistence) {
+          document = getYDoc(roomName)
+          await yjsPersistence.waitForHydration(document)
+        }
       } catch (error) {
+        if (document && docs.get(roomName) === document) {
+          docs.delete(roomName)
+          document.destroy()
+        }
+        if (!(error instanceof ApiError)) {
+          console.error(`Could not restore Yjs room ${roomName}:`, error)
+        }
         const status = error instanceof ApiError ? error.status : 500
-        rejectUpgrade(socket, status, status === 401 ? 'Unauthorized' : 'Forbidden')
+        rejectUpgrade(
+          socket,
+          status,
+          status === 401
+            ? 'Unauthorized'
+            : status === 403
+              ? 'Forbidden'
+              : 'Collaboration room unavailable',
+        )
         return
       }
 
+      if (socket.destroyed) return
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
         webSocketServer.emit('connection', webSocket, request)
       })
@@ -227,8 +260,13 @@ const shutdown = () => {
     client.close(1001, 'Server shutting down')
   }
   server.close(() => {
-    void databasePool?.end().finally(() => process.exit(0))
-    if (!databasePool) process.exit(0)
+    const closePersistence =
+      yjsPersistence instanceof LocalYjsPersistence
+        ? yjsPersistence.destroy()
+        : Promise.resolve()
+    void Promise.all([databasePool?.end(), closePersistence]).finally(() =>
+      process.exit(0),
+    )
   })
   setTimeout(() => process.exit(1), 10_000).unref()
 }

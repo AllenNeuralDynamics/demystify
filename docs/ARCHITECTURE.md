@@ -13,13 +13,13 @@ flowchart LR
 
 The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs.
 
-Local development uses LevelDB for Yjs updates, an atomic JSON room registry, and in-memory sessions. When PostgreSQL is configured, one shared pool backs sessions, immutable room ownership and repository bindings, and append-only Yjs updates. A room is compacted to one current-state update when its last socket disconnects. Production fails closed if PostgreSQL is absent.
+Local development uses LevelDB for Yjs updates, an atomic JSON room registry, and in-memory sessions. When PostgreSQL is configured, one shared pool backs sessions, immutable room ownership and repository bindings, and append-only Yjs updates. With either persistence backend, the server finishes hydration before completing the WebSocket handshake; a room is compacted to one current-state update when its last socket disconnects. Production fails closed if PostgreSQL is absent.
 
 The browser uses the official JavaScript MyST parser for immediate feedback. This preview is intentionally lightweight and does not yet execute a repository's full `myst.yml`, plugins, bibliography, or generated-asset pipeline.
 
 Room bindings are immutable after their first repository file is selected. This prevents an existing socket population authorized for one repository from being silently carried into another repository's document; changing files requires a new room.
 
-GitHub is updated only through explicit snapshots. The gateway creates a stable `demystify/<room>` branch, writes the manuscript through the Contents API, and creates or reopens a pull request.
+GitHub is updated only through explicit snapshots. The gateway derives the repository, path, base branch, and stable `demystify/<room>` branch from the authorized immutable room binding, writes the manuscript through the Contents API, and creates or reopens a pull request.
 
 ## Production Target
 

@@ -104,8 +104,6 @@ export const bindCollaborationRoom = (
         owner: binding.owner,
         repository: binding.repository,
         path: binding.path,
-        baseBranch: binding.baseBranch,
-        branchName: binding.branchName,
       }),
     },
   )
@@ -150,31 +148,21 @@ export const loadRepositoryFile = async (binding: RepositoryBinding) => {
   )
 }
 
-export const createSnapshot = (binding: RepositoryBinding, content: string) =>
-  apiRequest<SnapshotResult>('/api/github/snapshots', {
+export const createSnapshot = (roomName: string, content: string) =>
+  apiRequest<SnapshotResult>(`/api/rooms/${encodeURIComponent(roomName)}/snapshots`, {
     method: 'POST',
     body: JSON.stringify({
-      owner: binding.owner,
-      repository: binding.repository,
-      path: binding.path,
-      baseBranch: binding.baseBranch,
-      branchName: binding.branchName,
       content,
     }),
   })
 
-export const createPullRequest = (binding: RepositoryBinding, title: string) =>
+export const createPullRequest = (roomName: string, title: string) =>
   apiRequest<{ number: number; htmlUrl: string; title: string }>(
-    '/api/github/pull-requests',
+    `/api/rooms/${encodeURIComponent(roomName)}/pull-requests`,
     {
       method: 'POST',
       body: JSON.stringify({
-        owner: binding.owner,
-        repository: binding.repository,
-        head: binding.branchName,
-        base: binding.baseBranch,
         title,
-        body: 'Collaborative MyST manuscript update created with DeMystify.',
       }),
     },
   )

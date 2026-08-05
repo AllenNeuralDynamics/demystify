@@ -1,6 +1,6 @@
 # DeMystify
 
-DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It combines a CodeMirror source editor, live MyST publication preview, shared cursors and comments, durable Yjs storage, and a GitHub branch/pull-request workflow.
+DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It combines a CodeMirror source editor, lightweight MyST browser preview, shared cursors and comments, durable Yjs storage, and a GitHub branch/pull-request workflow.
 
 > **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed authorization and shared PostgreSQL persistence are implemented.
 
@@ -111,8 +111,11 @@ npm start                   # Serve dist and WebSockets in production mode
 - Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
 - Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
 - Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
+- Repository permission changes take effect for new room claims and WebSocket reconnects. Established sockets are not continuously reauthorized.
 
 Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session state value. Production dependencies are audited; MyST's plugins use a tested compatibility shim for the patched `markdown-it` release.
+
+Collaborative text uses LF internally so CodeMirror and Yjs share character offsets. GitHub snapshots restore the source file's LF, CRLF, or CR style. Persisted rooms finish hydration before the server completes the WebSocket handshake and starts Yjs synchronization.
 
 ## Current MVP Boundaries
 

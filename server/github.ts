@@ -89,6 +89,14 @@ interface GitPullRequest {
   title: string
 }
 
+export interface RepositoryWriteTarget {
+  owner: string
+  repository: string
+  path: string
+  baseBranch: string
+  branchName: string
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -117,13 +125,6 @@ const readString = (value: unknown, field: string) => {
     throw new ApiError(400, `${field} is required.`)
   }
   return value.trim()
-}
-
-const readText = (value: unknown, field: string) => {
-  if (typeof value !== 'string') {
-    throw new ApiError(400, `${field} must be text.`)
-  }
-  return value
 }
 
 const readQueryString = (request: Request, field: string) =>
@@ -290,6 +291,121 @@ const findOrCreateBranch = async (
       sha: baseReference.object.sha,
     }),
   })
+}
+
+export const createRepositorySnapshot = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  content: string,
+  commitMessage?: string,
+) => {
+  const { owner, repository, path, baseBranch, branchName } = target
+  const message = commitMessage?.trim()
+    ? commitMessage.trim().slice(0, 120)
+    : `Update ${path} from DeMystify`
+  const branchReference = await findOrCreateBranch(
+    request,
+    owner,
+    repository,
+    baseBranch,
+    branchName,
+  )
+  const repositoryPath = `/repos/${owner}/${repository}`
+  let existingSha: string | undefined
+  let existingContent: string | undefined
+  try {
+    const existingFile = await githubRequest<GitHubContentFile>(
+      request,
+      `${repositoryPath}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(branchName)}`,
+    )
+    existingSha = existingFile.sha
+    if (existingFile.encoding === 'base64' && existingFile.content) {
+      existingContent = Buffer.from(
+        existingFile.content.replace(/\s/g, ''),
+        'base64',
+      ).toString('utf8')
+    }
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error
+  }
+
+  if (existingContent === content) {
+    return {
+      branchName,
+      commitSha: branchReference.object.sha,
+      commitUrl: `https://github.com/${owner}/${repository}/commit/${branchReference.object.sha}`,
+      fileSha: existingSha ?? null,
+      unchanged: true,
+    }
+  }
+
+  const commit = await githubRequest<GitCommitResponse>(
+    request,
+    `${repositoryPath}/contents/${encodeRepositoryPath(path)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        message,
+        content: Buffer.from(content, 'utf8').toString('base64'),
+        branch: branchName,
+        ...(existingSha ? { sha: existingSha } : {}),
+      }),
+    },
+  )
+
+  return {
+    branchName,
+    commitSha: commit.commit.sha,
+    commitUrl: commit.commit.html_url,
+    fileSha: commit.content?.sha ?? null,
+    unchanged: false,
+  }
+}
+
+export const createRepositoryPullRequest = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  title: string,
+) => {
+  const { owner, repository, baseBranch: base, branchName: head } = target
+  const body = 'Collaborative MyST manuscript update created with DeMystify.'
+  const repositoryPath = `/repos/${owner}/${repository}`
+  const repositoryDetails = await githubRequest<GitHubRepository>(request, repositoryPath)
+  if (repositoryDetails.fork) {
+    throw new ApiError(
+      409,
+      'Pull requests are disabled for fork bindings because GitHub can target the parent repository. Use a standalone test repository or create the PR manually after verifying its base repository.',
+    )
+  }
+
+  try {
+    const pullRequest = await githubRequest<GitPullRequest>(
+      request,
+      `${repositoryPath}/pulls`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title, head, base, body }),
+      },
+    )
+    return {
+      number: pullRequest.number,
+      htmlUrl: pullRequest.html_url,
+      title: pullRequest.title,
+    }
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 422) throw error
+    const existing = await githubRequest<GitPullRequest[]>(
+      request,
+      `${repositoryPath}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
+    )
+    const pullRequest = existing[0]
+    if (!pullRequest) throw error
+    return {
+      number: pullRequest.number,
+      htmlUrl: pullRequest.html_url,
+      title: pullRequest.title,
+    }
+  }
 }
 
 export const githubRouter = Router()
@@ -471,131 +587,4 @@ githubRouter.get('/github/contents', async (request, response) => {
         sha: entry.sha,
       })),
   })
-})
-
-githubRouter.post('/github/snapshots', async (request, response) => {
-  const owner = validateRepositoryPart(readString(request.body.owner, 'owner'), 'owner')
-  const repository = validateRepositoryPart(
-    readString(request.body.repository, 'repository'),
-    'repository',
-  )
-  const path = validatePath(readString(request.body.path, 'path'))
-  const content = readText(request.body.content, 'content')
-  const baseBranch = validateBranch(readString(request.body.baseBranch, 'baseBranch'), 'baseBranch')
-  const branchName = validateBranch(readString(request.body.branchName, 'branchName'), 'branchName')
-  const commitMessage =
-    typeof request.body.commitMessage === 'string' && request.body.commitMessage.trim()
-      ? request.body.commitMessage.trim().slice(0, 120)
-      : `Update ${path} from DeMystify`
-
-  const branchReference = await findOrCreateBranch(
-    request,
-    owner,
-    repository,
-    baseBranch,
-    branchName,
-  )
-  const repositoryPath = `/repos/${owner}/${repository}`
-  let existingSha: string | undefined
-  let existingContent: string | undefined
-  try {
-    const existingFile = await githubRequest<GitHubContentFile>(
-      request,
-      `${repositoryPath}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(branchName)}`,
-    )
-    existingSha = existingFile.sha
-    if (existingFile.encoding === 'base64' && existingFile.content) {
-      existingContent = Buffer.from(
-        existingFile.content.replace(/\s/g, ''),
-        'base64',
-      ).toString('utf8')
-    }
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 404) throw error
-  }
-
-  if (existingContent === content) {
-    response.json({
-      branchName,
-      commitSha: branchReference.object.sha,
-      commitUrl: `https://github.com/${owner}/${repository}/commit/${branchReference.object.sha}`,
-      fileSha: existingSha ?? null,
-      unchanged: true,
-    })
-    return
-  }
-
-  const commit = await githubRequest<GitCommitResponse>(
-    request,
-    `${repositoryPath}/contents/${encodeRepositoryPath(path)}`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({
-        message: commitMessage,
-        content: Buffer.from(content, 'utf8').toString('base64'),
-        branch: branchName,
-        ...(existingSha ? { sha: existingSha } : {}),
-      }),
-    },
-  )
-
-  response.json({
-    branchName,
-    commitSha: commit.commit.sha,
-    commitUrl: commit.commit.html_url,
-    fileSha: commit.content?.sha ?? null,
-    unchanged: false,
-  })
-})
-
-githubRouter.post('/github/pull-requests', async (request, response) => {
-  const owner = validateRepositoryPart(readString(request.body.owner, 'owner'), 'owner')
-  const repository = validateRepositoryPart(
-    readString(request.body.repository, 'repository'),
-    'repository',
-  )
-  const head = validateBranch(readString(request.body.head, 'head'), 'head')
-  const base = validateBranch(readString(request.body.base, 'base'), 'base')
-  const title = readString(request.body.title, 'title').slice(0, 200)
-  const body =
-    typeof request.body.body === 'string'
-      ? request.body.body
-      : 'Collaborative manuscript update created with DeMystify.'
-  const repositoryPath = `/repos/${owner}/${repository}`
-  const repositoryDetails = await githubRequest<GitHubRepository>(request, repositoryPath)
-  if (repositoryDetails.fork) {
-    throw new ApiError(
-      409,
-      'Pull requests are disabled for fork bindings because GitHub can target the parent repository. Use a standalone test repository or create the PR manually after verifying its base repository.',
-    )
-  }
-
-  try {
-    const pullRequest = await githubRequest<GitPullRequest>(
-      request,
-      `${repositoryPath}/pulls`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ title, head, base, body }),
-      },
-    )
-    response.json({
-      number: pullRequest.number,
-      htmlUrl: pullRequest.html_url,
-      title: pullRequest.title,
-    })
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 422) throw error
-    const existing = await githubRequest<GitPullRequest[]>(
-      request,
-      `${repositoryPath}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
-    )
-    const pullRequest = existing[0]
-    if (!pullRequest) throw error
-    response.json({
-      number: pullRequest.number,
-      htmlUrl: pullRequest.html_url,
-      title: pullRequest.title,
-    })
-  }
 })
