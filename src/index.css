@@ -1,0 +1,59 @@
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-500.css';
+@import '@fontsource/ibm-plex-sans/latin-600.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/fraunces/latin-600.css';
+
+:root {
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: #202723;
+  background: #eef1ee;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ink: #202723;
+  --muted: #68716c;
+  --line: #d9dfda;
+  --soft-line: #e9edea;
+  --surface: #ffffff;
+  --surface-soft: #f5f7f5;
+  --green: #16705d;
+  --green-dark: #105748;
+  --green-soft: #e1f0eb;
+  --coral: #c14f3d;
+  --blue: #315f9b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}

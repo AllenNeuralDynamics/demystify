@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 330" role="img" aria-labelledby="title description">
+  <title id="title">Collaborative document convergence</title>
+  <desc id="description">Three colored editing sessions converge to a single shared state over eight seconds.</desc>
+  <rect width="720" height="330" fill="#f7f9f7"/>
+  <g stroke="#dce2de" stroke-width="1">
+    <path d="M74 55H676M74 115H676M74 175H676M74 235H676"/>
+    <path d="M74 55V264M224 55V264M375 55V264M525 55V264M676 55V264"/>
+  </g>
+  <g fill="#65706a" font-family="IBM Plex Sans, sans-serif" font-size="12">
+    <text x="69" y="282">0</text><text x="219" y="282">2</text><text x="370" y="282">4</text><text x="520" y="282">6</text><text x="671" y="282">8</text>
+    <text x="45" y="59">1.0</text><text x="45" y="119">0.7</text><text x="45" y="179">0.4</text><text x="45" y="239">0.1</text>
+    <text x="342" y="310">Time (s)</text>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+    <path d="M74 228C130 208 155 148 224 137S318 74 375 65S490 57 676 55" stroke="#16705d"/>
+    <path d="M74 92C142 112 170 178 224 153S307 83 375 69S502 57 676 55" stroke="#c14f3d"/>
+    <path d="M74 174C137 153 172 104 224 119S311 91 375 71S501 58 676 55" stroke="#315f9b"/>
+  </g>
+  <g>
+    <circle cx="676" cy="55" r="7" fill="#fff" stroke="#202723" stroke-width="3"/>
+    <rect x="495" y="205" width="165" height="41" rx="4" fill="#fff" stroke="#d5dcd7"/>
+    <circle cx="512" cy="225" r="4" fill="#16705d"/><circle cx="552" cy="225" r="4" fill="#c14f3d"/><circle cx="592" cy="225" r="4" fill="#315f9b"/>
+    <text x="525" y="229" fill="#34403a" font-family="IBM Plex Sans, sans-serif" font-size="11">All sessions converge</text>
+  </g>
+</svg>

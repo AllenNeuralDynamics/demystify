@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#202723" />
+    <meta
+      name="description"
+      content="DeMystify brings real-time collaborative editing to GitHub-backed MyST manuscripts."
+    />
+    <meta property="og:title" content="DeMystify — Collaborative MyST" />
+    <meta
+      property="og:description"
+      content="Write together in the browser. Keep MyST and GitHub as the source of truth."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./assets/editor.png" />
+    <link rel="icon" href="./assets/mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>DeMystify — Collaborative MyST</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="DeMystify home">
+        <span class="brand-mark" aria-hidden="true">D</span>
+        <span>DeMystify</span>
+      </a>
+      <nav aria-label="Project navigation">
+        <a href="#workflow">Workflow</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#status">Status</a>
+        <a href="https://github.com/AllenNeuralDynamics/demystify">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="intro" aria-labelledby="intro-title">
+        <div class="intro-copy">
+          <span class="status"><span></span> Working research prototype</span>
+          <h1 id="intro-title">DeMystify</h1>
+          <p class="lede">
+            Real-time collaborative editing for scientific manuscripts that keeps
+            MyST Markdown readable and GitHub reviewable.
+          </p>
+          <div class="intro-actions">
+            <a class="button primary" href="https://github.com/AllenNeuralDynamics/demystify">
+              View source
+            </a>
+            <a class="button secondary" href="https://github.com/AllenNeuralDynamics/demystify/blob/main/docs/INTENT.md">
+              Read the intent
+            </a>
+          </div>
+        </div>
+
+        <figure class="product-view">
+          <img
+            src="./assets/editor.png"
+            width="1440"
+            height="900"
+            alt="DeMystify showing a shared MyST source editor beside its publication preview"
+          />
+          <figcaption>
+            A shared source editor, live MyST preview, collaborator presence, and comments.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="thesis" aria-label="Project thesis">
+        <div>
+          <span class="section-index">01</span>
+          <p>
+            Scientific teams should not have to choose between a manuscript that is easy to
+            edit together and one that is reproducible, structured, and ready to publish.
+          </p>
+        </div>
+      </section>
+
+      <section class="workflow section" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading">
+          <span class="eyebrow">Repository workflow</span>
+          <h2 id="workflow-title">Live drafting, deliberate Git history</h2>
+          <p>GitHub stores reviewed versions. Yjs handles the keystrokes between them.</p>
+        </div>
+        <ol class="steps">
+          <li>
+            <span class="step-number">1</span>
+            <h3>Connect</h3>
+            <p>A repository owner installs the narrowly scoped DeMystify GitHub App.</p>
+          </li>
+          <li>
+            <span class="step-number">2</span>
+            <h3>Write</h3>
+            <p>Authorized collaborators edit one MyST document with cursors and comments.</p>
+          </li>
+          <li>
+            <span class="step-number">3</span>
+            <h3>Snapshot</h3>
+            <p>A maintainer commits the live state to a stable working branch.</p>
+          </li>
+          <li>
+            <span class="step-number">4</span>
+            <h3>Review</h3>
+            <p>The repository's pull requests, tests, and MyST build remain the publication gate.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="source-band" aria-labelledby="source-title">
+        <div class="source-copy">
+          <span class="eyebrow">MyST stays MyST</span>
+          <h2 id="source-title">No lossy document conversion</h2>
+          <p>
+            Equations, directives, figures, citations, tables, and readable source remain in
+            the manuscript. The browser preview is immediate; repository CI remains authoritative.
+          </p>
+        </div>
+        <pre aria-label="Example MyST figure directive"><code>:::{figure} ./images/result.svg
+:label: fig-result
+:alt: Description of the scientific result
+
+Caption with methods, units, and provenance.
+:::</code></pre>
+      </section>
+
+      <section class="architecture section" id="architecture" aria-labelledby="architecture-title">
+        <div class="section-heading">
+          <span class="eyebrow">System design</span>
+          <h2 id="architecture-title">A collaboration layer, not a new source of truth</h2>
+        </div>
+        <div class="architecture-flow" role="img" aria-label="Browsers collaborate through DeMystify, which persists Yjs state and creates GitHub pull requests">
+          <div class="architecture-node browsers">
+            <span>Authors</span>
+            <strong>Browser editors</strong>
+          </div>
+          <span class="flow-arrow" aria-hidden="true">↔</span>
+          <div class="architecture-node service">
+            <span>DeMystify</span>
+            <strong>Yjs + WebSockets</strong>
+          </div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="architecture-node storage">
+            <span>Working state</span>
+            <strong>Durable persistence</strong>
+          </div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="architecture-node github">
+            <span>Canonical history</span>
+            <strong>GitHub pull request</strong>
+          </div>
+        </div>
+        <div class="architecture-notes">
+          <p><strong>Identity</strong><span>GitHub App OAuth for every collaborator</span></p>
+          <p><strong>Preview</strong><span>Fast browser render plus repository-aware MyST builds</span></p>
+          <p><strong>Access</strong><span>Repository permissions checked before joining a room</span></p>
+        </div>
+      </section>
+
+      <section class="trust-band" aria-labelledby="trust-title">
+        <div>
+          <span class="eyebrow">Trust boundary</span>
+          <h2 id="trust-title">GitHub identity. Selected repositories. No personal tokens.</h2>
+        </div>
+        <p>
+          The production design uses an organization-approved GitHub App with contents and pull
+          request permissions only. User authorization remains server-side, and repository access
+          can be revoked by the owner at any time.
+        </p>
+      </section>
+
+      <section class="status-section section" id="status" aria-labelledby="status-title">
+        <div class="section-heading">
+          <span class="eyebrow">Project status</span>
+          <h2 id="status-title">A validated MVP with a clear production path</h2>
+          <p>
+            The local prototype already supports simultaneous source editing, presence, shared
+            comments, MyST and KaTeX preview, persistence, GitHub file loading, branch snapshots,
+            and pull-request creation.
+          </p>
+        </div>
+        <div class="status-columns">
+          <div>
+            <h3>Working now</h3>
+            <ul>
+              <li>Conflict-free concurrent editing</li>
+              <li>Shared presence and comments</li>
+              <li>GitHub App OAuth gateway</li>
+              <li>Responsive manuscript workspace</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Production gate</h3>
+            <ul>
+              <li>GitHub-authorized WebSocket rooms</li>
+              <li>Shared database and session store</li>
+              <li>Repository-native MyST preview workers</li>
+              <li>Audit, retention, and incident controls</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <span class="section-index">05</span>
+        <h2 id="closing-title">Write together. Review in Git. Publish with MyST.</h2>
+        <div>
+          <a class="button primary" href="https://github.com/AllenNeuralDynamics/demystify">Explore the repository</a>
+          <a class="text-link" href="https://github.com/AllenNeuralDynamics/demystify/blob/main/docs/ARCHITECTURE.md">Architecture details →</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">D</span><span>DeMystify</span></a>
+      <p>An open research prototype from Allen Neural Dynamics.</p>
+      <a href="https://github.com/AllenNeuralDynamics/demystify">GitHub</a>
+    </footer>
+  </body>
+</html>

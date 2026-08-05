@@ -1,0 +1,542 @@
+import { randomBytes } from 'node:crypto'
+import { Router, type Request } from 'express'
+
+interface GitHubCredentials {
+  clientId: string
+  clientSecret: string
+  appSlug?: string
+  appUrl: string
+}
+
+interface GitHubTokenResponse {
+  access_token?: string
+  expires_in?: number
+  refresh_token?: string
+  token_type?: string
+  error?: string
+  error_description?: string
+}
+
+interface GitHubApiUser {
+  id: number
+  login: string
+  name: string | null
+  avatar_url: string
+}
+
+interface GitHubInstallation {
+  id: number
+}
+
+interface GitHubRepository {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  default_branch: string
+  owner: {
+    login: string
+  }
+  permissions?: {
+    push?: boolean
+  }
+}
+
+interface GitHubContentFile {
+  type: 'file'
+  name: string
+  path: string
+  sha: string
+  content?: string
+  encoding?: string
+  html_url: string
+}
+
+interface GitHubContentDirectory {
+  type: 'dir'
+  name: string
+  path: string
+  sha: string
+  html_url: string
+}
+
+interface GitReference {
+  object: {
+    sha: string
+  }
+}
+
+interface GitCommitResponse {
+  commit: {
+    sha: string
+    html_url: string
+  }
+  content: {
+    sha: string
+  } | null
+}
+
+interface GitPullRequest {
+  number: number
+  html_url: string
+  title: string
+}
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly details?: unknown,
+  ) {
+    super(message)
+  }
+}
+
+const getCredentials = (): GitHubCredentials | null => {
+  const clientId = process.env.GITHUB_CLIENT_ID
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET
+  if (!clientId || !clientSecret) return null
+
+  return {
+    clientId,
+    clientSecret,
+    appSlug: process.env.GITHUB_APP_SLUG,
+    appUrl: (process.env.APP_URL ?? 'http://127.0.0.1:5173').replace(/\/$/, ''),
+  }
+}
+
+const readString = (value: unknown, field: string) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new ApiError(400, `${field} is required.`)
+  }
+  return value.trim()
+}
+
+const readText = (value: unknown, field: string) => {
+  if (typeof value !== 'string') {
+    throw new ApiError(400, `${field} must be text.`)
+  }
+  return value
+}
+
+const readQueryString = (request: Request, field: string) =>
+  readString(request.query[field], field)
+
+const validateRepositoryPart = (value: string, field: string) => {
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new ApiError(400, `${field} contains unsupported characters.`)
+  }
+  return value
+}
+
+const validatePath = (value: string) => {
+  const normalized = value.replace(/^\/+/, '')
+  if (!normalized || normalized.split('/').some((part) => part === '..')) {
+    throw new ApiError(400, 'path must point to a repository file.')
+  }
+  return normalized
+}
+
+const validateBranch = (value: string, field: string) => {
+  if (
+    !/^[A-Za-z0-9._/-]+$/.test(value) ||
+    value.startsWith('/') ||
+    value.endsWith('/') ||
+    value.includes('..')
+  ) {
+    throw new ApiError(400, `${field} is not a valid Git branch name.`)
+  }
+  return value
+}
+
+const encodeRepositoryPath = (value: string) =>
+  value.split('/').map(encodeURIComponent).join('/')
+
+const saveSession = (request: Request) =>
+  new Promise<void>((resolve, reject) => {
+    request.session.save((error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+
+const exchangeToken = async (body: Record<string, string>) => {
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  const token = (await response.json()) as GitHubTokenResponse
+  if (!response.ok || !token.access_token) {
+    throw new ApiError(
+      502,
+      token.error_description ?? token.error ?? 'GitHub did not issue an access token.',
+    )
+  }
+  return token
+}
+
+const getAccessToken = async (request: Request) => {
+  const auth = request.session.github
+  if (!auth) throw new ApiError(401, 'Connect GitHub to continue.')
+
+  if (!auth.expiresAt || auth.expiresAt > Date.now() + 60_000) {
+    return auth.accessToken
+  }
+
+  const credentials = getCredentials()
+  if (!credentials || !auth.refreshToken) {
+    delete request.session.github
+    throw new ApiError(401, 'Your GitHub session expired. Connect again.')
+  }
+
+  const token = await exchangeToken({
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    grant_type: 'refresh_token',
+    refresh_token: auth.refreshToken,
+  })
+  auth.accessToken = token.access_token as string
+  auth.refreshToken = token.refresh_token ?? auth.refreshToken
+  auth.expiresAt = token.expires_in ? Date.now() + token.expires_in * 1_000 : undefined
+  await saveSession(request)
+  return auth.accessToken
+}
+
+const githubRequest = async <Result>(
+  request: Request,
+  path: string,
+  init: RequestInit = {},
+): Promise<Result> => {
+  const accessToken = await getAccessToken(request)
+  const response = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...init.headers,
+    },
+  })
+  const text = await response.text()
+  const payload = text ? (JSON.parse(text) as unknown) : null
+
+  if (!response.ok) {
+    const apiMessage =
+      payload && typeof payload === 'object' && 'message' in payload
+        ? String(payload.message)
+        : `GitHub request failed with status ${response.status}.`
+    throw new ApiError(response.status, apiMessage, payload)
+  }
+
+  return payload as Result
+}
+
+const findOrCreateBranch = async (
+  request: Request,
+  owner: string,
+  repository: string,
+  baseBranch: string,
+  branchName: string,
+) => {
+  const repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`
+  try {
+    await githubRequest<GitReference>(
+      request,
+      `${repositoryPath}/git/ref/heads/${encodeURIComponent(branchName)}`,
+    )
+    return
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error
+  }
+
+  const baseReference = await githubRequest<GitReference>(
+    request,
+    `${repositoryPath}/git/ref/heads/${encodeURIComponent(baseBranch)}`,
+  )
+  await githubRequest(request, `${repositoryPath}/git/refs`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ref: `refs/heads/${branchName}`,
+      sha: baseReference.object.sha,
+    }),
+  })
+}
+
+export const githubRouter = Router()
+
+githubRouter.get('/config', (_request, response) => {
+  const credentials = getCredentials()
+  response.json({
+    githubConfigured: Boolean(credentials),
+    appSlug: credentials?.appSlug ?? null,
+    installationUrl: credentials?.appSlug
+      ? `https://github.com/apps/${credentials.appSlug}/installations/new`
+      : null,
+  })
+})
+
+githubRouter.get('/auth/session', (request, response) => {
+  const credentials = getCredentials()
+  response.json({
+    githubConfigured: Boolean(credentials),
+    appSlug: credentials?.appSlug ?? null,
+    installationUrl: credentials?.appSlug
+      ? `https://github.com/apps/${credentials.appSlug}/installations/new`
+      : null,
+    user: request.session.github?.user ?? null,
+  })
+})
+
+githubRouter.get('/auth/github', (request, response) => {
+  const credentials = getCredentials()
+  if (!credentials) {
+    throw new ApiError(503, 'GitHub App credentials have not been configured.')
+  }
+
+  const state = randomBytes(24).toString('hex')
+  const returnTo = typeof request.query.returnTo === 'string' ? request.query.returnTo : '/'
+  request.session.githubOAuthState = state
+  request.session.githubReturnTo =
+    returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/'
+
+  const authorizationUrl = new URL('https://github.com/login/oauth/authorize')
+  authorizationUrl.searchParams.set('client_id', credentials.clientId)
+  authorizationUrl.searchParams.set('redirect_uri', `${credentials.appUrl}/api/auth/github/callback`)
+  authorizationUrl.searchParams.set('state', state)
+  authorizationUrl.searchParams.set('allow_signup', 'false')
+  response.redirect(authorizationUrl.toString())
+})
+
+githubRouter.get('/auth/github/callback', async (request, response) => {
+  const credentials = getCredentials()
+  if (!credentials) throw new ApiError(503, 'GitHub App credentials are missing.')
+
+  const code = readQueryString(request, 'code')
+  const state = readQueryString(request, 'state')
+  if (!request.session.githubOAuthState || state !== request.session.githubOAuthState) {
+    throw new ApiError(400, 'GitHub returned an invalid OAuth state.')
+  }
+
+  delete request.session.githubOAuthState
+  const token = await exchangeToken({
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    code,
+    redirect_uri: `${credentials.appUrl}/api/auth/github/callback`,
+  })
+  const userResponse = await fetch('https://api.github.com/user', {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token.access_token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  })
+  if (!userResponse.ok) throw new ApiError(502, 'GitHub user lookup failed.')
+  const user = (await userResponse.json()) as GitHubApiUser
+
+  request.session.github = {
+    accessToken: token.access_token as string,
+    refreshToken: token.refresh_token,
+    expiresAt: token.expires_in ? Date.now() + token.expires_in * 1_000 : undefined,
+    user: {
+      id: user.id,
+      login: user.login,
+      name: user.name,
+      avatarUrl: user.avatar_url,
+    },
+  }
+  const returnTo = request.session.githubReturnTo ?? '/'
+  delete request.session.githubReturnTo
+  await saveSession(request)
+
+  const destination = new URL(returnTo, `${credentials.appUrl}/`)
+  destination.searchParams.set('github', 'connected')
+  response.redirect(destination.toString())
+})
+
+githubRouter.post('/auth/logout', async (request, response) => {
+  delete request.session.github
+  await saveSession(request)
+  response.status(204).end()
+})
+
+githubRouter.get('/github/repositories', async (request, response) => {
+  const installationResponse = await githubRequest<{ installations: GitHubInstallation[] }>(
+    request,
+    '/user/installations?per_page=100',
+  )
+  const repositoryResponses = await Promise.all(
+    installationResponse.installations.map((installation) =>
+      githubRequest<{ repositories: GitHubRepository[] }>(
+        request,
+        `/user/installations/${installation.id}/repositories?per_page=100`,
+      ),
+    ),
+  )
+  const repositories = repositoryResponses
+    .flatMap((result) => result.repositories)
+    .filter((repository, index, all) =>
+      all.findIndex((candidate) => candidate.id === repository.id) === index,
+    )
+    .sort((first, second) => first.full_name.localeCompare(second.full_name))
+    .map((repository) => ({
+      id: repository.id,
+      name: repository.name,
+      fullName: repository.full_name,
+      owner: repository.owner.login,
+      private: repository.private,
+      defaultBranch: repository.default_branch,
+      canPush: repository.permissions?.push ?? false,
+    }))
+
+  response.json({ repositories })
+})
+
+githubRouter.get('/github/file', async (request, response) => {
+  const owner = validateRepositoryPart(readQueryString(request, 'owner'), 'owner')
+  const repository = validateRepositoryPart(readQueryString(request, 'repository'), 'repository')
+  const path = validatePath(readQueryString(request, 'path'))
+  const reference = validateBranch(readQueryString(request, 'ref'), 'ref')
+  const file = await githubRequest<GitHubContentFile>(
+    request,
+    `/repos/${owner}/${repository}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(reference)}`,
+  )
+
+  if (file.type !== 'file' || file.encoding !== 'base64' || !file.content) {
+    throw new ApiError(422, 'The selected path is not a readable text file.')
+  }
+
+  response.json({
+    path: file.path,
+    sha: file.sha,
+    content: Buffer.from(file.content.replace(/\n/g, ''), 'base64').toString('utf8'),
+    htmlUrl: file.html_url,
+  })
+})
+
+githubRouter.get('/github/contents', async (request, response) => {
+  const owner = validateRepositoryPart(readQueryString(request, 'owner'), 'owner')
+  const repository = validateRepositoryPart(readQueryString(request, 'repository'), 'repository')
+  const path = typeof request.query.path === 'string' ? request.query.path.replace(/^\/+/, '') : ''
+  const reference = validateBranch(readQueryString(request, 'ref'), 'ref')
+  const suffix = path ? `/${encodeRepositoryPath(path)}` : ''
+  const contents = await githubRequest<Array<GitHubContentFile | GitHubContentDirectory>>(
+    request,
+    `/repos/${owner}/${repository}/contents${suffix}?ref=${encodeURIComponent(reference)}`,
+  )
+
+  response.json({
+    entries: contents
+      .filter((entry) => entry.type === 'dir' || /\.(md|myst|txt)$/i.test(entry.name))
+      .sort((first, second) => {
+        if (first.type !== second.type) return first.type === 'dir' ? -1 : 1
+        return first.name.localeCompare(second.name)
+      })
+      .map((entry) => ({
+        type: entry.type,
+        name: entry.name,
+        path: entry.path,
+        sha: entry.sha,
+      })),
+  })
+})
+
+githubRouter.post('/github/snapshots', async (request, response) => {
+  const owner = validateRepositoryPart(readString(request.body.owner, 'owner'), 'owner')
+  const repository = validateRepositoryPart(
+    readString(request.body.repository, 'repository'),
+    'repository',
+  )
+  const path = validatePath(readString(request.body.path, 'path'))
+  const content = readText(request.body.content, 'content')
+  const baseBranch = validateBranch(readString(request.body.baseBranch, 'baseBranch'), 'baseBranch')
+  const branchName = validateBranch(readString(request.body.branchName, 'branchName'), 'branchName')
+  const commitMessage =
+    typeof request.body.commitMessage === 'string' && request.body.commitMessage.trim()
+      ? request.body.commitMessage.trim().slice(0, 120)
+      : `Update ${path} from DeMystify`
+
+  await findOrCreateBranch(request, owner, repository, baseBranch, branchName)
+  const repositoryPath = `/repos/${owner}/${repository}`
+  let existingSha: string | undefined
+  try {
+    const existingFile = await githubRequest<GitHubContentFile>(
+      request,
+      `${repositoryPath}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(branchName)}`,
+    )
+    existingSha = existingFile.sha
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error
+  }
+
+  const commit = await githubRequest<GitCommitResponse>(
+    request,
+    `${repositoryPath}/contents/${encodeRepositoryPath(path)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        message: commitMessage,
+        content: Buffer.from(content, 'utf8').toString('base64'),
+        branch: branchName,
+        ...(existingSha ? { sha: existingSha } : {}),
+      }),
+    },
+  )
+
+  response.json({
+    branchName,
+    commitSha: commit.commit.sha,
+    commitUrl: commit.commit.html_url,
+    fileSha: commit.content?.sha ?? null,
+  })
+})
+
+githubRouter.post('/github/pull-requests', async (request, response) => {
+  const owner = validateRepositoryPart(readString(request.body.owner, 'owner'), 'owner')
+  const repository = validateRepositoryPart(
+    readString(request.body.repository, 'repository'),
+    'repository',
+  )
+  const head = validateBranch(readString(request.body.head, 'head'), 'head')
+  const base = validateBranch(readString(request.body.base, 'base'), 'base')
+  const title = readString(request.body.title, 'title').slice(0, 200)
+  const body =
+    typeof request.body.body === 'string'
+      ? request.body.body
+      : 'Collaborative manuscript update created with DeMystify.'
+  const repositoryPath = `/repos/${owner}/${repository}`
+
+  try {
+    const pullRequest = await githubRequest<GitPullRequest>(
+      request,
+      `${repositoryPath}/pulls`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title, head, base, body }),
+      },
+    )
+    response.json({
+      number: pullRequest.number,
+      htmlUrl: pullRequest.html_url,
+      title: pullRequest.title,
+    })
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 422) throw error
+    const existing = await githubRequest<GitPullRequest[]>(
+      request,
+      `${repositoryPath}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
+    )
+    const pullRequest = existing[0]
+    if (!pullRequest) throw error
+    response.json({
+      number: pullRequest.number,
+      htmlUrl: pullRequest.html_url,
+      title: pullRequest.title,
+    })
+  }
+})
