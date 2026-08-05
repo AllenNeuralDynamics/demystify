@@ -31,3 +31,14 @@ Before treating a test as successful, verify:
 - The compare view contains only the intended file and lines.
 - The PR base repository, base branch, and head branch are exactly correct.
 - No upstream repository received an open PR.
+
+## Collaboration Persistence Test
+
+The integration test starts an isolated application server, rejects anonymous and unauthorized sockets, connects two authorized clients, and verifies text/comment convergence. When `DATABASE_URL` is set, it also asserts persisted sessions, rooms, and Yjs updates:
+
+```bash
+createdb demystify_test
+DATABASE_URL=postgresql://localhost/demystify_test npm run test:collaboration
+```
+
+GitHub Actions runs this path against PostgreSQL 16. Use only a disposable database because the test creates DeMystify tables and records.

@@ -39,7 +39,7 @@ describe('RoomStore', () => {
 
     const restored = new RoomStore(filePath)
     await restored.initialize()
-    expect(restored.get('test-room-123')).toMatchObject({
+    await expect(restored.get('test-room-123')).resolves.toMatchObject({
       ownerId: 42,
       ownerLogin: 'researcher',
       binding,

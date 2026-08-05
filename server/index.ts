@@ -1,30 +1,58 @@
 import 'dotenv/config'
 import { mkdir } from 'node:fs/promises'
 import { createServer, ServerResponse } from 'node:http'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import express from 'express'
 import session from 'express-session'
 import { WebSocketServer } from 'ws'
+import {
+  createDatabasePool,
+  createPostgresSessionStore,
+  PostgresYjsPersistence,
+  verifyDatabaseConnection,
+} from './database.js'
 import { ApiError, githubRouter } from './github.js'
 import {
   authorizeRoomRequest,
   createRoomRouter,
+  PostgresRoomStore,
   RoomStore,
   validateRoomName,
 } from './rooms.js'
 
-const persistencePath = process.env.YPERSISTENCE
-if (persistencePath) {
-  await mkdir(dirname(persistencePath), { recursive: true })
-}
-
-const { setupWSConnection } = await import('y-websocket/bin/utils')
 const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
 const isProduction = process.env.NODE_ENV === 'production'
 const collaborationPrefix = '/collaboration/'
-const roomStore = new RoomStore(process.env.ROOMS_PATH ?? '.data/rooms.json')
+const databasePool = createDatabasePool()
+
+if (isProduction && !databasePool) {
+  throw new Error('PostgreSQL configuration is required in production.')
+}
+
+if (databasePool) {
+  await verifyDatabaseConnection(databasePool)
+  databasePool.on('error', (error) => {
+    console.error('Unexpected PostgreSQL pool error:', error)
+  })
+  delete process.env.YPERSISTENCE
+} else {
+  const persistencePath = process.env.YPERSISTENCE ?? '.data/yjs'
+  process.env.YPERSISTENCE = persistencePath
+  await mkdir(dirname(persistencePath), { recursive: true })
+}
+
+const { setPersistence, setupWSConnection } = await import('y-websocket/bin/utils')
+if (databasePool) {
+  const yjsPersistence = new PostgresYjsPersistence(databasePool)
+  await yjsPersistence.initialize()
+  setPersistence(yjsPersistence)
+  console.log('Persisting rooms, sessions, and Yjs updates in PostgreSQL')
+}
+
+const roomStore = databasePool
+  ? new PostgresRoomStore(databasePool)
+  : new RoomStore(process.env.ROOMS_PATH ?? '.data/rooms.json')
 await roomStore.initialize()
 const sessionSecret =
   process.env.SESSION_SECRET ??
@@ -41,6 +69,7 @@ app.use(express.json({ limit: '2mb' }))
 const sessionMiddleware = session({
   name: 'demystify.sid',
   secret: sessionSecret,
+  ...(databasePool ? { store: createPostgresSessionStore(databasePool) } : {}),
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -84,8 +113,7 @@ app.use('/api', createRoomRouter(roomStore))
 app.use('/api', githubRouter)
 
 if (isProduction) {
-  const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  const distributionDirectory = join(projectRoot, 'dist')
+  const distributionDirectory = join(process.cwd(), 'dist')
   app.use(express.static(distributionDirectory))
   app.use((request, response, next) => {
     if (request.method !== 'GET' || request.path.startsWith('/api/')) {
@@ -189,3 +217,21 @@ server.on('upgrade', (request, socket, head) => {
 server.listen(port, host, () => {
   console.log(`DeMystify server listening on http://${host}:${port}`)
 })
+
+let shuttingDown = false
+const shutdown = () => {
+  if (shuttingDown) return
+  shuttingDown = true
+
+  for (const client of webSocketServer.clients) {
+    client.close(1001, 'Server shutting down')
+  }
+  server.close(() => {
+    void databasePool?.end().finally(() => process.exit(0))
+    if (!databasePool) process.exit(0)
+  })
+  setTimeout(() => process.exit(1), 10_000).unref()
+}
+
+process.once('SIGINT', shutdown)
+process.once('SIGTERM', shutdown)

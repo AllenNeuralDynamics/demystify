@@ -2,7 +2,7 @@
 
 DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It combines a CodeMirror source editor, live MyST publication preview, shared cursors and comments, durable Yjs storage, and a GitHub branch/pull-request workflow.
 
-> **Status:** Working research prototype. Use it locally or for controlled pilots; repository-backed authorization and shared production persistence are still planned.
+> **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed authorization and shared PostgreSQL persistence are implemented.
 
 [Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
 
@@ -11,7 +11,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 - Simultaneous conflict-free editing with Yjs and WebSockets
 - Live collaborator cursors, presence, and shared comments
 - Official JavaScript MyST parsing with directives, figures, tables, and KaTeX math
-- LevelDB-backed document persistence
+- LevelDB-backed local persistence and PostgreSQL-backed production persistence
 - GitHub App OAuth with HTTP-only server sessions
 - Repository browsing and MyST file loading
 - Explicit snapshots to a `demystify/...` branch
@@ -29,7 +29,7 @@ npm run dev
 
 Open http://127.0.0.1:5173. The command runs both Vite and the API/WebSocket server. Every collaborator signs in with GitHub. A room owner binds the document to a repository, and only users with write access to that repository can join its WebSocket room.
 
-GitHub credentials are required for collaborative rooms. Document updates persist under `.data/yjs`; room ownership and repository bindings persist under `.data/rooms.json`.
+GitHub credentials are required for collaborative rooms. By default, document updates persist under `.data/yjs`; room ownership and repository bindings persist under `.data/rooms.json`. Set `DATABASE_URL` to exercise the production PostgreSQL stores locally.
 
 ## GitHub App Setup
 
@@ -84,7 +84,7 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 flowchart LR
   A[React + CodeMirror] <-->|Yjs updates and presence| B[WebSocket gateway]
   A -->|MyST source| C[MyST parser + KaTeX]
-  B <--> D[(LevelDB)]
+  B <--> D[(LevelDB locally or PostgreSQL)]
   A <-->|Session API| E[Express GitHub gateway]
   E <-->|GitHub App user token| F[GitHub repositories]
 ```
@@ -106,10 +106,11 @@ npm start                   # Serve dist and WebSockets in production mode
 
 - Set `APP_URL` to the public HTTPS origin and use the same OAuth callback in the GitHub App.
 - Set a strong `SESSION_SECRET`; production cookies are `Secure`, `HttpOnly`, and `SameSite=Lax`.
-- Put a reverse proxy in front of the server and preserve WebSocket upgrades for `/collaboration/`.
-- Replace the default in-memory Express session store with Redis or another shared store before scaling beyond one process.
-- LevelDB is suitable for one server. A multi-instance deployment needs shared Yjs persistence and pub/sub.
-- Room bindings are enforced during HTTP claims and WebSocket upgrades. Production still needs shared room/session storage, audit retention, and operational review.
+- Configure `DATABASE_URL`, or the standard `PGHOST`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` variables. Production refuses to start without PostgreSQL.
+- PostgreSQL stores server sessions, immutable room bindings, and Yjs updates. Local LevelDB and JSON storage remain development fallbacks.
+- Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
+- Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
+- Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
 
 Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session state value. Production dependencies are audited; MyST's plugins use a tested compatibility shim for the patched `markdown-it` release.
 
@@ -117,6 +118,5 @@ Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session
 
 - Comments apply to the document rather than a selected text range.
 - Suggestion/tracked-change mode is not implemented yet.
-- The included session and Yjs stores are designed for a single application instance.
-- The local room registry and Express session store are single-instance implementations; production needs shared managed storage.
+- PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

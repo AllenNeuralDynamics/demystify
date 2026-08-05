@@ -1,17 +1,19 @@
 # Architecture
 
-## Current Prototype
+## Current Implementation
 
 ```mermaid
 flowchart LR
   B[React + CodeMirror] <-->|Yjs updates and awareness| W[Express WebSocket server]
   B --> M[MyST parser + KaTeX]
-  W <--> L[(Local LevelDB)]
+  W <--> L[(LevelDB locally or PostgreSQL)]
   B <-->|HTTP-only session| G[GitHub App gateway]
   G <-->|Contents and pull requests| R[GitHub repository]
 ```
 
-The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs. Local LevelDB persists Yjs updates, while an atomic JSON registry persists room ownership and repository bindings.
+The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs.
+
+Local development uses LevelDB for Yjs updates, an atomic JSON room registry, and in-memory sessions. When PostgreSQL is configured, one shared pool backs sessions, immutable room ownership and repository bindings, and append-only Yjs updates. A room is compacted to one current-state update when its last socket disconnects. Production fails closed if PostgreSQL is absent.
 
 The browser uses the official JavaScript MyST parser for immediate feedback. This preview is intentionally lightweight and does not yet execute a repository's full `myst.yml`, plugins, bibliography, or generated-asset pipeline.
 
@@ -31,7 +33,7 @@ flowchart LR
   A <-->|GitHub App user tokens| G[GitHub]
 ```
 
-Production rooms should be keyed by GitHub installation, repository, branch, and manuscript path. The current upgrade path already validates the signed-in user and current repository permission; production replaces the local room and session stores with shared managed storage.
+Production rooms should be keyed by GitHub installation, repository, branch, and manuscript path. The current upgrade path validates the signed-in user and current repository permission, and production uses PostgreSQL instead of the local room and session stores.
 
 A repository-aware preview worker should check out the bound revision, overlay the live manuscript, and run the repository's pinned MyST build. The browser parser remains useful for instant feedback while the authoritative preview builds asynchronously.
 
@@ -39,10 +41,10 @@ A repository-aware preview worker should check out the bound revision, overlay t
 
 - **GitHub:** canonical manuscript versions, branches, reviews, and publication CI
 - **Yjs store:** uncommitted collaborative state
-- **Session store:** encrypted or server-side GitHub user authorization
+- **Session store:** server-side GitHub user authorization in PostgreSQL
 - **Preview storage:** disposable build artifacts keyed by source revision
 - **Audit store:** room membership, snapshots, and attribution events
 
 ## Scaling
 
-One application instance is sufficient for a controlled pilot. Multiple instances require shared persistence and Pub/Sub so users connected to different instances observe the same updates. Cloud Run WebSockets reconnect after their configured request timeout; clients must treat reconnects as normal operation.
+One application instance is sufficient for a controlled pilot. PostgreSQL makes state durable, but multiple instances still require Pub/Sub so users connected to different instances observe the same live updates. Cloud Run WebSockets reconnect after their configured request timeout; clients must treat reconnects as normal operation.

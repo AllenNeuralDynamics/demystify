@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
+import type { Pool, PoolClient } from 'pg'
 import { ApiError, requireRepositoryWriteAccess } from './github.js'
 
 export interface RoomBinding {
@@ -26,6 +27,17 @@ export interface RoomRecord {
 interface RoomUser {
   id: number
   login: string
+}
+
+export interface RoomStoreLike {
+  initialize(): Promise<void>
+  get(roomName: string): Promise<RoomRecord | null>
+  claim(roomName: string, user: RoomUser): Promise<RoomRecord>
+  setBinding(
+    roomName: string,
+    user: RoomUser,
+    binding: RoomBinding,
+  ): Promise<RoomRecord>
 }
 
 const roomPattern = /^[A-Za-z0-9_-]{8,100}$/
@@ -81,7 +93,7 @@ const validateBranch = (value: unknown, field: string) => {
   return parsed
 }
 
-export class RoomStore {
+export class RoomStore implements RoomStoreLike {
   private readonly rooms = new Map<string, RoomRecord>()
   private queue: Promise<void> = Promise.resolve()
 
@@ -98,7 +110,7 @@ export class RoomStore {
     }
   }
 
-  get(roomName: string) {
+  async get(roomName: string) {
     return this.rooms.get(roomName) ?? null
   }
 
@@ -168,13 +180,117 @@ export class RoomStore {
   }
 }
 
+interface PostgresRoomRow {
+  room_name: string
+  owner_id: string
+  owner_login: string
+  binding: RoomBinding | null
+  created_at: Date
+  updated_at: Date
+}
+
+const rowToRoomRecord = (row: PostgresRoomRow): RoomRecord => ({
+  roomName: row.room_name,
+  ownerId: Number(row.owner_id),
+  ownerLogin: row.owner_login,
+  binding: row.binding,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+})
+
+export class PostgresRoomStore implements RoomStoreLike {
+  constructor(private readonly pool: Pool) {}
+
+  async initialize() {
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS demystify_rooms (
+        room_name VARCHAR(100) PRIMARY KEY,
+        owner_id BIGINT NOT NULL,
+        owner_login TEXT NOT NULL,
+        binding JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+  }
+
+  async get(roomName: string) {
+    const result = await this.pool.query<PostgresRoomRow>(
+      `SELECT * FROM demystify_rooms WHERE room_name = $1`,
+      [roomName],
+    )
+    return result.rows[0] ? rowToRoomRecord(result.rows[0]) : null
+  }
+
+  async claim(roomName: string, user: RoomUser) {
+    await this.pool.query(
+      `
+        INSERT INTO demystify_rooms (room_name, owner_id, owner_login)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (room_name) DO NOTHING
+      `,
+      [roomName, user.id, user.login],
+    )
+    const room = await this.get(roomName)
+    if (!room) throw new ApiError(500, 'The room could not be claimed.')
+    return room
+  }
+
+  async setBinding(roomName: string, user: RoomUser, binding: RoomBinding) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const room = await this.getForUpdate(client, roomName)
+      if (!room) throw new ApiError(404, 'Claim this room before binding a repository.')
+      if (room.binding) {
+        if (JSON.stringify(room.binding) === JSON.stringify(binding)) {
+          await client.query('COMMIT')
+          return room
+        }
+        throw new ApiError(
+          409,
+          'This room is already bound to another repository file. Create a new room to change files.',
+        )
+      }
+      if (room.ownerId !== user.id) {
+        throw new ApiError(403, 'Only the room owner can change its repository binding.')
+      }
+
+      const result = await client.query<PostgresRoomRow>(
+        `
+          UPDATE demystify_rooms
+          SET binding = $2::jsonb, updated_at = NOW()
+          WHERE room_name = $1
+          RETURNING *
+        `,
+        [roomName, JSON.stringify(binding)],
+      )
+      await client.query('COMMIT')
+      return rowToRoomRecord(result.rows[0])
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  private async getForUpdate(client: PoolClient, roomName: string) {
+    const result = await client.query<PostgresRoomRow>(
+      `SELECT * FROM demystify_rooms WHERE room_name = $1 FOR UPDATE`,
+      [roomName],
+    )
+    return result.rows[0] ? rowToRoomRecord(result.rows[0]) : null
+  }
+}
+
 export const authorizeRoomRequest = async (
   request: Request,
-  roomStore: RoomStore,
+  roomStore: RoomStoreLike,
   roomName: string,
 ) => {
   const user = requireUser(request)
-  const room = roomStore.get(roomName)
+  const room = await roomStore.get(roomName)
   if (!room) throw new ApiError(404, 'This collaboration room has not been claimed.')
 
   if (!room.binding) {
@@ -192,13 +308,13 @@ export const authorizeRoomRequest = async (
   return room
 }
 
-export const createRoomRouter = (roomStore: RoomStore) => {
+export const createRoomRouter = (roomStore: RoomStoreLike) => {
   const router = Router()
 
   router.post('/rooms/:roomName/claim', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
     const user = requireUser(request)
-    const existing = roomStore.get(roomName)
+    const existing = await roomStore.get(roomName)
 
     if (existing) {
       await authorizeRoomRequest(request, roomStore, roomName)

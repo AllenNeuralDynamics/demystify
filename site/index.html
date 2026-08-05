@@ -170,7 +170,7 @@ Caption with methods, units, and provenance.
       <section class="status-section section" id="status" aria-labelledby="status-title">
         <div class="section-heading">
           <span class="eyebrow">Project status</span>
-          <h2 id="status-title">A validated MVP with a clear production path</h2>
+          <h2 id="status-title">A validated MVP packaged for a controlled pilot</h2>
           <p>
             The local prototype already supports simultaneous source editing, presence, shared
             comments, MyST and KaTeX preview, persistence, GitHub file loading, branch snapshots,
@@ -185,14 +185,16 @@ Caption with methods, units, and provenance.
               <li>Shared presence and comments</li>
               <li>GitHub App OAuth gateway</li>
               <li>Repository-authorized WebSocket rooms</li>
+              <li>Shared PostgreSQL persistence</li>
+              <li>Single-instance Cloud Run packaging</li>
               <li>Responsive manuscript workspace</li>
             </ul>
           </div>
           <div>
             <h3>Production gate</h3>
             <ul>
-              <li>Shared database and session store</li>
               <li>Repository-native MyST preview workers</li>
+              <li>Multi-instance WebSocket fan-out</li>
               <li>Audit, retention, and incident controls</li>
             </ul>
           </div>

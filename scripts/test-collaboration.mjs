@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import pg from 'pg'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
@@ -131,6 +132,33 @@ const createTestSession = async (id, login) => {
   return cookie
 }
 
+const verifyPostgresPersistence = async () => {
+  if (!process.env.DATABASE_URL) return
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+  try {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const result = await pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM demystify_sessions) AS sessions,
+          (SELECT COUNT(*)::int FROM demystify_rooms) AS rooms,
+          (SELECT COUNT(*)::int FROM demystify_yjs_updates) AS yjs_updates
+      `)
+      const counts = result.rows[0]
+      if (counts.sessions > 0 && counts.rooms > 0 && counts.yjs_updates > 0) {
+        console.log(
+          `PostgreSQL persisted sessions=${counts.sessions}, rooms=${counts.rooms}, yjs_updates=${counts.yjs_updates}.`,
+        )
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error('PostgreSQL did not persist all collaboration state.')
+  } finally {
+    await pool.end()
+  }
+}
+
 let firstProvider
 let secondProvider
 let firstDocument
@@ -186,6 +214,7 @@ try {
 
   assert.equal(secondText.toString(), expectedText)
   assert.deepEqual(secondComments.get(expectedComment.id), expectedComment)
+  await verifyPostgresPersistence()
   console.log('Unauthorized users rejected; authorized clients converged.')
 } finally {
   firstProvider?.destroy()

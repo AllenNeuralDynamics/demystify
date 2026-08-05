@@ -23,9 +23,35 @@ SESSION_SECRET=
 APP_URL=https://demystify.example.org
 HOST=0.0.0.0
 PORT=8080
+DATABASE_URL=postgresql://demystify:password@host/demystify
+PGPOOL_MAX=10
 ```
 
-The GitHub App callback must be `${APP_URL}/api/auth/github/callback`.
+The GitHub App callback must be `${APP_URL}/api/auth/github/callback`. Cloud Run with Cloud SQL normally supplies `PGHOST=/cloudsql/PROJECT:REGION:INSTANCE`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` instead of `DATABASE_URL`.
+
+Production startup fails unless PostgreSQL and `SESSION_SECRET` are configured. The application creates `demystify_sessions`, `demystify_rooms`, and `demystify_yjs_updates` automatically.
+
+## Build And Deploy
+
+The multi-stage `Dockerfile` builds the Vite frontend and emitted Node server, removes development dependencies, and runs on a distroless Node 22 image as an unprivileged non-root user. `cloudbuild.yaml` builds it, pushes it to Artifact Registry, and deploys Cloud Run with a 3600-second request timeout and exactly one instance.
+
+Before submitting the build:
+
+1. Create an Artifact Registry Docker repository and a PostgreSQL Cloud SQL instance.
+2. Create the `demystify` database and database user.
+3. Add the five Secret Manager values referenced by `cloudbuild.yaml`.
+4. Give the Cloud Run service account Secret Manager access and the Cloud SQL Client role.
+5. Give the Cloud Build service account permission to push images and deploy Cloud Run.
+
+Then replace the placeholder substitutions at submission time:
+
+```bash
+gcloud builds submit \
+	--config cloudbuild.yaml \
+	--substitutions _REGION=us-west1,_CLOUD_SQL_INSTANCE=PROJECT:us-west1:INSTANCE,_APP_URL=https://SERVICE-URL
+```
+
+Set the final Cloud Run URL as the GitHub App homepage and `${APP_URL}/api/auth/github/callback` as its callback. A custom domain can replace the generated URL later.
 
 ## GitHub App Permissions
 
@@ -40,12 +66,10 @@ Install the app only on selected manuscript repositories. Every editor signs in 
 
 Before raising the Cloud Run instance limit:
 
-1. Replace local LevelDB with shared durable Yjs persistence.
-2. Replace the Express memory session store.
-3. Add Redis Pub/Sub or an equivalent cross-instance update channel.
-4. Preserve the existing repository checks during HTTP and WebSocket access.
-5. Add backups, audit logs, rate limits, metrics, and alerting.
-6. Run full MyST builds in an isolated worker with CPU, memory, and time limits.
+1. Add Redis Pub/Sub or an equivalent cross-instance Yjs update channel.
+2. Preserve the existing repository checks during HTTP and WebSocket access.
+3. Add backups, audit logs, rate limits, metrics, and alerting.
+4. Run full MyST builds in an isolated worker with CPU, memory, and time limits.
 
 ## Repository-Aware Preview
 
