@@ -165,7 +165,11 @@ function App() {
     setIsSaving(true)
     try {
       const snapshot = await createSnapshot(repositoryBinding, collaboration.content)
-      showNotice(`Committed ${snapshot.commitSha.slice(0, 7)} to ${snapshot.branchName}`)
+      showNotice(
+        snapshot.unchanged
+          ? `${snapshot.branchName} is already current`
+          : `Committed ${snapshot.commitSha.slice(0, 7)} to ${snapshot.branchName}`,
+      )
       return true
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'GitHub save failed')

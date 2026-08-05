@@ -249,11 +249,10 @@ const findOrCreateBranch = async (
 ) => {
   const repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`
   try {
-    await githubRequest<GitReference>(
+    return await githubRequest<GitReference>(
       request,
       `${repositoryPath}/git/ref/heads/${encodeURIComponent(branchName)}`,
     )
-    return
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error
   }
@@ -262,7 +261,7 @@ const findOrCreateBranch = async (
     request,
     `${repositoryPath}/git/ref/heads/${encodeURIComponent(baseBranch)}`,
   )
-  await githubRequest(request, `${repositoryPath}/git/refs`, {
+  return githubRequest<GitReference>(request, `${repositoryPath}/git/refs`, {
     method: 'POST',
     body: JSON.stringify({
       ref: `refs/heads/${branchName}`,
@@ -467,17 +466,41 @@ githubRouter.post('/github/snapshots', async (request, response) => {
       ? request.body.commitMessage.trim().slice(0, 120)
       : `Update ${path} from DeMystify`
 
-  await findOrCreateBranch(request, owner, repository, baseBranch, branchName)
+  const branchReference = await findOrCreateBranch(
+    request,
+    owner,
+    repository,
+    baseBranch,
+    branchName,
+  )
   const repositoryPath = `/repos/${owner}/${repository}`
   let existingSha: string | undefined
+  let existingContent: string | undefined
   try {
     const existingFile = await githubRequest<GitHubContentFile>(
       request,
       `${repositoryPath}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(branchName)}`,
     )
     existingSha = existingFile.sha
+    if (existingFile.encoding === 'base64' && existingFile.content) {
+      existingContent = Buffer.from(
+        existingFile.content.replace(/\s/g, ''),
+        'base64',
+      ).toString('utf8')
+    }
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error
+  }
+
+  if (existingContent === content) {
+    response.json({
+      branchName,
+      commitSha: branchReference.object.sha,
+      commitUrl: `https://github.com/${owner}/${repository}/commit/${branchReference.object.sha}`,
+      fileSha: existingSha ?? null,
+      unchanged: true,
+    })
+    return
   }
 
   const commit = await githubRequest<GitCommitResponse>(
@@ -499,6 +522,7 @@ githubRouter.post('/github/snapshots', async (request, response) => {
     commitSha: commit.commit.sha,
     commitUrl: commit.commit.html_url,
     fileSha: commit.content?.sha ?? null,
+    unchanged: false,
   })
 })
 

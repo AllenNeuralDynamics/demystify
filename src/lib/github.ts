@@ -47,6 +47,7 @@ export interface SnapshotResult {
   commitSha: string
   commitUrl: string
   fileSha: string | null
+  unchanged: boolean
 }
 
 export class GitHubApiError extends Error {
