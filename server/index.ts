@@ -1,12 +1,18 @@
 import 'dotenv/config'
 import { mkdir } from 'node:fs/promises'
-import { createServer } from 'node:http'
+import { createServer, ServerResponse } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import session from 'express-session'
 import { WebSocketServer } from 'ws'
 import { ApiError, githubRouter } from './github.js'
+import {
+  authorizeRoomRequest,
+  createRoomRouter,
+  RoomStore,
+  validateRoomName,
+} from './rooms.js'
 
 const persistencePath = process.env.YPERSISTENCE
 if (persistencePath) {
@@ -18,6 +24,8 @@ const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
 const isProduction = process.env.NODE_ENV === 'production'
 const collaborationPrefix = '/collaboration/'
+const roomStore = new RoomStore(process.env.ROOMS_PATH ?? '.data/rooms.json')
+await roomStore.initialize()
 const sessionSecret =
   process.env.SESSION_SECRET ??
   (isProduction ? '' : 'demystify-local-development-session-secret')
@@ -30,24 +38,49 @@ const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 app.use(express.json({ limit: '2mb' }))
-app.use(
-  session({
-    name: 'demystify.sid',
-    secret: sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isProduction,
-      maxAge: 7 * 24 * 60 * 60 * 1_000,
-    },
-  }),
-)
+const sessionMiddleware = session({
+  name: 'demystify.sid',
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction,
+    maxAge: 7 * 24 * 60 * 60 * 1_000,
+  },
+})
+app.use(sessionMiddleware)
 
 app.get('/api/health', (_request, response) => {
   response.json({ status: 'ok' })
 })
+if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_AUTH === '1') {
+  app.post('/api/test/session', (request, response, next) => {
+    const id =
+      typeof request.body.id === 'number' && Number.isSafeInteger(request.body.id)
+        ? request.body.id
+        : 1
+    const login =
+      typeof request.body.login === 'string' && request.body.login.trim()
+        ? request.body.login.trim()
+        : 'integration-test'
+    request.session.github = {
+      accessToken: 'test-token',
+      user: {
+        id,
+        login,
+        name: 'Integration Test',
+        avatarUrl: '',
+      },
+    }
+    request.session.save((error) => {
+      if (error) next(error)
+      else response.status(204).end()
+    })
+  })
+}
+app.use('/api', createRoomRouter(roomStore))
 app.use('/api', githubRouter)
 
 if (isProduction) {
@@ -88,19 +121,27 @@ webSocketServer.on('connection', (socket, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
   let roomName = ''
   try {
-    roomName = decodeURIComponent(requestUrl.pathname.slice(collaborationPrefix.length))
+    roomName = validateRoomName(
+      decodeURIComponent(requestUrl.pathname.slice(collaborationPrefix.length)),
+    )
   } catch {
-    socket.close(1008, 'A valid document room is required')
-    return
-  }
-
-  if (!/^[A-Za-z0-9_-]{8,100}$/.test(roomName)) {
     socket.close(1008, 'A valid document room is required')
     return
   }
 
   setupWSConnection(socket, request, { docName: roomName })
 })
+
+const rejectUpgrade = (
+  socket: import('node:stream').Duplex,
+  status: number,
+  message: string,
+) => {
+  socket.write(
+    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`,
+  )
+  socket.destroy()
+}
 
 server.on('upgrade', (request, socket, head) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
@@ -110,9 +151,39 @@ server.on('upgrade', (request, socket, head) => {
     return
   }
 
-  webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-    webSocketServer.emit('connection', webSocket, request)
-  })
+  let roomName = ''
+  try {
+    roomName = validateRoomName(
+      decodeURIComponent(requestUrl.pathname.slice(collaborationPrefix.length)),
+    )
+  } catch {
+    rejectUpgrade(socket, 400, 'Invalid collaboration room')
+    return
+  }
+
+  const response = new ServerResponse(request)
+  sessionMiddleware(
+    request as express.Request,
+    response as unknown as express.Response,
+    async (sessionError) => {
+      if (sessionError) {
+        rejectUpgrade(socket, 500, 'Session lookup failed')
+        return
+      }
+
+      try {
+        await authorizeRoomRequest(request as express.Request, roomStore, roomName)
+      } catch (error) {
+        const status = error instanceof ApiError ? error.status : 500
+        rejectUpgrade(socket, status, status === 401 ? 'Unauthorized' : 'Forbidden')
+        return
+      }
+
+      webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        webSocketServer.emit('connection', webSocket, request)
+      })
+    },
+  )
 })
 
 server.listen(port, host, () => {

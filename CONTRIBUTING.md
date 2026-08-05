@@ -21,7 +21,7 @@ npm run build
 npm audit --omit=dev
 ```
 
-The collaboration test requires the development server to be running.
+The collaboration test launches an isolated server, rejects unauthorized sockets, and verifies two authenticated clients converge.
 
 ## Pull Requests
 

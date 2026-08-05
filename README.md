@@ -27,9 +27,9 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. The command runs both Vite and the API/WebSocket server. New documents receive an unguessable room ID in the URL; sharing that URL joins the same live document.
+Open http://127.0.0.1:5173. The command runs both Vite and the API/WebSocket server. Every collaborator signs in with GitHub. A room owner binds the document to a repository, and only users with write access to that repository can join its WebSocket room.
 
-The editor works locally without GitHub credentials. Document updates persist under `.data/yjs`.
+GitHub credentials are required for collaborative rooms. Document updates persist under `.data/yjs`; room ownership and repository bindings persist under `.data/rooms.json`.
 
 ## GitHub App Setup
 
@@ -96,7 +96,7 @@ The Express server hosts GitHub routes and upgrades `/collaboration/<room>` conn
 ```bash
 npm run dev                 # Web app + API/WebSocket watch mode
 npm test                    # Unit tests
-npm run test:collaboration  # Two-client Yjs convergence test; server required
+npm run test:collaboration  # Self-contained auth + two-client convergence test
 npm run lint                # ESLint
 npm run build               # Client/server typecheck + production bundle
 npm start                   # Serve dist and WebSockets in production mode
@@ -109,7 +109,7 @@ npm start                   # Serve dist and WebSockets in production mode
 - Put a reverse proxy in front of the server and preserve WebSocket upgrades for `/collaboration/`.
 - Replace the default in-memory Express session store with Redis or another shared store before scaling beyond one process.
 - LevelDB is suitable for one server. A multi-instance deployment needs shared Yjs persistence and pub/sub.
-- Collaboration URLs currently act as bearer invitations. Add organization membership or explicit room ACL checks in the WebSocket upgrade handler for regulated/private deployments.
+- Room bindings are enforced during HTTP claims and WebSocket upgrades. Production still needs shared room/session storage, audit retention, and operational review.
 
 Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session state value. Production dependencies are audited; MyST's plugins use a tested compatibility shim for the patched `markdown-it` release.
 
@@ -118,5 +118,5 @@ Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session
 - Comments apply to the document rather than a selected text range.
 - Suggestion/tracked-change mode is not implemented yet.
 - The included session and Yjs stores are designed for a single application instance.
-- Collaboration rooms currently use unguessable links rather than GitHub repository ACLs.
+- The local room registry and Express session store are single-instance implementations; production needs shared managed storage.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

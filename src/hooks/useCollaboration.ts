@@ -46,6 +46,7 @@ export const useCollaboration = (
   roomName: string,
   profile: CollaboratorProfile,
   initialContent: string,
+  enabled = true,
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
@@ -55,6 +56,7 @@ export const useCollaboration = (
   const [isSynced, setIsSynced] = useState(false)
 
   useEffect(() => {
+    if (!enabled) return
     const document = new Y.Doc()
     const provider = new WebsocketProvider(getWebSocketUrl(), roomName, document, {
       connect: false,
@@ -126,7 +128,7 @@ export const useCollaboration = (
       setSession(null)
       setIsSynced(false)
     }
-  }, [initialContent, roomName])
+  }, [enabled, initialContent, roomName])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -167,7 +169,7 @@ export const useCollaboration = (
     content,
     comments,
     collaborators,
-    status,
+    status: enabled ? status : 'disconnected',
     isSynced,
     addComment,
     toggleComment,

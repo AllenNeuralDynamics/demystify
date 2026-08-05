@@ -50,6 +50,15 @@ export interface SnapshotResult {
   unchanged: boolean
 }
 
+export interface CollaborationRoom {
+  roomName: string
+  ownerId: number
+  ownerLogin: string
+  binding: RepositoryBinding | null
+  createdAt: string
+  updatedAt: string
+}
+
 export class GitHubApiError extends Error {
   readonly status: number
 
@@ -77,6 +86,29 @@ const apiRequest = async <Result>(path: string, init?: RequestInit): Promise<Res
 }
 
 export const getGitHubSession = () => apiRequest<GitHubSession>('/api/auth/session')
+
+export const claimCollaborationRoom = (roomName: string) =>
+  apiRequest<CollaborationRoom>(`/api/rooms/${encodeURIComponent(roomName)}/claim`, {
+    method: 'POST',
+  })
+
+export const bindCollaborationRoom = (
+  roomName: string,
+  binding: RepositoryBinding,
+) =>
+  apiRequest<CollaborationRoom>(
+    `/api/rooms/${encodeURIComponent(roomName)}/binding`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        owner: binding.owner,
+        repository: binding.repository,
+        path: binding.path,
+        baseBranch: binding.baseBranch,
+        branchName: binding.branchName,
+      }),
+    },
+  )
 
 export const disconnectGitHub = async () => {
   const response = await fetch('/api/auth/logout', { method: 'POST' })

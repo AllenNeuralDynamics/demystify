@@ -29,6 +29,7 @@ import {
 import { GitHubDialog } from './components/GitHubDialog'
 import { useCollaboration } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
+import { useRoomAccess } from './hooks/useRoomAccess'
 import { createSnapshot, type RepositoryBinding } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
 import { sampleManuscript } from './lib/sampleManuscript'
@@ -54,15 +55,6 @@ const getRoomName = () => {
 const getDocumentTitle = (content: string) => {
   const heading = content.match(/^#\s+(.+)$/m)?.[1]
   return heading || 'Untitled manuscript'
-}
-
-const loadRepositoryBinding = (roomName: string): RepositoryBinding | null => {
-  try {
-    const binding = localStorage.getItem(`demystify.binding.${roomName}`)
-    return binding ? (JSON.parse(binding) as RepositoryBinding) : null
-  } catch {
-    return null
-  }
 }
 
 const consumeGitHubResult = () => {
@@ -93,13 +85,24 @@ function App() {
   const [profileName, setProfileName] = useState(profile.name)
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
-  const [repositoryBinding, setRepositoryBinding] = useState<RepositoryBinding | null>(
-    () => loadRepositoryBinding(roomName),
-  )
   const [isSaving, setIsSaving] = useState(false)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
-  const collaboration = useCollaboration(roomName, profile, sampleManuscript)
   const github = useGitHubSession()
+  const roomAccess = useRoomAccess(roomName, github.session?.user?.id ?? null)
+  const repositoryBinding = roomAccess.binding
+  const collaborationProfile = github.session?.user
+    ? {
+        ...profile,
+        id: `github:${github.session.user.id}`,
+        name: github.session.user.name ?? github.session.user.login,
+      }
+    : profile
+  const collaboration = useCollaboration(
+    roomName,
+    collaborationProfile,
+    sampleManuscript,
+    roomAccess.isReady,
+  )
 
   const title = getDocumentTitle(collaboration.content)
   const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
@@ -112,21 +115,17 @@ function App() {
   }
 
   useEffect(() => {
-    const storageKey = `demystify.binding.${roomName}`
-    if (repositoryBinding) {
-      localStorage.setItem(storageKey, JSON.stringify(repositoryBinding))
-    } else {
-      localStorage.removeItem(storageKey)
-    }
-  }, [repositoryBinding, roomName])
-
-  useEffect(() => {
     if (!notice) return
     const timeout = window.setTimeout(() => setNotice(null), 2_400)
     return () => window.clearTimeout(timeout)
   }, [notice])
 
   const shareDocument = async () => {
+    if (!repositoryBinding) {
+      setGitHubDialogOpen(true)
+      showNotice('Bind a GitHub repository before sharing this room')
+      return
+    }
     try {
       const url = new URL(window.location.href)
       url.searchParams.set('doc', roomName)
@@ -180,9 +179,13 @@ function App() {
     }
   }
 
-  const openRepositoryFile = (binding: RepositoryBinding, content: string) => {
+  const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
+    await roomAccess.bind(binding)
     collaboration.replaceContent(content)
-    setRepositoryBinding(binding)
+  }
+
+  const bindRepositoryDraft = async (binding: RepositoryBinding) => {
+    await roomAccess.bind(binding)
   }
 
   return (
@@ -222,7 +225,12 @@ function App() {
                 title={collaborator.name}
                 type="button"
                 onClick={() => {
-                  if (collaborator.id === profile.id) setEditingProfile(true)
+                  if (
+                    collaborator.id === collaborationProfile.id &&
+                    !github.session?.user
+                  ) {
+                    setEditingProfile(true)
+                  }
                 }}
               >
                 {collaborator.name.slice(0, 1).toUpperCase()}
@@ -342,6 +350,10 @@ function App() {
                   sharedText={collaboration.sharedText}
                   provider={collaboration.provider}
                 />
+              ) : !github.session?.user ? (
+                <div className="pane-loading">Connect GitHub to join this room.</div>
+              ) : roomAccess.error ? (
+                <div className="pane-loading">{roomAccess.error}</div>
               ) : (
                 <div className="pane-loading">Opening shared document...</div>
               )}
@@ -434,7 +446,7 @@ function App() {
         binding={repositoryBinding}
         onClose={() => setGitHubDialogOpen(false)}
         onOpenFile={openRepositoryFile}
-        onBindDraft={setRepositoryBinding}
+        onBindDraft={bindRepositoryDraft}
         onSave={saveToGitHub}
         onDisconnect={async () => {
           await github.disconnect()

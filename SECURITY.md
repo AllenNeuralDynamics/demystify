@@ -2,7 +2,7 @@
 
 ## Prototype Status
 
-DeMystify is not yet approved for confidential or regulated manuscripts. The local MVP uses unguessable room URLs as bearer invitations and does not enforce GitHub repository permissions on WebSocket upgrades.
+DeMystify is not yet approved for confidential or regulated manuscripts. The local MVP requires GitHub authentication and verifies repository write access on room claims and WebSocket upgrades, but it still uses single-instance room, session, and Yjs persistence without production audit or retention controls.
 
 ## Reporting
 
@@ -19,7 +19,6 @@ Report suspected vulnerabilities privately through GitHub's **Security → Repor
 
 Public deployment requires:
 
-- GitHub-authenticated room membership and repository permission checks
 - Durable shared persistence and session storage
 - CSRF, rate-limit, and security-header review
 - Sandboxed repository preview builds

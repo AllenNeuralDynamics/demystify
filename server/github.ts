@@ -28,7 +28,7 @@ interface GitHubInstallation {
   id: number
 }
 
-interface GitHubRepository {
+export interface GitHubRepository {
   id: number
   name: string
   full_name: string
@@ -42,6 +42,9 @@ interface GitHubRepository {
     full_name: string
   }
   permissions?: {
+    admin?: boolean
+    maintain?: boolean
+    pull?: boolean
     push?: boolean
   }
 }
@@ -238,6 +241,25 @@ const githubRequest = async <Result>(
   }
 
   return payload as Result
+}
+
+export const requireRepositoryWriteAccess = async (
+  request: Request,
+  owner: string,
+  repository: string,
+) => {
+  const details = await githubRequest<GitHubRepository>(
+    request,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`,
+  )
+  if (
+    !details.permissions?.push &&
+    !details.permissions?.maintain &&
+    !details.permissions?.admin
+  ) {
+    throw new ApiError(403, 'Write access to this repository is required.')
+  }
+  return details
 }
 
 const findOrCreateBranch = async (

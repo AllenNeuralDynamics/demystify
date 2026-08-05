@@ -43,7 +43,7 @@ Before raising the Cloud Run instance limit:
 1. Replace local LevelDB with shared durable Yjs persistence.
 2. Replace the Express memory session store.
 3. Add Redis Pub/Sub or an equivalent cross-instance update channel.
-4. Enforce repository permissions during HTTP and WebSocket access.
+4. Preserve the existing repository checks during HTTP and WebSocket access.
 5. Add backups, audit logs, rate limits, metrics, and alerting.
 6. Run full MyST builds in an isolated worker with CPU, memory, and time limits.
 

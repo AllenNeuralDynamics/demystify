@@ -31,8 +31,8 @@ interface GitHubDialogProps {
   sessionLoading: boolean
   binding: RepositoryBinding | null
   onClose: () => void
-  onOpenFile: (binding: RepositoryBinding, content: string) => void
-  onBindDraft: (binding: RepositoryBinding) => void
+  onOpenFile: (binding: RepositoryBinding, content: string) => Promise<void>
+  onBindDraft: (binding: RepositoryBinding) => Promise<void>
   onSave: () => Promise<boolean>
   onDisconnect: () => Promise<void>
   onNotice: (message: string) => void
@@ -134,7 +134,7 @@ export const GitHubDialog = ({
     setError(null)
     try {
       const file = await loadRepositoryFile(nextBinding)
-      onOpenFile(nextBinding, file.content)
+      await onOpenFile(nextBinding, file.content)
       onNotice(`Opened ${nextBinding.path} from GitHub`)
       onClose()
     } catch (requestError) {
@@ -144,12 +144,20 @@ export const GitHubDialog = ({
     }
   }
 
-  const bindDraft = () => {
+  const bindDraft = async () => {
     const nextBinding = makeBinding()
     if (!nextBinding) return
-    onBindDraft(nextBinding)
-    onNotice(`Draft linked to ${nextBinding.fullName}`)
-    onClose()
+    setIsWorking(true)
+    setError(null)
+    try {
+      await onBindDraft(nextBinding)
+      onNotice(`Draft linked to ${nextBinding.fullName}`)
+      onClose()
+    } catch (requestError) {
+      setError(getErrorMessage(requestError))
+    } finally {
+      setIsWorking(false)
+    }
   }
 
   const openPullRequest = async () => {
@@ -344,7 +352,7 @@ export const GitHubDialog = ({
                     <GitPullRequest size={15} /> Pull request
                   </button>
                 )}
-                <button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={bindDraft}>
+                <button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void bindDraft()}>
                   Bind current draft
                 </button>
                 <button className="button primary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void openFile()}>
