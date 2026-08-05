@@ -1082,6 +1082,16 @@
   font-size: 11px;
 }
 
+.github-warning {
+  margin: 0 18px 12px;
+  padding: 9px 11px;
+  border-left: 3px solid #b27a1f;
+  background: #fbf4e4;
+  color: #66470f;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .github-dialog-footer {
   min-height: 60px;
   display: flex;

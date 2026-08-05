@@ -32,10 +32,14 @@ interface GitHubRepository {
   id: number
   name: string
   full_name: string
+  fork: boolean
   private: boolean
   default_branch: string
   owner: {
     login: string
+  }
+  parent?: {
+    full_name: string
   }
   permissions?: {
     push?: boolean
@@ -389,6 +393,8 @@ githubRouter.get('/github/repositories', async (request, response) => {
       name: repository.name,
       fullName: repository.full_name,
       owner: repository.owner.login,
+      isFork: repository.fork,
+      parentFullName: repository.parent?.full_name ?? null,
       private: repository.private,
       defaultBranch: repository.default_branch,
       canPush: repository.permissions?.push ?? false,
@@ -510,6 +516,13 @@ githubRouter.post('/github/pull-requests', async (request, response) => {
       ? request.body.body
       : 'Collaborative manuscript update created with DeMystify.'
   const repositoryPath = `/repos/${owner}/${repository}`
+  const repositoryDetails = await githubRequest<GitHubRepository>(request, repositoryPath)
+  if (repositoryDetails.fork) {
+    throw new ApiError(
+      409,
+      'Pull requests are disabled for fork bindings because GitHub can target the parent repository. Use a standalone test repository or create the PR manually after verifying its base repository.',
+    )
+  }
 
   try {
     const pullRequest = await githubRequest<GitPullRequest>(

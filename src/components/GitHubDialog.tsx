@@ -119,6 +119,8 @@ export const GitHubDialog = ({
       owner: selectedRepository.owner,
       repository: selectedRepository.name,
       fullName: selectedRepository.fullName,
+      isFork: selectedRepository.isFork,
+      parentFullName: selectedRepository.parentFullName,
       path: filePath.trim().replace(/^\/+/, ''),
       baseBranch: selectedRepository.defaultBranch,
       branchName: existingBranch ?? `demystify/${roomName.slice(0, 12)}`,
@@ -152,6 +154,12 @@ export const GitHubDialog = ({
 
   const openPullRequest = async () => {
     if (!binding) return
+    if (binding.isFork) {
+      setError(
+        `Pull requests are disabled for this fork because GitHub may target ${binding.parentFullName ?? 'its parent repository'}. Use a standalone test repository or create the PR manually after checking the base repository.`,
+      )
+      return
+    }
     setIsWorking(true)
     setError(null)
     try {
@@ -320,11 +328,19 @@ export const GitHubDialog = ({
 
             {error && <div className="github-error" role="alert">{error}</div>}
 
+            {binding?.isFork && (
+              <div className="github-warning" role="status">
+                This binding is a fork of {binding.parentFullName ?? 'another repository'}.
+                Snapshots stay in this fork, but automatic pull requests are disabled to prevent
+                accidentally targeting the parent repository.
+              </div>
+            )}
+
             <footer className="github-dialog-footer">
               <span className="permission-note"><LockKeyhole size={13} /> GitHub App permissions apply</span>
               <div>
                 {binding && (
-                  <button className="button secondary-button" type="button" disabled={isWorking} onClick={() => void openPullRequest()}>
+                  <button className="button secondary-button" type="button" disabled={isWorking || binding.isFork} onClick={() => void openPullRequest()} title={binding.isFork ? 'Automatic pull requests are disabled for forks' : 'Create pull request'}>
                     <GitPullRequest size={15} /> Pull request
                   </button>
                 )}

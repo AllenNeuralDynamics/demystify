@@ -17,6 +17,8 @@ export interface GitHubRepository {
   name: string
   fullName: string
   owner: string
+  isFork: boolean
+  parentFullName: string | null
   private: boolean
   defaultBranch: string
   canPush: boolean
@@ -33,6 +35,8 @@ export interface RepositoryBinding {
   owner: string
   repository: string
   fullName: string
+  isFork: boolean
+  parentFullName: string | null
   path: string
   baseBranch: string
   branchName: string

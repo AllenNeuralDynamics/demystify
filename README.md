@@ -4,7 +4,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 > **Status:** Working research prototype. Use it locally or for controlled pilots; repository-backed authorization and shared production persistence are still planned.
 
-[Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Contributing](CONTRIBUTING.md)
+[Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
 
 ## Features
 
@@ -119,3 +119,4 @@ Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session
 - Suggestion/tracked-change mode is not implemented yet.
 - The included session and Yjs stores are designed for a single application instance.
 - Collaboration rooms currently use unguessable links rather than GitHub repository ACLs.
+- Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.
