@@ -102,6 +102,7 @@ function App() {
   const github = useGitHubSession()
 
   const title = getDocumentTitle(collaboration.content)
+  const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
   const wordCount = collaboration.content.trim()
     ? collaboration.content.trim().split(/\s+/).length
     : 0
@@ -269,7 +270,7 @@ function App() {
             <span className="tree-label">Files</span>
             <button className="file-row active" type="button">
               <FileText size={16} />
-              <span>manuscript.md</span>
+              <span>{activeFileName}</span>
               <span className="live-file-dot" title="Live document" />
             </button>
           </nav>
