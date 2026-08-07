@@ -1,5 +1,5 @@
 modules = ["nodejs-22"]
-run = "npm run dev"
+run = "HOST=0.0.0.0 npm run dev"
 
 [deployment]
 build = "npm ci --include=dev && npm run build && npm prune --omit=dev"

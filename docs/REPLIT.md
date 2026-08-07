@@ -19,7 +19,7 @@ https://replit.com/github.com/AllenNeuralDynamics/demystify
 The repository's `.replit` file configures:
 
 ```text
-Development: npm run dev
+Development: HOST=0.0.0.0 npm run dev
 Build:       npm ci --include=dev && npm run build && npm prune --omit=dev
 Production:  npm start
 ```
