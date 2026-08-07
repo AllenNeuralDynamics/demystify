@@ -19,10 +19,13 @@ https://replit.com/github.com/AllenNeuralDynamics/demystify
 The repository's `.replit` file configures:
 
 ```text
-Development: HOST=0.0.0.0 npm run dev
+Workspace:   npm run build && HOST=0.0.0.0 PORT=3000 npm start
 Build:       npm ci --include=dev && npm run build && npm prune --omit=dev
-Production:  npm start
+Production:  HOST=0.0.0.0 PORT=3000 npm start
 ```
+
+Both workspace testing and publishing use the same single-process topology on
+port `3000`; Replit maps that port to its default HTTPS endpoint.
 
 ## Database
 

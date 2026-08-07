@@ -1,9 +1,13 @@
 modules = ["nodejs-20", "web"]
-run = "HOST=0.0.0.0 npm run dev"
+run = "npm run build && HOST=0.0.0.0 PORT=3000 npm start"
 
 [deployment]
 build = "npm ci --include=dev && npm run build && npm prune --omit=dev"
-run = "npm start"
+run = "HOST=0.0.0.0 PORT=3000 npm start"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
