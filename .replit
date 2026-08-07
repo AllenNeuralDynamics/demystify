@@ -1,0 +1,6 @@
+modules = ["nodejs-22"]
+run = "npm run dev"
+
+[deployment]
+build = "npm ci --include=dev && npm run build && npm prune --omit=dev"
+run = "npm start"
