@@ -1,37 +1,104 @@
 # Replit Pilot
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
-the project workspace is active. On the Starter account tested on August 7,
-2026, the Publish panel required an upgrade despite public documentation
-describing a free published app. Treat publishing availability as an
-account-specific entitlement and do not accept an upgrade merely to run this
-test.
+the project workspace is active. The Starter account tested on August 8, 2026
+also provided one free Autoscale publication that expires after 30 days. Replit
+shows the expiration date after the first successful publish.
 
-For a paid Autoscale deployment, set **Max machines to 1**. DeMystify does not
-yet synchronize live Yjs rooms across multiple application instances.
+For an Autoscale deployment, set **Max machines to 1**. DeMystify does not yet
+synchronize live Yjs rooms across multiple application instances.
 
 This setup is suitable only for a short test with synthetic or explicitly
 approved non-sensitive manuscripts. Replit hosts published apps and their
 production data outside Allen Institute infrastructure.
 
-## Import
+## Current Deployment
 
-Import the public repository at:
+The validated fresh pilot deployment is:
 
-```text
-https://replit.com/github.com/AllenNeuralDynamics/demystify
+| Setting | Value |
+| --- | --- |
+| Replit project | `Jlecoq/Demystify-Deploy` |
+| Public URL | <https://demystify-deploy--jlecoq.replit.app/> |
+| Deployment type | Autoscale (`cloudrun`) |
+| Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
+| Visibility | Public |
+| Database | Fresh Replit production PostgreSQL database |
+| GitHub App | `demystify-replit-pilot-jl` |
+| OAuth callback | `https://demystify-deploy--jlecoq.replit.app/api/auth/github/callback` |
+| Free publication expiry | September 7, 2026 |
+
+The application source was deployed from commit `5f5739c`. No previous pilot
+rooms were migrated. A synthetic production room was bound to the dedicated
+test repository without creating a branch or pull request.
+
+## Project Setup
+
+The validated Starter path was to create one minimal **Website** artifact with
+Lite Agent, then overlay the public repository from Shell:
+
+```bash
+git remote add demystify-origin https://github.com/AllenNeuralDynamics/demystify.git
+git fetch --depth=1 demystify-origin main
+git checkout demystify-origin/main -- .
+npm ci --include=dev
+npm run build
 ```
+
+Use Shell for all subsequent setup. Repeated Agent conversion or workflow
+repair is unnecessary and consumes the Starter Agent allowance.
 
 The repository's `.replit` file configures:
 
 ```text
 Workspace:   npm run build && HOST=0.0.0.0 PORT=3000 npm start
-Build:       npm ci --include=dev && npm run build && npm prune --omit=dev
+Build:       npm ci --include=dev && npm run build
 Production:  HOST=0.0.0.0 PORT=3000 npm start
 ```
 
 Both workspace testing and publishing use the same single-process topology on
-port `3000`; Replit maps that port to its default HTTPS endpoint.
+port `3000`; Replit maps that port to its default HTTPS endpoint. Keep build
+dependencies installed through Replit's artifact build phase; pruning them in
+the root build removes `tsc` before that phase runs.
+
+`deploymentTarget = "cloudrun"` is required. Without it, Replit selected the
+subscription-only GCE provider even though the Starter account was authorized
+for one free published app using Autoscale or Static.
+
+### Agent-Generated Artifact Routing
+
+The current Agent-native Replit project retains generated artifact manifests.
+Its production routing uses the root DeMystify build as the single source of
+application code:
+
+```toml
+# artifacts/demystify-deploy/.replit-artifact/artifact.toml
+[services.production]
+build = ["node", "-e", "process.exit(0)"]
+serve = "static"
+publicDir = "dist"
+```
+
+```toml
+# artifacts/api-server/.replit-artifact/artifact.toml
+[services.production]
+paths = ["/api", "/collaboration"]
+
+[services.production.build]
+args = ["node", "-e", "process.exit(0)"]
+
+[services.production.run]
+args = ["npm", "start"]
+
+[services.production.run.env]
+PORT = "8080"
+HOST = "0.0.0.0"
+NODE_ENV = "production"
+```
+
+The root `.replit` build runs before these artifact phases, so both artifact
+build commands are intentionally no-ops. The API artifact owns both HTTP API
+and WebSocket routes, keeping all stateful traffic on one backend process.
 
 ## Database
 
@@ -62,13 +129,14 @@ GitHub App callback=https://<current-development-domain>.replit.dev/api/auth/git
 Development URLs can change when the workspace is reopened. Update `APP_URL`
 and the GitHub App callback whenever that happens.
 
-For a paid published app, choose the final `*.replit.app` domain before adding
-production secrets. Use the same published origin everywhere. For example:
+For a published app, choose the final `*.replit.app` domain before adding
+production secrets. Use the same published origin everywhere. The current
+deployment uses:
 
 ```text
-APP_URL=https://demystify-pilot.replit.app
-GitHub App homepage=https://demystify-pilot.replit.app
-GitHub App callback=https://demystify-pilot.replit.app/api/auth/github/callback
+APP_URL=https://demystify-deploy--jlecoq.replit.app
+GitHub App homepage=https://demystify-deploy--jlecoq.replit.app
+GitHub App callback=https://demystify-deploy--jlecoq.replit.app/api/auth/github/callback
 ```
 
 Configure a dedicated pilot GitHub App with:
@@ -103,12 +171,15 @@ Development and published-app secrets are separate in Replit. If publishing is
 available, add the same keys to deployment secrets and change `APP_URL` to the
 final `*.replit.app` origin.
 
-## Optional Paid Publish
+## Publish
 
-If the Publish panel says **Upgrade your plan to publish**, stop here and use the
-development URL. Do not add a payment method or upgrade without approval.
+The validated Starter account exposes one temporary 30-day publication. If the
+Publish panel says **Upgrade your plan to publish**, first confirm that
+`.replit` sets `deploymentTarget = "cloudrun"`; GCE requires a subscription,
+while Autoscale is included by the Starter entitlement used here. Do not add a
+payment method or upgrade without approval.
 
-If publishing is already included for the account:
+To publish:
 
 1. Select **Publish** and choose **Autoscale**.
 2. Under **Machine configuration**, set **Max machines** to `1`.
@@ -122,6 +193,23 @@ Autoscale instances can stop and restart by design, so reconnect and persistence
 behavior are part of the test.
 
 ## Validation
+
+The August 8, 2026 deployment passed these production checks:
+
+- `/`, `/api/health`, and `/api/config` returned HTTP `200`.
+- GitHub OAuth completed through Allen Institute SSO using the stable callback.
+- `/collaboration/<room>` reached the DeMystify WebSocket authorization gate.
+- Anonymous collaborator and viewer sockets connected successfully.
+- Both anonymous roles received HTTP `403` for snapshot mutations.
+- A signed-in viewer remained `viewer`; a signed-in collaborator with repository
+   write access upgraded to `editor`.
+- Revoking the viewer link closed only viewer sockets; revoking the collaborator
+   link then closed collaborator sockets.
+- Both temporary links were revoked, and no test branch or pull request remained.
+- Replit reported the final Autoscale build as `success` with no build in
+   progress.
+
+For ongoing pilot validation:
 
 1. Open `https://<current-origin>/api/health` and confirm
    `{"status":"ok"}`.
@@ -146,7 +234,8 @@ all work.
 - Keep Max machines at `1`; horizontal fan-out is not implemented.
 - Free development URLs work only while the workspace is active and may change
    after reopening the project.
-- Publishing may require Core even when the account has unused cloud credits.
+- The Starter publication is temporary. Republish it before expiration or move
+   to an approved durable hosting plan.
 - Autoscale restarts regularly and can have a cold start after inactivity.
 - Replit production PostgreSQL is usage-billed, although a small pilot should
   consume little storage and compute.
