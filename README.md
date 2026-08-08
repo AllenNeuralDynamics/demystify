@@ -6,6 +6,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 [Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Replit pilot](docs/REPLIT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
 
+
 ## Features
 
 - Simultaneous conflict-free editing with Yjs and WebSockets
