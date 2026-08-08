@@ -9,6 +9,10 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 ## Features
 
+
+1
+
+
 - Simultaneous conflict-free editing with Yjs and WebSockets
 - Live collaborator cursors, presence, and shared comments
 - Official JavaScript MyST parsing with directives, figures, tables, and KaTeX math
