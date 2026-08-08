@@ -4,6 +4,7 @@ import {
   claimCollaborationRoom,
   type CollaborationRoom,
   type RepositoryBinding,
+  type RoomReview,
 } from '../lib/github'
 
 interface AuthorizedRoom {
@@ -48,14 +49,24 @@ export const useRoomAccess = (roomName: string, userId: number | null) => {
     return boundRoom
   }
 
+  const applyReview = (review: RoomReview | null) => {
+    setAccess((current) =>
+      current?.userId === userId
+        ? { ...current, room: { ...current.room, review } }
+        : current,
+    )
+  }
+
   const authorizedRoom = access?.userId === userId ? access.room : null
 
   return {
     room: authorizedRoom,
     binding: authorizedRoom?.binding ?? null,
+    review: authorizedRoom?.review ?? null,
     error,
     isReady: userId !== null && Boolean(authorizedRoom),
     isLoading: userId !== null && !authorizedRoom && !error,
     bind,
+    applyReview,
   }
 }

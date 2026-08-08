@@ -21,6 +21,7 @@ import {
   type GitHubRepository,
   type GitHubSession,
   type RepositoryBinding,
+  type RoomReview,
 } from '../lib/github'
 
 interface GitHubDialogProps {
@@ -30,6 +31,7 @@ interface GitHubDialogProps {
   session: GitHubSession | null
   sessionLoading: boolean
   binding: RepositoryBinding | null
+  review: RoomReview | null
   onClose: () => void
   onOpenFile: (binding: RepositoryBinding, content: string) => Promise<void>
   onBindDraft: (binding: RepositoryBinding) => Promise<void>
@@ -48,6 +50,7 @@ export const GitHubDialog = ({
   session,
   sessionLoading,
   binding,
+  review,
   onClose,
   onOpenFile,
   onBindDraft,
@@ -172,10 +175,10 @@ export const GitHubDialog = ({
     setError(null)
     try {
       if (!(await onSave())) return
-      const pullRequest = await createPullRequest(
-        roomName,
-        `Update ${documentTitle}`,
-      )
+      const pullRequest = review ?? await createPullRequest(
+          roomName,
+          `Update ${documentTitle}`,
+        )
       window.open(pullRequest.htmlUrl, '_blank', 'noopener,noreferrer')
       onNotice(`Pull request #${pullRequest.number} is ready`)
     } catch (requestError) {
@@ -349,7 +352,7 @@ export const GitHubDialog = ({
               <div>
                 {binding && (
                   <button className="button secondary-button" type="button" disabled={isWorking || binding.isFork} onClick={() => void openPullRequest()} title={binding.isFork ? 'Automatic pull requests are disabled for forks' : 'Create pull request'}>
-                    <GitPullRequest size={15} /> Pull request
+                    <GitPullRequest size={15} /> {review ? `PR #${review.number}` : 'Create draft PR'}
                   </button>
                 )}
                 <button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void bindDraft()}>

@@ -87,6 +87,16 @@ interface GitPullRequest {
   number: number
   html_url: string
   title: string
+  state: 'open' | 'closed'
+  draft?: boolean
+  merged_at?: string | null
+}
+
+export interface RepositoryPullRequest {
+  number: number
+  htmlUrl: string
+  title: string
+  state: 'draft' | 'open' | 'closed' | 'merged'
 }
 
 export interface RepositoryWriteTarget {
@@ -366,7 +376,7 @@ export const createRepositoryPullRequest = async (
   request: Request,
   target: RepositoryWriteTarget,
   title: string,
-) => {
+): Promise<RepositoryPullRequest> => {
   const { owner, repository, baseBranch: base, branchName: head } = target
   const body = 'Collaborative MyST manuscript update created with DeMystify.'
   const repositoryPath = `/repos/${owner}/${repository}`
@@ -384,13 +394,14 @@ export const createRepositoryPullRequest = async (
       `${repositoryPath}/pulls`,
       {
         method: 'POST',
-        body: JSON.stringify({ title, head, base, body }),
+        body: JSON.stringify({ title, head, base, body, draft: true }),
       },
     )
     return {
       number: pullRequest.number,
       htmlUrl: pullRequest.html_url,
       title: pullRequest.title,
+      state: pullRequest.draft ? 'draft' : 'open',
     }
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 422) throw error
@@ -404,6 +415,11 @@ export const createRepositoryPullRequest = async (
       number: pullRequest.number,
       htmlUrl: pullRequest.html_url,
       title: pullRequest.title,
+      state: pullRequest.merged_at
+        ? 'merged'
+        : pullRequest.draft
+          ? 'draft'
+          : pullRequest.state,
     }
   }
 }

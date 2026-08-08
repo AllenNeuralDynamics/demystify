@@ -19,7 +19,7 @@ The browser uses the official JavaScript MyST parser for immediate feedback. Thi
 
 Room bindings are immutable after their first repository file is selected. This prevents an existing socket population authorized for one repository from being silently carried into another repository's document; changing files requires a new room.
 
-GitHub is updated only through explicit snapshots. The gateway derives the repository, path, base branch, and stable `demystify/<room>` branch from the authorized immutable room binding, writes the manuscript through the Contents API, and creates or reopens a pull request.
+GitHub is updated only through explicit snapshots. The gateway derives the repository, path, base branch, and stable `demystify/<room>` branch from the authorized immutable room binding. The first snapshot writes the manuscript through the Contents API, creates a draft pull request, and persists that review identity on the room. Later snapshots update the same branch and pull request. Legacy rooms discover an existing open PR by their deterministic branch before persisting it.
 
 ## Production Target
 

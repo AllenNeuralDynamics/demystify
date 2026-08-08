@@ -7,6 +7,7 @@ import {
   FilePlus2,
   FileText,
   GitFork,
+  GitPullRequest,
   Heading2,
   Italic,
   LoaderCircle,
@@ -168,10 +169,13 @@ function App() {
         roomName,
         collaboration.getSnapshotContent(),
       )
+      roomAccess.applyReview(snapshot.review)
       showNotice(
         snapshot.unchanged
           ? `${snapshot.branchName} is already current`
-          : `Committed ${snapshot.commitSha.slice(0, 7)} to ${snapshot.branchName}`,
+          : snapshot.review
+            ? `Committed ${snapshot.commitSha.slice(0, 7)}; PR #${snapshot.review.number} ready`
+            : `Committed ${snapshot.commitSha.slice(0, 7)} to ${snapshot.branchName}`,
       )
       return true
     } catch (error) {
@@ -285,10 +289,26 @@ function App() {
               <span className="live-file-dot" title="Live document" />
             </button>
           </nav>
-          <div className="sidebar-footer">
+          <div
+            className="sidebar-footer"
+            title={repositoryBinding?.branchName ?? 'main'}
+          >
             <Code2 size={15} />
             <span>MyST source</span>
-            <span className="branch-name">{repositoryBinding?.branchName ?? 'main'}</span>
+            {roomAccess.review ? (
+              <a
+                className="review-link"
+                href={roomAccess.review.htmlUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open pull request #${roomAccess.review.number}`}
+              >
+                <GitPullRequest size={13} />
+                <span>PR #{roomAccess.review.number}</span>
+              </a>
+            ) : (
+              <span className="branch-name">{repositoryBinding?.branchName ?? 'main'}</span>
+            )}
           </div>
         </aside>
 
@@ -447,6 +467,7 @@ function App() {
         session={github.session}
         sessionLoading={github.isLoading}
         binding={repositoryBinding}
+        review={roomAccess.review}
         onClose={() => setGitHubDialogOpen(false)}
         onOpenFile={openRepositoryFile}
         onBindDraft={bindRepositoryDraft}

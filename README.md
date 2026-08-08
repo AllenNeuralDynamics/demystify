@@ -15,7 +15,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 - GitHub App OAuth with HTTP-only server sessions
 - Repository browsing and MyST file loading
 - Explicit snapshots to a `demystify/...` branch
-- Pull-request creation without personal access tokens
+- One persisted draft pull request per room, created by the first snapshot
 - Responsive source, split, and preview modes
 
 ## Local Development
@@ -73,8 +73,8 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 1. Open **GitHub repository** and sign in.
 2. Select an installed repository and a `.md` or `.myst` file.
 3. Choose **Open file** to load it for all current collaborators, or **Bind current draft** to create/update that path.
-4. Select **Save to GitHub** to snapshot the live document onto its stable `demystify/<room>` branch.
-5. Open the repository dialog and select **Pull request** to save once more and create or reopen the review PR.
+4. Select **Save to GitHub** to snapshot the live document onto its stable `demystify/<room>` branch and create its draft pull request.
+5. Later snapshots update the same branch and pull request. Open **PR #...** from the workspace or repository dialog to review it in GitHub.
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
@@ -121,5 +121,6 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 
 - Comments apply to the document rather than a selected text range.
 - Suggestion/tracked-change mode is not implemented yet.
+- Each bound room owns one manuscript path, working branch, and pull request. A merged revision starts in a new room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

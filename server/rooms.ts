@@ -7,6 +7,7 @@ import {
   createRepositoryPullRequest,
   createRepositorySnapshot,
   requireRepositoryWriteAccess,
+  type RepositoryPullRequest,
 } from './github.js'
 
 export interface RoomBinding {
@@ -20,11 +21,21 @@ export interface RoomBinding {
   branchName: string
 }
 
+export interface RoomReview {
+  number: number
+  htmlUrl: string
+  title: string
+  state: 'draft' | 'open' | 'closed' | 'merged'
+  createdAt: string
+  updatedAt: string
+}
+
 export interface RoomRecord {
   roomName: string
   ownerId: number
   ownerLogin: string
   binding: RoomBinding | null
+  review: RoomReview | null
   createdAt: string
   updatedAt: string
 }
@@ -42,6 +53,11 @@ export interface RoomStoreLike {
     roomName: string,
     user: RoomUser,
     binding: RoomBinding,
+  ): Promise<RoomRecord>
+  setReview(roomName: string, review: RoomReview): Promise<RoomRecord>
+  ensureReview(
+    roomName: string,
+    createReview: () => Promise<RoomReview>,
   ): Promise<RoomRecord>
 }
 
@@ -101,6 +117,21 @@ const requireBinding = (room: RoomRecord) => {
   }
 }
 
+const getDocumentTitle = (content: string) =>
+  content.match(/^#\s+(.+)$/m)?.[1]?.trim() || 'Untitled manuscript'
+
+const toRoomReview = (
+  pullRequest: RepositoryPullRequest,
+  existing?: RoomReview | null,
+): RoomReview => {
+  const now = new Date().toISOString()
+  return {
+    ...pullRequest,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+}
+
 export class RoomStore implements RoomStoreLike {
   private readonly rooms = new Map<string, RoomRecord>()
   private queue: Promise<void> = Promise.resolve()
@@ -111,7 +142,12 @@ export class RoomStore implements RoomStoreLike {
     try {
       const records = JSON.parse(await readFile(this.filePath, 'utf8')) as RoomRecord[]
       for (const record of records) {
-        if (roomPattern.test(record.roomName)) this.rooms.set(record.roomName, record)
+        if (roomPattern.test(record.roomName)) {
+          this.rooms.set(record.roomName, {
+            ...record,
+            review: record.review ?? null,
+          })
+        }
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -133,6 +169,7 @@ export class RoomStore implements RoomStoreLike {
         ownerId: user.id,
         ownerLogin: user.login,
         binding: null,
+        review: null,
         createdAt: now,
         updatedAt: now,
       }
@@ -168,6 +205,43 @@ export class RoomStore implements RoomStoreLike {
     })
   }
 
+  setReview(roomName: string, review: RoomReview) {
+    return this.withLock(async () => {
+      const room = this.rooms.get(roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.review && room.review.number !== review.number) {
+        throw new ApiError(409, 'This room is already associated with another pull request.')
+      }
+
+      const updated = {
+        ...room,
+        review,
+        updatedAt: new Date().toISOString(),
+      }
+      this.rooms.set(roomName, updated)
+      await this.persist()
+      return updated
+    })
+  }
+
+  ensureReview(roomName: string, createReview: () => Promise<RoomReview>) {
+    return this.withLock(async () => {
+      const room = this.rooms.get(roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.review) return room
+
+      const review = await createReview()
+      const updated = {
+        ...room,
+        review,
+        updatedAt: new Date().toISOString(),
+      }
+      this.rooms.set(roomName, updated)
+      await this.persist()
+      return updated
+    })
+  }
+
   private withLock<Result>(operation: () => Promise<Result>): Promise<Result> {
     const result = this.queue.then(operation)
     this.queue = result.then(
@@ -193,6 +267,7 @@ interface PostgresRoomRow {
   owner_id: string
   owner_login: string
   binding: RoomBinding | null
+  review: RoomReview | null
   created_at: Date
   updated_at: Date
 }
@@ -202,11 +277,14 @@ const rowToRoomRecord = (row: PostgresRoomRow): RoomRecord => ({
   ownerId: Number(row.owner_id),
   ownerLogin: row.owner_login,
   binding: row.binding,
+  review: row.review ?? null,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 })
 
 export class PostgresRoomStore implements RoomStoreLike {
+  private readonly reviewCreations = new Map<string, Promise<RoomRecord>>()
+
   constructor(private readonly pool: Pool) {}
 
   async initialize() {
@@ -216,9 +294,14 @@ export class PostgresRoomStore implements RoomStoreLike {
         owner_id BIGINT NOT NULL,
         owner_login TEXT NOT NULL,
         binding JSONB,
+        review JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `)
+    await this.pool.query(`
+      ALTER TABLE demystify_rooms
+      ADD COLUMN IF NOT EXISTS review JSONB
     `)
   }
 
@@ -272,6 +355,89 @@ export class PostgresRoomStore implements RoomStoreLike {
           RETURNING *
         `,
         [roomName, JSON.stringify(binding)],
+      )
+      await client.query('COMMIT')
+      return rowToRoomRecord(result.rows[0])
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async setReview(roomName: string, review: RoomReview) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const room = await this.getForUpdate(client, roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.review && room.review.number !== review.number) {
+        throw new ApiError(409, 'This room is already associated with another pull request.')
+      }
+
+      const result = await client.query<PostgresRoomRow>(
+        `
+          UPDATE demystify_rooms
+          SET review = $2::jsonb, updated_at = NOW()
+          WHERE room_name = $1
+          RETURNING *
+        `,
+        [roomName, JSON.stringify(review)],
+      )
+      await client.query('COMMIT')
+      return rowToRoomRecord(result.rows[0])
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  ensureReview(
+    roomName: string,
+    createReview: () => Promise<RoomReview>,
+  ) {
+    const pending = this.reviewCreations.get(roomName)
+    if (pending) return pending
+
+    const creation = this.createReview(roomName, createReview).finally(() => {
+      if (this.reviewCreations.get(roomName) === creation) {
+        this.reviewCreations.delete(roomName)
+      }
+    })
+    this.reviewCreations.set(roomName, creation)
+    return creation
+  }
+
+  private async createReview(
+    roomName: string,
+    createReview: () => Promise<RoomReview>,
+  ) {
+    const existing = await this.get(roomName)
+    if (!existing) throw new ApiError(404, 'This collaboration room does not exist.')
+    if (existing.review) return existing
+
+    const review = await createReview()
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const room = await this.getForUpdate(client, roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.review) {
+        await client.query('COMMIT')
+        return room
+      }
+
+      const result = await client.query<PostgresRoomRow>(
+        `
+          UPDATE demystify_rooms
+          SET review = $2::jsonb, updated_at = NOW()
+          WHERE room_name = $1
+          RETURNING *
+        `,
+        [roomName, JSON.stringify(review)],
       )
       await client.query('COMMIT')
       return rowToRoomRecord(result.rows[0])
@@ -373,14 +539,33 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
         ? request.body.commitMessage
         : undefined
 
-    response.json(
-      await createRepositorySnapshot(
-        request,
-        binding,
-        content,
-        commitMessage,
-      ),
+    const snapshot = await createRepositorySnapshot(
+      request,
+      binding,
+      content,
+      commitMessage,
     )
+    let review = room.review
+    if (!binding.isFork) {
+      try {
+        review = (await roomStore.ensureReview(roomName, async () => {
+          const pullRequest = await createRepositoryPullRequest(
+            request,
+            binding,
+            `Update ${getDocumentTitle(content)}`,
+          )
+          return toRoomReview(pullRequest)
+        })).review
+      } catch (error) {
+        throw new ApiError(
+          502,
+          'The snapshot was committed, but its draft pull request could not be attached. Retry Save to GitHub.',
+          { snapshot, cause: error instanceof Error ? error.message : String(error) },
+        )
+      }
+    }
+
+    response.json({ ...snapshot, review })
   })
 
   router.post('/rooms/:roomName/pull-requests', async (request, response) => {
@@ -389,9 +574,11 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
     const binding = requireBinding(room)
     const title = readBindingString(request.body.title, 'title').slice(0, 200)
 
-    response.json(
-      await createRepositoryPullRequest(request, binding, title),
-    )
+    const updatedRoom = await roomStore.ensureReview(roomName, async () => {
+      const pullRequest = await createRepositoryPullRequest(request, binding, title)
+      return toRoomReview(pullRequest)
+    })
+    response.json(updatedRoom.review)
   })
 
   return router

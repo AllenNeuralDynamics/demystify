@@ -42,12 +42,22 @@ export interface RepositoryBinding {
   branchName: string
 }
 
+export interface RoomReview {
+  number: number
+  htmlUrl: string
+  title: string
+  state: 'draft' | 'open' | 'closed' | 'merged'
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SnapshotResult {
   branchName: string
   commitSha: string
   commitUrl: string
   fileSha: string | null
   unchanged: boolean
+  review: RoomReview | null
 }
 
 export interface CollaborationRoom {
@@ -55,6 +65,7 @@ export interface CollaborationRoom {
   ownerId: number
   ownerLogin: string
   binding: RepositoryBinding | null
+  review: RoomReview | null
   createdAt: string
   updatedAt: string
 }
@@ -157,7 +168,7 @@ export const createSnapshot = (roomName: string, content: string) =>
   })
 
 export const createPullRequest = (roomName: string, title: string) =>
-  apiRequest<{ number: number; htmlUrl: string; title: string }>(
+  apiRequest<RoomReview>(
     `/api/rooms/${encodeURIComponent(roomName)}/pull-requests`,
     {
       method: 'POST',

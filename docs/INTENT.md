@@ -14,7 +14,7 @@ The intended workflow is:
 2. Collaborators authenticate with their existing GitHub identities.
 3. DeMystify loads a manuscript file into a shared Yjs document.
 4. Authors edit together with presence, comments, and immediate preview.
-5. Deliberate snapshots are committed to a working branch and reviewed through a pull request.
+5. The first deliberate snapshot creates a working branch and draft pull request; later snapshots update that same review.
 6. The repository's existing tests and MyST build remain the publication gate.
 
 ## Principles
