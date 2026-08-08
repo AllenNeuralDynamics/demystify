@@ -28,6 +28,34 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   })
 
+const startRoomServer = async (store: RoomStore) => {
+  const app = express()
+  app.use(express.json())
+  app.use((request, _response, next) => {
+    request.session = {
+      github: {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      },
+    } as Session & Partial<SessionData>
+    next()
+  })
+  app.use('/api', createRoomRouter(store))
+  const server = createServer(app)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind.')
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+  }
+}
+
+const closeServer = (server: ReturnType<typeof createServer>) =>
+  new Promise<void>((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve()),
+  )
+
 describe('room publication routes', () => {
   it('creates one draft PR on the first snapshot and reuses it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
@@ -104,23 +132,8 @@ describe('room publication routes', () => {
       throw new Error(`Unexpected GitHub request: ${init?.method ?? 'GET'} ${url}`)
     })
 
-    const app = express()
-    app.use(express.json())
-    app.use((request, _response, next) => {
-      request.session = {
-        github: {
-          accessToken: 'test-token',
-          user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
-        },
-      } as Session & Partial<SessionData>
-      next()
-    })
-    app.use('/api', createRoomRouter(store))
-    const server = createServer(app)
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const address = server.address()
-    if (!address || typeof address === 'string') throw new Error('Test server did not bind.')
-    const endpoint = `http://127.0.0.1:${address.port}/api/rooms/${roomName}/snapshots`
+    const { server, baseUrl } = await startRoomServer(store)
+    const endpoint = `${baseUrl}/api/rooms/${roomName}/snapshots`
 
     try {
       const [first, concurrent] = await Promise.all([
@@ -161,9 +174,81 @@ describe('room publication routes', () => {
       })
       expect(pullRequestCreates).toBe(1)
     } finally {
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => error ? reject(error) : resolve()),
+      await closeServer(server)
+    }
+  })
+
+  it('keeps an unchanged room without an existing PR as a successful no-op', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'unchanged-review-room'
+    const content = '# Existing paper\n'
+    await store.claim(roomName, { id: 42, login: 'researcher' })
+    await store.setBinding(roomName, { id: 42, login: 'researcher' }, {
+      owner: 'researcher',
+      repository: 'paper',
+      fullName: 'researcher/paper',
+      isFork: false,
+      parentFullName: null,
+      path: 'paper.md',
+      baseBranch: 'main',
+      branchName: 'demystify/unchanged-r',
+    })
+    let pullRequestCreates = 0
+    const originalFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input, init)
+      if (url.endsWith('/repos/researcher/paper')) {
+        return jsonResponse({
+          name: 'paper',
+          full_name: 'researcher/paper',
+          fork: false,
+          default_branch: 'main',
+          owner: { login: 'researcher' },
+          permissions: { push: true },
+        })
+      }
+      if (url.includes('/git/ref/heads/')) {
+        return jsonResponse({ object: { sha: 'branch-sha' } })
+      }
+      if (url.includes('/contents/paper.md')) {
+        return jsonResponse({
+          type: 'file',
+          sha: 'file-sha',
+          encoding: 'base64',
+          content: Buffer.from(content).toString('base64'),
+        })
+      }
+      if (url.includes('/pulls?state=all')) return jsonResponse([])
+      if (url.endsWith('/pulls') && init?.method === 'POST') {
+        pullRequestCreates += 1
+      }
+      throw new Error(`Unexpected GitHub request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    const { server, baseUrl } = await startRoomServer(store)
+
+    try {
+      const response = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        },
       )
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        unchanged: true,
+        review: null,
+      })
+      expect(pullRequestCreates).toBe(0)
+      await expect(store.get(roomName)).resolves.toMatchObject({ review: null })
+    } finally {
+      await closeServer(server)
     }
   })
 })

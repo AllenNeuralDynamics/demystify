@@ -107,6 +107,19 @@ export interface RepositoryWriteTarget {
   branchName: string
 }
 
+const toRepositoryPullRequest = (
+  pullRequest: GitPullRequest,
+): RepositoryPullRequest => ({
+  number: pullRequest.number,
+  htmlUrl: pullRequest.html_url,
+  title: pullRequest.title,
+  state: pullRequest.merged_at
+    ? 'merged'
+    : pullRequest.draft
+      ? 'draft'
+      : pullRequest.state,
+})
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -397,31 +410,26 @@ export const createRepositoryPullRequest = async (
         body: JSON.stringify({ title, head, base, body, draft: true }),
       },
     )
-    return {
-      number: pullRequest.number,
-      htmlUrl: pullRequest.html_url,
-      title: pullRequest.title,
-      state: pullRequest.draft ? 'draft' : 'open',
-    }
+    return toRepositoryPullRequest(pullRequest)
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 422) throw error
-    const existing = await githubRequest<GitPullRequest[]>(
-      request,
-      `${repositoryPath}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
-    )
-    const pullRequest = existing[0]
-    if (!pullRequest) throw error
-    return {
-      number: pullRequest.number,
-      htmlUrl: pullRequest.html_url,
-      title: pullRequest.title,
-      state: pullRequest.merged_at
-        ? 'merged'
-        : pullRequest.draft
-          ? 'draft'
-          : pullRequest.state,
-    }
+    const existing = await findRepositoryPullRequest(request, target)
+    if (!existing) throw error
+    return existing
   }
+}
+
+export const findRepositoryPullRequest = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+): Promise<RepositoryPullRequest | null> => {
+  const { owner, repository, baseBranch: base, branchName: head } = target
+  const repositoryPath = `/repos/${owner}/${repository}`
+  const existing = await githubRequest<GitPullRequest[]>(
+    request,
+    `${repositoryPath}/pulls?state=all&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
+  )
+  return existing[0] ? toRepositoryPullRequest(existing[0]) : null
 }
 
 export const githubRouter = Router()

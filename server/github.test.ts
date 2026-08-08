@@ -96,7 +96,7 @@ describe('createRepositoryPullRequest', () => {
       state: 'open',
     })
     expect(fetchMock.mock.calls[2][0]).toContain(
-      '/pulls?state=open&head=researcher%3Ademystify%2Ftest-room&base=main',
+      '/pulls?state=all&head=researcher%3Ademystify%2Ftest-room&base=main',
     )
   })
 })

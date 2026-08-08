@@ -6,6 +6,7 @@ import {
   ApiError,
   createRepositoryPullRequest,
   createRepositorySnapshot,
+  findRepositoryPullRequest,
   requireRepositoryWriteAccess,
   type RepositoryPullRequest,
 } from './github.js'
@@ -547,13 +548,21 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
     )
     let review = room.review
     if (!binding.isFork) {
+      const existingPullRequest =
+        !review && snapshot.unchanged
+          ? await findRepositoryPullRequest(request, binding)
+          : null
+      if (!review && snapshot.unchanged && !existingPullRequest) {
+        response.json({ ...snapshot, review: null })
+        return
+      }
       try {
         review = (await roomStore.ensureReview(roomName, async () => {
-          const pullRequest = await createRepositoryPullRequest(
-            request,
-            binding,
-            `Update ${getDocumentTitle(content)}`,
-          )
+          const pullRequest = existingPullRequest ?? await createRepositoryPullRequest(
+              request,
+              binding,
+              `Update ${getDocumentTitle(content)}`,
+            )
           return toRoomReview(pullRequest)
         })).review
       } catch (error) {
