@@ -876,6 +876,15 @@ export const authorizeRoomAccess = async (
   if (!room) throw new ApiError(404, 'This collaboration room has not been claimed.')
   const shareGrant = getShareGrant(request, room)
 
+  if (shareGrant?.role === 'viewer') {
+    options.onReadOnlyChange?.(roomName, isTerminalReview(room.review))
+    return {
+      room,
+      role: 'viewer',
+      shareExpiresAt: shareGrant.expiresAt,
+    }
+  }
+
   if (request.session.github?.user) {
     try {
       return {

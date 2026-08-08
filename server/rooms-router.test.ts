@@ -624,6 +624,20 @@ describe('room publication routes', () => {
         accessToken: 'test-token',
         user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
       }
+      const signedInViewer = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      await expect(signedInViewer.json()).resolves.toMatchObject({
+        access: 'viewer',
+      })
+      delete session.viewerRooms?.[roomName]
+      delete session.github
+
+      session.github = {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      }
       const secondLink = await createLink()
       expect(secondLink.token).not.toBe(firstLink.token)
       delete session.github
