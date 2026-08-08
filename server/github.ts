@@ -90,13 +90,27 @@ interface GitPullRequest {
   state: 'open' | 'closed'
   draft?: boolean
   merged_at?: string | null
+  head?: {
+    sha: string
+  }
 }
 
 interface GitHubIssueComment {
   id: number
   html_url: string
   body: string
+  created_at?: string
   updated_at: string
+  issue_url?: string
+  user?: {
+    id: number
+    login: string
+  }
+}
+
+interface GitHubReviewComment extends GitHubIssueComment {
+  in_reply_to_id?: number
+  pull_request_url?: string
 }
 
 export interface RepositoryPullRequest {
@@ -110,14 +124,48 @@ export interface RepositoryPullRequestComment {
   id: number
   htmlUrl: string
   updatedAt: string
+  mode: 'conversation' | 'review'
 }
 
 export interface RepositoryPullRequestCommentInput {
   id: string
   githubCommentId?: number
+  githubMode?: 'conversation' | 'review'
   authorName: string
   body: string
   resolved: boolean
+  anchor?: {
+    startLine: number
+    endLine: number
+    quote: string
+  }
+}
+
+export interface RepositoryPullRequestCommentReplyInput {
+  id: string
+  threadId: string
+  githubCommentId?: number
+  rootGitHubCommentId: number
+  mode: 'conversation' | 'review'
+  authorName: string
+  body: string
+}
+
+export interface RepositoryPullRequestCommentSync {
+  messages: Array<{
+    id: string
+    threadId: string
+    authorId: string
+    authorName: string
+    authorColor: string
+    body: string
+    createdAt: string
+    github: RepositoryPullRequestComment
+  }>
+  resolutions: Array<{
+    threadId: string
+    resolved: boolean
+  }>
 }
 
 export interface RepositoryWriteTarget {
@@ -456,6 +504,12 @@ export const findRepositoryPullRequest = async (
 const getCommentMarker = (commentId: string) =>
   `<!-- demystify-comment:${commentId} -->`
 
+const getCommentMessageMarker = (threadId: string, messageId: string) =>
+  `<!-- demystify-thread:${threadId} message:${messageId} -->`
+
+const commentMarkerPattern = /<!-- demystify-comment:([A-Za-z0-9_-]{1,100}) -->/
+const messageMarkerPattern = /<!-- demystify-thread:([A-Za-z0-9_-]{1,100}) message:([A-Za-z0-9_-]{1,100}) -->/
+
 const escapeHtml = (value: string) => value
   .replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;')
@@ -463,15 +517,145 @@ const escapeHtml = (value: string) => value
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#39;')
 
+interface GitHubReviewThread {
+  id: string
+  isResolved: boolean
+  comments: {
+    nodes: Array<{ databaseId: number | null }>
+  }
+}
+
+interface GitHubReviewThreadsResponse {
+  data?: {
+    repository: {
+      pullRequest: {
+        reviewThreads: {
+          nodes: GitHubReviewThread[]
+        }
+      } | null
+    } | null
+  }
+  errors?: Array<{ message: string }>
+}
+
+const getReviewThreads = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+) => {
+  const result = await githubRequest<GitHubReviewThreadsResponse>(
+    request,
+    '/graphql',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        query: `
+          query DeMystifyReviewThreads($owner: String!, $repository: String!, $number: Int!) {
+            repository(owner: $owner, name: $repository) {
+              pullRequest(number: $number) {
+                reviewThreads(first: 100) {
+                  nodes {
+                    id
+                    isResolved
+                    comments(first: 100) { nodes { databaseId } }
+                  }
+                }
+              }
+            }
+          }
+        `,
+        variables: {
+          owner: target.owner,
+          repository: target.repository,
+          number: pullRequestNumber,
+        },
+      }),
+    },
+  )
+  if (result.errors?.length) {
+    throw new ApiError(502, result.errors.map((error) => error.message).join('; '))
+  }
+  return result.data?.repository?.pullRequest?.reviewThreads.nodes ?? []
+}
+
+const setReviewThreadResolution = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+  commentId: number,
+  resolved: boolean,
+) => {
+  const threads = await getReviewThreads(request, target, pullRequestNumber)
+  const thread = threads.find((candidate) =>
+    candidate.comments.nodes.some((comment) => comment.databaseId === commentId),
+  )
+  if (!thread) throw new ApiError(502, 'GitHub did not return the review thread.')
+  if (thread.isResolved === resolved) return
+
+  const mutation = resolved ? 'resolveReviewThread' : 'unresolveReviewThread'
+  const result = await githubRequest<{ errors?: Array<{ message: string }> }>(
+    request,
+    '/graphql',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        query: `
+          mutation DeMystifySetThreadResolution($threadId: ID!) {
+            ${mutation}(input: { threadId: $threadId }) {
+              thread { id isResolved }
+            }
+          }
+        `,
+        variables: { threadId: thread.id },
+      }),
+    },
+  )
+  if (result.errors?.length) {
+    throw new ApiError(502, result.errors.map((error) => error.message).join('; '))
+  }
+}
+
+const listGitHubComments = async <Comment extends GitHubIssueComment>(
+  request: Request,
+  path: string,
+) => {
+  const comments: Comment[] = []
+  for (let page = 1; page <= 20; page += 1) {
+    const separator = path.includes('?') ? '&' : '?'
+    const next = await githubRequest<Comment[]>(
+      request,
+      `${path}${separator}per_page=100&page=${page}`,
+    )
+    comments.push(...next)
+    if (next.length < 100) break
+  }
+  return comments
+}
+
 const formatPullRequestComment = (
   comment: RepositoryPullRequestCommentInput,
+  target: RepositoryWriteTarget,
+  includeAnchor: boolean,
 ) => {
   const status = comment.resolved ? 'Resolved' : 'Open'
+  const anchorContext = includeAnchor && comment.anchor
+    ? [
+        `[${target.path}:${comment.anchor.startLine}-${comment.anchor.endLine}](` +
+          `https://github.com/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repository)}` +
+          `/blob/${encodeURIComponent(target.branchName)}/${encodeRepositoryPath(target.path)}` +
+          `#L${comment.anchor.startLine}-L${comment.anchor.endLine})`,
+        comment.anchor.quote
+          .split('\n')
+          .map((line) => `> ${line}`)
+          .join('\n'),
+      ].join('\n\n')
+    : null
   return [
+    anchorContext,
     comment.body,
     `<sub>DeMystify comment by ${escapeHtml(comment.authorName)} - ${status}</sub>`,
     getCommentMarker(comment.id),
-  ].join('\n\n')
+  ].filter(Boolean).join('\n\n')
 }
 
 export const upsertRepositoryPullRequestComment = async (
@@ -483,12 +667,15 @@ export const upsertRepositoryPullRequestComment = async (
   const { owner, repository } = target
   const repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`
   const marker = getCommentMarker(comment.id)
-  let existing: GitHubIssueComment | undefined
+  let mode = comment.githubMode ?? (comment.anchor ? 'review' : 'conversation')
+  let existing: GitHubIssueComment | GitHubReviewComment | undefined
   if (comment.githubCommentId) {
     try {
-      const candidate = await githubRequest<GitHubIssueComment>(
+      const candidate = await githubRequest<GitHubIssueComment | GitHubReviewComment>(
         request,
-        `${repositoryPath}/issues/comments/${comment.githubCommentId}`,
+        mode === 'review'
+          ? `${repositoryPath}/pulls/comments/${comment.githubCommentId}`
+          : `${repositoryPath}/issues/comments/${comment.githubCommentId}`,
       )
       if (!candidate.body.includes(marker)) {
         throw new ApiError(409, 'The GitHub comment does not belong to this room comment.')
@@ -498,25 +685,290 @@ export const upsertRepositoryPullRequestComment = async (
       if (!(error instanceof ApiError) || error.status !== 404) throw error
     }
   }
-  if (!existing) {
-    const comments = await githubRequest<GitHubIssueComment[]>(
+  if (!existing && comment.anchor) {
+    const reviewComments = await listGitHubComments<GitHubReviewComment>(
       request,
-      `${repositoryPath}/issues/${pullRequestNumber}/comments?per_page=100&sort=created&direction=desc`,
+      `${repositoryPath}/pulls/${pullRequestNumber}/comments`,
+    )
+    existing = reviewComments.find((candidate) => candidate.body.includes(marker))
+    if (existing) mode = 'review'
+  }
+  if (!existing) {
+    const comments = await listGitHubComments<GitHubIssueComment>(
+      request,
+      `${repositoryPath}/issues/${pullRequestNumber}/comments?sort=created&direction=desc`,
     )
     existing = comments.find((candidate) => candidate.body.includes(marker))
+    if (existing) mode = 'conversation'
   }
-  const body = formatPullRequestComment(comment)
+  const body = formatPullRequestComment(comment, target, mode === 'conversation')
 
+  let mirrored: GitHubIssueComment | GitHubReviewComment
+  if (existing) {
+    mirrored = existing.body === body
+      ? existing
+      : await githubRequest<GitHubIssueComment | GitHubReviewComment>(
+          request,
+          mode === 'review'
+            ? `${repositoryPath}/pulls/comments/${existing.id}`
+            : `${repositoryPath}/issues/comments/${existing.id}`,
+          { method: 'PATCH', body: JSON.stringify({ body }) },
+        )
+  } else if (mode === 'review' && comment.anchor) {
+    const pullRequest = await githubRequest<GitPullRequest>(
+      request,
+      `${repositoryPath}/pulls/${pullRequestNumber}`,
+    )
+    if (!pullRequest.head?.sha) {
+      throw new ApiError(502, 'GitHub did not return the pull request head commit.')
+    }
+    const committedFile = await githubRequest<GitHubContentFile>(
+      request,
+      `${repositoryPath}/contents/${encodeRepositoryPath(target.path)}?ref=${encodeURIComponent(pullRequest.head.sha)}`,
+    )
+    const committedSource = committedFile.encoding === 'base64' && committedFile.content
+      ? Buffer.from(committedFile.content.replace(/\s/g, ''), 'base64')
+          .toString('utf8')
+          .replace(/\r\n?/g, '\n')
+      : ''
+    const committedLines = committedSource.split('\n')
+    const committedQuote = committedLines
+      .slice(comment.anchor.startLine - 1, comment.anchor.endLine)
+      .join('\n')
+    const anchorMatchesHead = committedQuote.includes(
+      comment.anchor.quote.replace(/\r\n?/g, '\n'),
+    )
+    if (!anchorMatchesHead) {
+      mode = 'conversation'
+      const fallbackBody = formatPullRequestComment(comment, target, true)
+      mirrored = await githubRequest<GitHubIssueComment>(
+        request,
+        `${repositoryPath}/issues/${pullRequestNumber}/comments`,
+        { method: 'POST', body: JSON.stringify({ body: fallbackBody }) },
+      )
+      return {
+        id: mirrored.id,
+        htmlUrl: mirrored.html_url,
+        updatedAt: mirrored.updated_at,
+        mode,
+      }
+    }
+    try {
+      mirrored = await githubRequest<GitHubReviewComment>(
+        request,
+        `${repositoryPath}/pulls/${pullRequestNumber}/comments`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            body,
+            commit_id: pullRequest.head.sha,
+            path: target.path,
+            line: comment.anchor.endLine,
+            side: 'RIGHT',
+            ...(comment.anchor.startLine !== comment.anchor.endLine
+              ? {
+                  start_line: comment.anchor.startLine,
+                  start_side: 'RIGHT',
+                }
+              : {}),
+          }),
+        },
+      )
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 422) throw error
+      mode = 'conversation'
+      const fallbackBody = formatPullRequestComment(comment, target, true)
+      mirrored = await githubRequest<GitHubIssueComment>(
+        request,
+        `${repositoryPath}/issues/${pullRequestNumber}/comments`,
+        { method: 'POST', body: JSON.stringify({ body: fallbackBody }) },
+      )
+    }
+  } else {
+    mirrored = await githubRequest<GitHubIssueComment>(
+      request,
+      `${repositoryPath}/issues/${pullRequestNumber}/comments`,
+      { method: 'POST', body: JSON.stringify({ body }) },
+    )
+  }
+
+  if (mode === 'review' && (comment.githubCommentId || comment.resolved)) {
+    await setReviewThreadResolution(
+      request,
+      target,
+      pullRequestNumber,
+      mirrored.id,
+      comment.resolved,
+    )
+  }
+
+  return {
+    id: mirrored.id,
+    htmlUrl: mirrored.html_url,
+    updatedAt: mirrored.updated_at,
+    mode,
+  }
+}
+
+const stripMirrorMetadata = (body: string) => body
+  .replace(/\n\n<sub>DeMystify (?:comment|reply) by .*?<\/sub>/g, '')
+  .replace(/\n\n<!-- demystify-(?:comment|thread):.*? -->/g, '')
+  .trim()
+
+const toSyncedMessage = (
+  comment: GitHubIssueComment | GitHubReviewComment,
+  threadId: string,
+  messageId: string,
+  mode: 'conversation' | 'review',
+) => ({
+  id: messageId,
+  threadId,
+  authorId: `github:${comment.user?.id ?? comment.id}`,
+  authorName: comment.user?.login ?? 'GitHub user',
+  authorColor: '#0969da',
+  body: stripMirrorMetadata(comment.body),
+  createdAt: comment.created_at ?? comment.updated_at,
+  github: {
+    id: comment.id,
+    htmlUrl: comment.html_url,
+    updatedAt: comment.updated_at,
+    mode,
+  },
+})
+
+export const getRepositoryPullRequestCommentSync = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+): Promise<RepositoryPullRequestCommentSync> => {
+  const repositoryPath = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repository)}`
+  const reviewComments = await listGitHubComments<GitHubReviewComment>(
+    request,
+    `${repositoryPath}/pulls/${pullRequestNumber}/comments`,
+  )
+  const issueComments = await listGitHubComments<GitHubIssueComment>(
+    request,
+    `${repositoryPath}/issues/${pullRequestNumber}/comments?sort=created&direction=asc`,
+  )
+  const roots = new Map<number, { threadId: string; mode: 'conversation' | 'review' }>()
+  for (const comment of reviewComments) {
+    const marker = comment.body.match(commentMarkerPattern)
+    if (marker && !comment.in_reply_to_id) {
+      roots.set(comment.id, { threadId: marker[1], mode: 'review' })
+    }
+  }
+  for (const comment of issueComments) {
+    const marker = comment.body.match(commentMarkerPattern)
+    if (marker) roots.set(comment.id, { threadId: marker[1], mode: 'conversation' })
+  }
+
+  const messages: RepositoryPullRequestCommentSync['messages'] = []
+  for (const comment of reviewComments) {
+    if (!comment.in_reply_to_id) continue
+    const root = roots.get(comment.in_reply_to_id)
+    if (!root) continue
+    const marker = comment.body.match(messageMarkerPattern)
+    messages.push(toSyncedMessage(
+      comment,
+      root.threadId,
+      marker?.[2] ?? `github-${comment.id}`,
+      'review',
+    ))
+  }
+  for (const comment of issueComments) {
+    const marker = comment.body.match(messageMarkerPattern)
+    if (marker) messages.push(toSyncedMessage(comment, marker[1], marker[2], 'conversation'))
+  }
+
+  const reviewThreads = await getReviewThreads(request, target, pullRequestNumber)
+  const resolutions = reviewThreads.flatMap((thread) => {
+    const root = thread.comments.nodes
+      .map((comment) => comment.databaseId === null ? null : roots.get(comment.databaseId))
+      .find((candidate) => candidate?.mode === 'review')
+    return root ? [{ threadId: root.threadId, resolved: thread.isResolved }] : []
+  })
+
+  return { messages, resolutions }
+}
+
+export const upsertRepositoryPullRequestCommentReply = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+  reply: RepositoryPullRequestCommentReplyInput,
+): Promise<RepositoryPullRequestComment> => {
+  const repositoryPath = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repository)}`
+  const rootPath = reply.mode === 'review'
+    ? `${repositoryPath}/pulls/comments/${reply.rootGitHubCommentId}`
+    : `${repositoryPath}/issues/comments/${reply.rootGitHubCommentId}`
+  const root = await githubRequest<GitHubIssueComment | GitHubReviewComment>(
+    request,
+    rootPath,
+  )
+  if (!root.body.includes(getCommentMarker(reply.threadId))) {
+    throw new ApiError(409, 'The GitHub root comment does not belong to this thread.')
+  }
+  const expectedRootUrl = reply.mode === 'review'
+    ? `/pulls/${pullRequestNumber}`
+    : `/issues/${pullRequestNumber}`
+  const actualRootUrl = reply.mode === 'review'
+    ? (root as GitHubReviewComment).pull_request_url
+    : root.issue_url
+  if (!actualRootUrl?.endsWith(expectedRootUrl)) {
+    throw new ApiError(409, 'The GitHub root comment belongs to a different pull request.')
+  }
+
+  const marker = getCommentMessageMarker(reply.threadId, reply.id)
+  let existing: GitHubIssueComment | GitHubReviewComment | undefined
+  if (reply.githubCommentId) {
+    const candidate = await githubRequest<GitHubIssueComment | GitHubReviewComment>(
+      request,
+      reply.mode === 'review'
+        ? `${repositoryPath}/pulls/comments/${reply.githubCommentId}`
+        : `${repositoryPath}/issues/comments/${reply.githubCommentId}`,
+    )
+    if (!candidate.body.includes(marker)) {
+      throw new ApiError(409, 'The GitHub reply does not belong to this thread message.')
+    }
+    existing = candidate
+  }
+  if (!existing) {
+    const comments = reply.mode === 'review'
+      ? await listGitHubComments<GitHubReviewComment>(
+          request,
+          `${repositoryPath}/pulls/${pullRequestNumber}/comments`,
+        )
+      : await listGitHubComments<GitHubIssueComment>(
+          request,
+          `${repositoryPath}/issues/${pullRequestNumber}/comments?sort=created&direction=desc`,
+        )
+    existing = comments.find((candidate) => candidate.body.includes(marker))
+  }
+
+  const body = [
+    reply.body,
+    `<sub>DeMystify reply by ${escapeHtml(reply.authorName)}</sub>`,
+    marker,
+  ].join('\n\n')
   const mirrored = existing?.body === body
     ? existing
-    : await githubRequest<GitHubIssueComment>(
+    : await githubRequest<GitHubIssueComment | GitHubReviewComment>(
         request,
         existing
-          ? `${repositoryPath}/issues/comments/${existing.id}`
-          : `${repositoryPath}/issues/${pullRequestNumber}/comments`,
+          ? reply.mode === 'review'
+            ? `${repositoryPath}/pulls/comments/${existing.id}`
+            : `${repositoryPath}/issues/comments/${existing.id}`
+          : reply.mode === 'review'
+            ? `${repositoryPath}/pulls/${pullRequestNumber}/comments`
+            : `${repositoryPath}/issues/${pullRequestNumber}/comments`,
         {
           method: existing ? 'PATCH' : 'POST',
-          body: JSON.stringify({ body }),
+          body: JSON.stringify({
+            body,
+            ...(!existing && reply.mode === 'review'
+              ? { in_reply_to: reply.rootGitHubCommentId }
+              : {}),
+          }),
         },
       )
 
@@ -524,6 +976,7 @@ export const upsertRepositoryPullRequestComment = async (
     id: mirrored.id,
     htmlUrl: mirrored.html_url,
     updatedAt: mirrored.updated_at,
+    mode: reply.mode,
   }
 }
 

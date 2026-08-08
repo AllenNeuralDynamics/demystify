@@ -21,7 +21,9 @@ Room bindings are immutable after their first repository file is selected. This 
 
 GitHub is updated only through explicit snapshots. The gateway derives the repository, path, base branch, and stable `demystify/<room>` branch from the authorized immutable room binding. The first snapshot writes the manuscript through the Contents API, creates a draft pull request, and persists that review identity on the room. Later snapshots update the same branch and pull request. Legacy rooms discover an existing open PR by their deterministic branch before persisting it.
 
-Comments remain part of the shared Yjs document. Once a room has a persisted pull request, the browser mirrors each comment through a room-authorized server route into the PR conversation. A hidden `demystify-comment:<uuid>` marker makes retries idempotent, and resolve/reopen operations update the same GitHub comment. Pre-PR comments remain queued in Yjs. The current comments are document-level and synchronization is one-way; inline review threads and GitHub-to-DeMystify updates require source anchors and webhooks or polling.
+Comments remain part of the shared Yjs document. Roots store encoded Yjs relative positions and quoted context; replies are independent entries in a second Yjs map so concurrent replies merge without replacing each other. Deleted source collapses an anchor into an orphan while preserving its original quote.
+
+Once a room has a persisted pull request, the browser resolves anchors to source lines and mirrors each root through a room-authorized server route. GitHub accepts native review threads only on PR diff lines; a `422` response falls back to a marked conversation comment containing path, lines, and quote. Hidden thread/message UUIDs make retries idempotent. Native replies use GitHub's `in_reply_to` API, and review-thread resolution uses GraphQL. The browser polls the authorized room sync endpoint on focus and every 15 seconds to import GitHub replies and resolution into deterministic Yjs records.
 
 ## Production Target
 

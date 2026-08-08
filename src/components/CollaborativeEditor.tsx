@@ -1,16 +1,27 @@
 import { redo, undo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
-import { EditorState } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { yCollab } from 'y-codemirror.next'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
+import { getCommentRange } from '../lib/commentAnchors'
+
+export interface CommentHighlight {
+  id: string
+  from: number
+  to: number
+  resolved: boolean
+  active: boolean
+}
 
 interface CollaborativeEditorProps {
   sharedText: Y.Text
   provider: WebsocketProvider
+  commentHighlights?: CommentHighlight[]
+  onCommentClick?: (commentId: string) => void
 }
 
 export interface CollaborativeEditorHandle {
@@ -18,8 +29,37 @@ export interface CollaborativeEditorHandle {
   redo: () => void
   wrapSelection: (before: string, after?: string) => void
   prefixLine: (prefix: string) => void
+  getCommentSelection: () => { from: number; to: number } | null
+  revealRange: (from: number, to: number) => void
   focus: () => void
 }
+
+const setCommentHighlights = StateEffect.define<CommentHighlight[]>()
+
+const commentHighlightField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (decorations, transaction) => {
+    for (const effect of transaction.effects) {
+      if (!effect.is(setCommentHighlights)) continue
+      return Decoration.set(
+        effect.value
+          .filter((highlight) => highlight.to > highlight.from)
+          .sort((first, second) => first.from - second.from)
+          .map((highlight) => Decoration.mark({
+            class: [
+              'cm-comment-anchor',
+              highlight.resolved ? 'is-resolved' : '',
+              highlight.active ? 'is-active' : '',
+            ].filter(Boolean).join(' '),
+            attributes: { 'data-comment-id': highlight.id },
+          }).range(highlight.from, highlight.to)),
+        true,
+      )
+    }
+    return decorations.map(transaction.changes)
+  },
+  provide: (field) => EditorView.decorations.from(field),
+})
 
 const editorTheme = EditorView.theme({
   '&': {
@@ -55,14 +95,32 @@ const editorTheme = EditorView.theme({
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
     background: '#cfe7df',
   },
+  '.cm-comment-anchor': {
+    background: '#ffe9a8',
+    borderBottom: '2px solid #c58c00',
+    cursor: 'pointer',
+  },
+  '.cm-comment-anchor.is-active': {
+    background: '#ffd86b',
+    borderBottomColor: '#765200',
+  },
+  '.cm-comment-anchor.is-resolved': {
+    background: '#e7ebe8',
+    borderBottomColor: '#8b948f',
+  },
 })
 
 export const CollaborativeEditor = forwardRef<
   CollaborativeEditorHandle,
   CollaborativeEditorProps
->(({ sharedText, provider }, ref) => {
+>(({ sharedText, provider, commentHighlights = [], onCommentClick }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const onCommentClickRef = useRef(onCommentClick)
+
+  useEffect(() => {
+    onCommentClickRef.current = onCommentClick
+  }, [onCommentClick])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -75,6 +133,18 @@ export const CollaborativeEditor = forwardRef<
         markdown(),
         EditorView.lineWrapping,
         editorTheme,
+        commentHighlightField,
+        EditorView.domEventHandlers({
+          click: (event) => {
+            const target = event.target
+            if (!(target instanceof HTMLElement)) return false
+            const commentId = target.closest<HTMLElement>('[data-comment-id]')
+              ?.dataset.commentId
+            if (!commentId) return false
+            onCommentClickRef.current?.(commentId)
+            return true
+          },
+        }),
         yCollab(sharedText, provider.awareness, { undoManager }),
       ],
     })
@@ -87,6 +157,12 @@ export const CollaborativeEditor = forwardRef<
       viewRef.current = null
     }
   }, [provider, sharedText])
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: setCommentHighlights.of(commentHighlights),
+    })
+  }, [commentHighlights])
 
   useImperativeHandle(ref, () => ({
     undo: () => {
@@ -113,6 +189,26 @@ export const CollaborativeEditor = forwardRef<
       view.dispatch({
         changes: { from: line.from, insert: prefix },
         selection: { anchor: view.state.selection.main.head + prefix.length },
+      })
+      view.focus()
+    },
+    getCommentSelection: () => {
+      const view = viewRef.current
+      if (!view) return null
+      const selection = view.state.selection.main
+      const range = getCommentRange(
+        view.state.doc.toString(),
+        selection.from,
+        selection.to,
+      )
+      return range.to > range.from ? { from: range.from, to: range.to } : null
+    },
+    revealRange: (from, to) => {
+      const view = viewRef.current
+      if (!view) return
+      view.dispatch({
+        selection: { anchor: from, head: to },
+        effects: EditorView.scrollIntoView(from, { y: 'center' }),
       })
       view.focus()
     },

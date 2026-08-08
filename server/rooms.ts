@@ -7,8 +7,10 @@ import {
   createRepositoryPullRequest,
   createRepositorySnapshot,
   findRepositoryPullRequest,
+  getRepositoryPullRequestCommentSync,
   requireRepositoryWriteAccess,
   upsertRepositoryPullRequestComment,
+  upsertRepositoryPullRequestCommentReply,
   type RepositoryPullRequest,
 } from './github.js'
 
@@ -631,6 +633,34 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
     ) {
       throw new ApiError(400, 'githubCommentId must be a positive integer.')
     }
+    const githubMode = request.body.githubMode
+    if (
+      githubMode !== undefined &&
+      githubMode !== 'conversation' &&
+      githubMode !== 'review'
+    ) {
+      throw new ApiError(400, 'githubMode must be conversation or review.')
+    }
+    const rawAnchor = request.body.anchor
+    let anchor: { startLine: number; endLine: number; quote: string } | undefined
+    if (rawAnchor !== undefined) {
+      if (
+        !rawAnchor ||
+        !Number.isSafeInteger(rawAnchor.startLine) ||
+        !Number.isSafeInteger(rawAnchor.endLine) ||
+        rawAnchor.startLine < 1 ||
+        rawAnchor.endLine < rawAnchor.startLine ||
+        rawAnchor.endLine > 1_000_000 ||
+        rawAnchor.endLine - rawAnchor.startLine > 10_000
+      ) {
+        throw new ApiError(400, 'anchor must contain a valid line range.')
+      }
+      anchor = {
+        startLine: rawAnchor.startLine,
+        endLine: rawAnchor.endLine,
+        quote: readCommentText(rawAnchor.quote, 'anchor.quote', 20_000),
+      }
+    }
 
     const mirrorKey = `${roomName}:${commentId}`
     const previousMirror = commentMirrorQueues.get(mirrorKey) ?? Promise.resolve()
@@ -641,9 +671,11 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       {
         id: commentId,
         ...(githubCommentId ? { githubCommentId } : {}),
+        ...(githubMode ? { githubMode } : {}),
         authorName,
         body,
         resolved: request.body.resolved,
+        ...(anchor ? { anchor } : {}),
       },
     ))
     const queueTail = mirror.then(() => undefined, () => undefined)
@@ -654,6 +686,82 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       }
     })
     response.json(await mirror)
+  })
+
+  router.put(
+    '/rooms/:roomName/comments/:commentId/messages/:messageId',
+    async (request, response) => {
+      const roomName = validateRoomName(request.params.roomName)
+      const commentId = request.params.commentId
+      const messageId = request.params.messageId
+      if (!commentIdPattern.test(commentId) || !commentIdPattern.test(messageId)) {
+        throw new ApiError(400, 'Valid thread and message IDs are required.')
+      }
+
+      const room = await authorizeRoomRequest(request, roomStore, roomName)
+      const binding = requireBinding(room)
+      if (!room.review) {
+        throw new ApiError(409, 'Save a changed snapshot before mirroring replies.')
+      }
+      const reviewNumber = room.review.number
+      const rootGitHubCommentId = request.body.rootGitHubCommentId
+      if (!Number.isSafeInteger(rootGitHubCommentId) || rootGitHubCommentId <= 0) {
+        throw new ApiError(400, 'rootGitHubCommentId must be a positive integer.')
+      }
+      const githubCommentId = request.body.githubCommentId
+      if (
+        githubCommentId !== undefined &&
+        (!Number.isSafeInteger(githubCommentId) || githubCommentId <= 0)
+      ) {
+        throw new ApiError(400, 'githubCommentId must be a positive integer.')
+      }
+      const mode = request.body.mode
+      if (mode !== 'conversation' && mode !== 'review') {
+        throw new ApiError(400, 'mode must be conversation or review.')
+      }
+      const body = readCommentText(request.body.body, 'body', 60_000)
+      const authorName = readCommentText(request.body.authorName, 'authorName', 100)
+
+      const mirrorKey = `${roomName}:${commentId}:${messageId}`
+      const previousMirror = commentMirrorQueues.get(mirrorKey) ?? Promise.resolve()
+      const mirror = previousMirror.then(() => upsertRepositoryPullRequestCommentReply(
+        request,
+        binding,
+        reviewNumber,
+        {
+          id: messageId,
+          threadId: commentId,
+          ...(githubCommentId ? { githubCommentId } : {}),
+          rootGitHubCommentId,
+          mode,
+          authorName,
+          body,
+        },
+      ))
+      const queueTail = mirror.then(() => undefined, () => undefined)
+      commentMirrorQueues.set(mirrorKey, queueTail)
+      void queueTail.finally(() => {
+        if (commentMirrorQueues.get(mirrorKey) === queueTail) {
+          commentMirrorQueues.delete(mirrorKey)
+        }
+      })
+      response.json(await mirror)
+    },
+  )
+
+  router.get('/rooms/:roomName/comments/sync', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const binding = requireBinding(room)
+    if (!room.review) {
+      response.json({ messages: [], resolutions: [] })
+      return
+    }
+    response.json(await getRepositoryPullRequestCommentSync(
+      request,
+      binding,
+      room.review.number,
+    ))
   })
 
   return router

@@ -18,12 +18,13 @@ Use a standalone personal repository that is not a GitHub fork:
 1. Create a new test repository with an `index.md` file.
 2. Add that repository to the test GitHub App installation.
 3. Open `index.md` in DeMystify and make a harmless edit.
-4. Add a room comment before the first snapshot and verify it remains queued.
-5. Save a changed snapshot and verify the pull request and queued comment are created.
-6. Add another room comment and follow its **PR comment** link.
-7. Resolve and reopen a room comment; verify the same GitHub comment is updated rather than duplicated.
-8. Verify that both head and base belong to the standalone repository.
-9. Close the PR and delete the test branch or repository when finished.
+4. Select a changed paragraph, add a thread and reply, then edit before it; verify the highlight remains attached.
+5. Add another thread on an unchanged paragraph and verify both threads remain queued before the first snapshot.
+6. Save a changed snapshot. Verify the changed paragraph becomes a native GitHub review thread and the unchanged paragraph becomes a linked conversation fallback.
+7. Reply and resolve from both DeMystify and GitHub. Refocus DeMystify and verify replies and native resolution synchronize without duplication.
+8. Delete anchored source and verify DeMystify preserves the orphaned thread's original quote.
+9. Verify that both head and base belong to the standalone repository.
+10. Close the PR and delete the test branch or repository when finished.
 
 ## Required Checks
 

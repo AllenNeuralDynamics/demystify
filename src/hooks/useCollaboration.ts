@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
-import type { PullRequestCommentMirror } from '../lib/github'
+import type {
+  PullRequestCommentMirror,
+  PullRequestCommentSync,
+} from '../lib/github'
+import {
+  createCommentAnchor,
+  resolveCommentAnchor,
+  type CommentAnchor,
+} from '../lib/commentAnchors'
 import type { CollaboratorProfile } from '../lib/profile'
 import {
   normalizeSourceText,
@@ -23,9 +31,21 @@ export interface SharedComment {
   body: string
   createdAt: string
   resolved: boolean
+  anchor?: CommentAnchor
   github?: PullRequestCommentMirror & {
     resolved: boolean
   }
+}
+
+export interface SharedCommentMessage {
+  id: string
+  threadId: string
+  authorId: string
+  authorName: string
+  authorColor: string
+  body: string
+  createdAt: string
+  github?: PullRequestCommentMirror
 }
 
 interface CollaborationSession {
@@ -33,6 +53,7 @@ interface CollaborationSession {
   provider: WebsocketProvider
   text: Y.Text
   comments: Y.Map<SharedComment>
+  commentMessages: Y.Map<SharedCommentMessage>
   metadata: Y.Map<string | number | boolean>
 }
 
@@ -67,6 +88,7 @@ export const useCollaboration = (
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
   const [comments, setComments] = useState<SharedComment[]>([])
+  const [commentMessages, setCommentMessages] = useState<SharedCommentMessage[]>([])
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
@@ -79,8 +101,16 @@ export const useCollaboration = (
     })
     const text = document.getText('content')
     const commentMap = document.getMap<SharedComment>('comments')
+    const commentMessageMap = document.getMap<SharedCommentMessage>('commentMessages')
     const metadata = document.getMap<string | number | boolean>('metadata')
-    const nextSession = { document, provider, text, comments: commentMap, metadata }
+    const nextSession = {
+      document,
+      provider,
+      text,
+      comments: commentMap,
+      commentMessages: commentMessageMap,
+      metadata,
+    }
     let initializationTimer: number | undefined
 
     const updateContent = () => setContent(text.toString())
@@ -88,6 +118,13 @@ export const useCollaboration = (
       setComments(
         Array.from(commentMap.values()).sort((first, second) =>
           second.createdAt.localeCompare(first.createdAt),
+        ),
+      )
+    }
+    const updateCommentMessages = () => {
+      setCommentMessages(
+        Array.from(commentMessageMap.values()).sort((first, second) =>
+          first.createdAt.localeCompare(second.createdAt),
         ),
       )
     }
@@ -131,6 +168,7 @@ export const useCollaboration = (
     provider.awareness.on('change', updateCollaborators)
     text.observe(updateContent)
     commentMap.observe(updateComments)
+    commentMessageMap.observe(updateCommentMessages)
     const connectionTimer = window.setTimeout(() => provider.connect(), 0)
 
     return () => {
@@ -138,6 +176,7 @@ export const useCollaboration = (
       window.clearTimeout(initializationTimer)
       text.unobserve(updateContent)
       commentMap.unobserve(updateComments)
+      commentMessageMap.unobserve(updateCommentMessages)
       provider.off('status', updateStatus)
       provider.awareness.off('change', updateCollaborators)
       provider.off('sync', initializeEmptyDocument)
@@ -152,11 +191,14 @@ export const useCollaboration = (
     session?.provider.awareness.setLocalStateField('user', profile)
   }, [profile, session])
 
-  const addComment = (body: string) => {
+  const addComment = (body: string, selection?: { from: number; to: number }) => {
     const trimmedBody = body.trim()
     if (!session || !trimmedBody) return
 
     const id = crypto.randomUUID()
+    const anchor = selection
+      ? createCommentAnchor(session.text, selection.from, selection.to)
+      : undefined
     session.comments.set(id, {
       id,
       authorId: profile.id,
@@ -165,7 +207,25 @@ export const useCollaboration = (
       body: trimmedBody,
       createdAt: new Date().toISOString(),
       resolved: false,
+      ...(anchor ? { anchor } : {}),
     })
+    return id
+  }
+
+  const addCommentReply = (threadId: string, body: string) => {
+    const trimmedBody = body.trim()
+    if (!session || !trimmedBody || !session.comments.has(threadId)) return
+    const id = crypto.randomUUID()
+    session.commentMessages.set(id, {
+      id,
+      threadId,
+      authorId: profile.id,
+      authorName: profile.name,
+      authorColor: profile.color,
+      body: trimmedBody,
+      createdAt: new Date().toISOString(),
+    })
+    return id
   }
 
   const toggleComment = (comment: SharedComment) => {
@@ -182,6 +242,44 @@ export const useCollaboration = (
     session.comments.set(commentId, {
       ...comment,
       github: { ...mirror, resolved },
+    })
+  }, [session])
+
+  const applyCommentMessageMirror = useCallback((
+    messageId: string,
+    mirror: PullRequestCommentMirror,
+  ) => {
+    const message = session?.commentMessages.get(messageId)
+    if (!session || !message) return
+    session.commentMessages.set(messageId, { ...message, github: mirror })
+  }, [session])
+
+  const resolveAnchor = useCallback((comment: SharedComment) => {
+    if (!session || !comment.anchor) return null
+    return resolveCommentAnchor(session.document, session.text, comment.anchor)
+  }, [session])
+
+  const applyGitHubCommentSync = useCallback((sync: PullRequestCommentSync) => {
+    if (!session) return
+    session.document.transact(() => {
+      for (const message of sync.messages) {
+        const current = session.commentMessages.get(message.id)
+        session.commentMessages.set(message.id, current
+          ? { ...current, body: message.body, github: message.github }
+          : message)
+      }
+      for (const resolution of sync.resolutions) {
+        const comment = session.comments.get(resolution.threadId)
+        if (!comment) continue
+        if (comment.github && comment.github.resolved !== comment.resolved) continue
+        session.comments.set(resolution.threadId, {
+          ...comment,
+          resolved: resolution.resolved,
+          ...(comment.github
+            ? { github: { ...comment.github, resolved: resolution.resolved } }
+            : {}),
+        })
+      }
     })
   }, [session])
 
@@ -209,12 +307,17 @@ export const useCollaboration = (
     provider: session?.provider ?? null,
     content,
     comments,
+    commentMessages,
     collaborators,
     status: enabled ? status : 'disconnected',
     isSynced,
     addComment,
+    addCommentReply,
     toggleComment,
     applyCommentMirror,
+    applyCommentMessageMirror,
+    applyGitHubCommentSync,
+    resolveAnchor,
     replaceContent,
     getSnapshotContent,
   }

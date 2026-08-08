@@ -16,9 +16,11 @@ import {
   PanelLeftClose,
   Redo2,
   RefreshCw,
+  Reply,
   Save,
   Share2,
   SplitSquareHorizontal,
+  TextQuote,
   Undo2,
   UserRound,
   X,
@@ -36,6 +38,8 @@ import { useRoomAccess } from './hooks/useRoomAccess'
 import {
   createSnapshot,
   mirrorRoomComment,
+  mirrorRoomCommentReply,
+  syncRoomComments,
   type RepositoryBinding,
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
@@ -88,15 +92,19 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 820)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [commentSyncErrors, setCommentSyncErrors] = useState<Record<string, string>>({})
+  const [commentPollError, setCommentPollError] = useState<string | null>(null)
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const commentSyncAttempts = useRef(new Map<string, string>())
+  const messageSyncAttempts = useRef(new Map<string, string>())
   const github = useGitHubSession()
   const roomAccess = useRoomAccess(roomName, github.session?.user?.id ?? null)
   const repositoryBinding = roomAccess.binding
@@ -115,6 +123,26 @@ function App() {
   )
   const sharedComments = collaboration.comments
   const applyCommentMirror = collaboration.applyCommentMirror
+  const applyCommentMessageMirror = collaboration.applyCommentMessageMirror
+  const applyGitHubCommentSync = collaboration.applyGitHubCommentSync
+  const sharedCommentMessages = collaboration.commentMessages
+  const resolveCommentAnchor = collaboration.resolveAnchor
+  const commentLocations = new Map(sharedComments.map((comment) => [
+    comment.id,
+    resolveCommentAnchor(comment),
+  ]))
+  const commentHighlights = sharedComments.flatMap((comment) => {
+    const location = commentLocations.get(comment.id)
+    return location && !location.orphaned
+      ? [{
+          id: comment.id,
+          from: location.from,
+          to: location.to,
+          resolved: comment.resolved,
+          active: activeCommentId === comment.id,
+        }]
+      : []
+  })
 
   const title = getDocumentTitle(collaboration.content)
   const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
@@ -141,10 +169,19 @@ function App() {
       const version = `${reviewNumber}:${comment.resolved}:${comment.body}`
       if (commentSyncAttempts.current.get(comment.id) === version) continue
       commentSyncAttempts.current.set(comment.id, version)
+      const location = resolveCommentAnchor(comment)
 
       void mirrorRoomComment(roomName, {
         ...comment,
         githubCommentId: comment.github?.id,
+        githubMode: comment.github?.mode,
+        anchor: location && !location.orphaned
+          ? {
+              startLine: location.startLine,
+              endLine: location.endLine,
+              quote: location.quote,
+            }
+          : undefined,
       })
         .then((mirror) => {
           applyCommentMirror(comment.id, mirror, comment.resolved)
@@ -168,7 +205,82 @@ function App() {
     applyCommentMirror,
     commentSyncRevision,
     roomAccess.review?.number,
+    resolveCommentAnchor,
     roomName,
+    sharedComments,
+  ])
+
+  useEffect(() => {
+    if (!roomAccess.review?.number) return
+    let active = true
+    const sync = () => {
+      void syncRoomComments(roomName)
+        .then((result) => {
+          if (!active) return
+          applyGitHubCommentSync(result)
+          setCommentPollError(null)
+        })
+        .catch((error: unknown) => {
+          if (!active) return
+          setCommentPollError(
+            error instanceof Error ? error.message : 'GitHub thread sync failed.',
+          )
+        })
+    }
+    sync()
+    const interval = window.setInterval(sync, 15_000)
+    window.addEventListener('focus', sync)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', sync)
+    }
+  }, [applyGitHubCommentSync, roomAccess.review?.number, roomName])
+
+  useEffect(() => {
+    const reviewNumber = roomAccess.review?.number
+    if (!reviewNumber) return
+
+    for (const message of sharedCommentMessages) {
+      if (message.github) continue
+      const thread = sharedComments.find((comment) => comment.id === message.threadId)
+      if (!thread?.github) continue
+      const version = `${reviewNumber}:${thread.github.id}:${message.body}`
+      if (messageSyncAttempts.current.get(message.id) === version) continue
+      messageSyncAttempts.current.set(message.id, version)
+
+      void mirrorRoomCommentReply(roomName, thread.id, {
+        id: message.id,
+        githubCommentId: message.github?.id,
+        rootGitHubCommentId: thread.github.id,
+        mode: thread.github.mode ?? 'conversation',
+        authorName: message.authorName,
+        body: message.body,
+      })
+        .then((mirror) => {
+          applyCommentMessageMirror(message.id, mirror)
+          setCommentSyncErrors((current) => {
+            if (!(message.id in current)) return current
+            const next = { ...current }
+            delete next[message.id]
+            return next
+          })
+        })
+        .catch((error: unknown) => {
+          setCommentSyncErrors((current) => ({
+            ...current,
+            [message.id]: error instanceof Error
+              ? error.message
+              : 'GitHub reply sync failed.',
+          }))
+        })
+    }
+  }, [
+    applyCommentMessageMirror,
+    commentSyncRevision,
+    roomAccess.review?.number,
+    roomName,
+    sharedCommentMessages,
     sharedComments,
   ])
 
@@ -195,12 +307,38 @@ function App() {
   }
 
   const submitComment = () => {
-    collaboration.addComment(commentDraft)
+    const commentId = collaboration.addComment(
+      commentDraft,
+      editorRef.current?.getCommentSelection() ?? undefined,
+    )
+    if (commentId) setActiveCommentId(commentId)
     setCommentDraft('')
+  }
+
+  const submitReply = (comment: SharedComment) => {
+    const draft = replyDrafts[comment.id] ?? ''
+    if (!collaboration.addCommentReply(comment.id, draft)) return
+    setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
+  }
+
+  const openCommentThread = (commentId: string) => {
+    setCommentsOpen(true)
+    setActiveCommentId(commentId)
+    const location = commentLocations.get(commentId)
+    if (!location || location.orphaned) return
+    if (view === 'preview') setView('split')
+    window.requestAnimationFrame(() => {
+      editorRef.current?.revealRange(location.from, location.to)
+    })
   }
 
   const retryCommentSync = (comment: SharedComment) => {
     commentSyncAttempts.current.delete(comment.id)
+    setCommentSyncRevision((revision) => revision + 1)
+  }
+
+  const retryMessageSync = (messageId: string) => {
+    messageSyncAttempts.current.delete(messageId)
     setCommentSyncRevision((revision) => revision + 1)
   }
 
@@ -428,6 +566,8 @@ function App() {
                   ref={editorRef}
                   sharedText={collaboration.sharedText}
                   provider={collaboration.provider}
+                  commentHighlights={commentHighlights}
+                  onCommentClick={openCommentThread}
                 />
               ) : !github.session?.user ? (
                 <div className="pane-loading">Connect GitHub to join this room.</div>
@@ -453,7 +593,10 @@ function App() {
                 <div className="comments-heading">
                   <div>
                     <strong>Comments</strong>
-                    <span>{collaboration.comments.filter((comment) => !comment.resolved).length} open</span>
+                    <span title={commentPollError ?? undefined}>
+                      {collaboration.comments.filter((comment) => !comment.resolved).length} open
+                      {commentPollError ? ' | GitHub sync retrying' : ''}
+                    </span>
                   </div>
                   <button className="icon-button" type="button" title="Close comments" onClick={() => setCommentsOpen(false)}>
                     <X size={16} />
@@ -479,8 +622,16 @@ function App() {
                       <MessageSquare size={20} />
                       <span>No comments yet</span>
                     </div>
-                  ) : collaboration.comments.map((comment) => (
-                    <article className={`comment ${comment.resolved ? 'resolved' : ''}`} key={comment.id}>
+                  ) : collaboration.comments.map((comment) => {
+                    const location = commentLocations.get(comment.id)
+                    const replies = collaboration.commentMessages.filter(
+                      (message) => message.threadId === comment.id,
+                    )
+                    return (
+                    <article
+                      className={`comment ${comment.resolved ? 'resolved' : ''} ${activeCommentId === comment.id ? 'active' : ''}`}
+                      key={comment.id}
+                    >
                       <div className="comment-meta">
                         <span className="mini-avatar" style={{ background: `${comment.authorColor}1f`, color: comment.authorColor }}>
                           {comment.authorName.slice(0, 1).toUpperCase()}
@@ -488,7 +639,79 @@ function App() {
                         <strong>{comment.authorName}</strong>
                         <time dateTime={comment.createdAt}>{formatRelativeTime(comment.createdAt)}</time>
                       </div>
+                      {comment.anchor ? (
+                        <button
+                          className="comment-anchor-context"
+                          type="button"
+                          onClick={() => openCommentThread(comment.id)}
+                        >
+                          <TextQuote size={13} />
+                          <span>{location?.orphaned ? comment.anchor.quote : location?.quote ?? comment.anchor.quote}</span>
+                          {location?.orphaned && <em>Original text deleted</em>}
+                        </button>
+                      ) : (
+                        <div className="comment-document-context">Document comment</div>
+                      )}
                       <p>{comment.body}</p>
+                      {replies.length > 0 && (
+                        <div className="comment-replies">
+                          {replies.map((message) => (
+                            <div className="comment-reply" key={message.id}>
+                              <div className="comment-meta">
+                                <span className="mini-avatar" style={{ background: `${message.authorColor}1f`, color: message.authorColor }}>
+                                  {message.authorName.slice(0, 1).toUpperCase()}
+                                </span>
+                                <strong>{message.authorName}</strong>
+                                <time dateTime={message.createdAt}>{formatRelativeTime(message.createdAt)}</time>
+                              </div>
+                              <p>{message.body}</p>
+                              {message.github && (
+                                <a href={message.github.htmlUrl} target="_blank" rel="noreferrer">
+                                  <ExternalLink size={12} /> GitHub reply
+                                </a>
+                              )}
+                              {!message.github && commentSyncErrors[message.id] ? (
+                                <button
+                                  type="button"
+                                  title={commentSyncErrors[message.id]}
+                                  onClick={() => retryMessageSync(message.id)}
+                                >
+                                  <RefreshCw size={12} /> Retry sync
+                                </button>
+                              ) : !message.github ? (
+                                <span className="comment-sync-label">
+                                  {comment.github ? 'Syncing to GitHub' : 'Queued for PR'}
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="comment-reply-composer">
+                        <input
+                          aria-label={`Reply to comment by ${comment.authorName}`}
+                          placeholder="Reply"
+                          value={replyDrafts[comment.id] ?? ''}
+                          onFocus={() => setActiveCommentId(comment.id)}
+                          onChange={(event) => setReplyDrafts((current) => ({
+                            ...current,
+                            [comment.id]: event.target.value,
+                          }))}
+                          onKeyDown={(event) => {
+                            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                              submitReply(comment)
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          title="Reply"
+                          disabled={!(replyDrafts[comment.id] ?? '').trim()}
+                          onClick={() => submitReply(comment)}
+                        >
+                          <Reply size={14} />
+                        </button>
+                      </div>
                       <div className="comment-actions">
                         <button type="button" onClick={() => collaboration.toggleComment(comment)}>
                           <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
@@ -518,7 +741,7 @@ function App() {
                         </div>
                       </div>
                     </article>
-                  ))}
+                  )})}
                 </div>
               </aside>
             )}

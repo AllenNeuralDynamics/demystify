@@ -75,7 +75,9 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 3. Choose **Open file** to load it for all current collaborators, or **Bind current draft** to create/update that path.
 4. Select **Save to GitHub** to snapshot the live document onto its stable `demystify/<room>` branch and create its draft pull request.
 5. Later snapshots update the same branch and pull request. Open **PR #...** from the workspace or repository dialog to review it in GitHub.
-6. Room comments mirror to that PR's conversation. Comments created before the PR exists remain queued until the first changed snapshot; resolving or reopening a room comment updates the same marked GitHub comment.
+6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it.
+7. Comments created before the PR exists remain queued until the first changed snapshot. Changed lines become native GitHub review threads; unchanged lines fall back to marked PR conversation comments with path, lines, and quoted context.
+8. Replies and native review-thread resolution synchronize in both directions while the room is open. DeMystify polls GitHub on focus and every 15 seconds.
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
@@ -120,8 +122,8 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 
 ## Current MVP Boundaries
 
-- Comments apply to the document rather than a selected text range, so they mirror as general PR conversation comments rather than inline diff threads.
-- Comment mirroring is one-way. Replies, edits, and resolution changes made directly on GitHub do not yet synchronize back into DeMystify.
+- GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
+- GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
 - Suggestion/tracked-change mode is not implemented yet.
 - Each bound room owns one manuscript path, working branch, and pull request. A merged revision starts in a new room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.

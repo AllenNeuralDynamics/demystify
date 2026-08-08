@@ -55,6 +55,24 @@ export interface PullRequestCommentMirror {
   id: number
   htmlUrl: string
   updatedAt: string
+  mode: 'conversation' | 'review'
+}
+
+export interface PullRequestCommentSync {
+  messages: Array<{
+    id: string
+    threadId: string
+    authorId: string
+    authorName: string
+    authorColor: string
+    body: string
+    createdAt: string
+    github: PullRequestCommentMirror
+  }>
+  resolutions: Array<{
+    threadId: string
+    resolved: boolean
+  }>
 }
 
 export interface SnapshotResult {
@@ -189,9 +207,15 @@ export const mirrorRoomComment = (
   comment: {
     id: string
     githubCommentId?: number
+    githubMode?: 'conversation' | 'review'
     authorName: string
     body: string
     resolved: boolean
+    anchor?: {
+      startLine: number
+      endLine: number
+      quote: string
+    }
   },
 ) =>
   apiRequest<PullRequestCommentMirror>(
@@ -200,9 +224,36 @@ export const mirrorRoomComment = (
       method: 'PUT',
       body: JSON.stringify({
         githubCommentId: comment.githubCommentId,
+        githubMode: comment.githubMode,
         authorName: comment.authorName,
         body: comment.body,
         resolved: comment.resolved,
+        anchor: comment.anchor,
       }),
     },
+  )
+
+export const mirrorRoomCommentReply = (
+  roomName: string,
+  threadId: string,
+  message: {
+    id: string
+    githubCommentId?: number
+    rootGitHubCommentId: number
+    mode: 'conversation' | 'review'
+    authorName: string
+    body: string
+  },
+) =>
+  apiRequest<PullRequestCommentMirror>(
+    `/api/rooms/${encodeURIComponent(roomName)}/comments/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(message.id)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(message),
+    },
+  )
+
+export const syncRoomComments = (roomName: string) =>
+  apiRequest<PullRequestCommentSync>(
+    `/api/rooms/${encodeURIComponent(roomName)}/comments/sync`,
   )

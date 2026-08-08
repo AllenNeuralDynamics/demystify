@@ -14,10 +14,15 @@ const httpUrl = `http://127.0.0.1:${port}`
 const serverUrl = `ws://127.0.0.1:${port}/collaboration`
 const roomName = `integration-${Date.now()}`
 const expectedText = `Shared at ${new Date().toISOString()}`
-const expectedComment = {
+const expectedCommentId = crypto.randomUUID()
+const expectedReply = {
   id: crypto.randomUUID(),
-  author: 'Integration test',
-  body: 'Shared comment',
+  threadId: expectedCommentId,
+  authorId: 'github:1',
+  authorName: 'Integration test',
+  authorColor: '#16705d',
+  body: 'Shared reply',
+  createdAt: new Date().toISOString(),
 }
 
 const server = spawn(
@@ -244,15 +249,49 @@ try {
   const secondText = secondDocument.getText('content')
   const firstComments = firstDocument.getMap('comments')
   const secondComments = secondDocument.getMap('comments')
+  const firstCommentMessages = firstDocument.getMap('commentMessages')
+  const secondCommentMessages = secondDocument.getMap('commentMessages')
   const received = waitForText(secondText, expectedText)
-  const receivedComment = waitForComment(secondComments, expectedComment.id)
+  const receivedComment = waitForComment(secondComments, expectedCommentId)
+  const receivedReply = waitForComment(secondCommentMessages, expectedReply.id)
 
   firstText.insert(0, expectedText)
+  const expectedComment = {
+    id: expectedCommentId,
+    authorId: 'github:1',
+    authorName: 'Integration test',
+    authorColor: '#16705d',
+    body: 'Shared comment',
+    createdAt: new Date().toISOString(),
+    resolved: false,
+    anchor: {
+      version: 1,
+      start: Buffer.from(Y.encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(firstText, 0, 0),
+      )).toString('base64'),
+      end: Buffer.from(Y.encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(firstText, firstText.length, -1),
+      )).toString('base64'),
+      quote: expectedText,
+    },
+  }
   firstComments.set(expectedComment.id, expectedComment)
-  await Promise.all([received, receivedComment])
+  firstCommentMessages.set(expectedReply.id, expectedReply)
+  await Promise.all([received, receivedComment, receivedReply])
 
   assert.equal(secondText.toString(), expectedText)
   assert.deepEqual(secondComments.get(expectedComment.id), expectedComment)
+  assert.deepEqual(secondCommentMessages.get(expectedReply.id), expectedReply)
+  const receivedAnchor = secondComments.get(expectedComment.id).anchor
+  const receivedStart = Y.createAbsolutePositionFromRelativePosition(
+    Y.decodeRelativePosition(Buffer.from(receivedAnchor.start, 'base64')),
+    secondDocument,
+  )
+  const receivedEnd = Y.createAbsolutePositionFromRelativePosition(
+    Y.decodeRelativePosition(Buffer.from(receivedAnchor.end, 'base64')),
+    secondDocument,
+  )
+  assert.equal(secondText.toString().slice(receivedStart.index, receivedEnd.index), expectedText)
   await verifyPostgresPersistence()
   console.log('Unauthorized users rejected; authorized clients converged.')
 } finally {
