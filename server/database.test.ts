@@ -5,10 +5,33 @@ import { join } from 'node:path'
 import type { Pool } from 'pg'
 import { describe, expect, it, vi } from 'vitest'
 import type * as Yjs from 'yjs'
-import { LocalYjsPersistence, PostgresYjsPersistence } from './database.js'
+import {
+  createPostgresSessionStore,
+  LocalYjsPersistence,
+  PostgresYjsPersistence,
+} from './database.js'
 
 const require = createRequire(import.meta.url)
 const yjs = require('yjs') as typeof Yjs
+
+describe('createPostgresSessionStore', () => {
+  it('initializes the session table before returning the store', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ to_regclass: null }] })
+      .mockResolvedValue({ rows: [] })
+
+    const store = await createPostgresSessionStore({ query } as unknown as Pool)
+    const statements = query.mock.calls.map(([statement]) => statement as string)
+
+    expect(statements).toEqual(expect.arrayContaining([
+      expect.stringContaining('CREATE TABLE "demystify_sessions"'),
+      expect.stringContaining('SELECT sess FROM "demystify_sessions"'),
+    ]))
+    expect(statements.findIndex((statement) => statement.includes('CREATE TABLE')))
+      .toBeLessThan(statements.findIndex((statement) => statement.includes('SELECT sess')))
+    await store.close()
+  })
+})
 
 describe('LocalYjsPersistence', () => {
   it('normalizes and restores a persisted CRLF room', async () => {

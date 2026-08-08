@@ -140,13 +140,20 @@ export const verifyDatabaseConnection = async (pool: Pool) => {
   await pool.query('SELECT 1')
 }
 
-export const createPostgresSessionStore = (pool: Pool) => {
+export const createPostgresSessionStore = async (pool: Pool) => {
   const PostgresSessionStore = connectPgSimple(session)
-  return new PostgresSessionStore({
+  const store = new PostgresSessionStore({
     pool,
     tableName: 'demystify_sessions',
     createTableIfMissing: true,
   })
+  await new Promise<void>((resolve, reject) => {
+    store.get('demystify-session-schema-probe', (error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+  return store
 }
 
 export class PostgresYjsPersistence implements ReadyYjsPersistence {

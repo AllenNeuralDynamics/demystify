@@ -47,6 +47,10 @@ if (databasePool) {
   delete process.env.YPERSISTENCE
 }
 
+const postgresSessionStore = databasePool
+  ? await createPostgresSessionStore(databasePool)
+  : null
+
 const { docs, getYDoc, setPersistence, setupWSConnection } = await import(
   'y-websocket/bin/utils'
 )
@@ -143,7 +147,7 @@ app.use(express.json({ limit: '2mb' }))
 const sessionMiddleware = session({
   name: 'demystify.sid',
   secret: sessionSecret,
-  ...(databasePool ? { store: createPostgresSessionStore(databasePool) } : {}),
+  ...(postgresSessionStore ? { store: postgresSessionStore } : {}),
   resave: false,
   saveUninitialized: false,
   cookie: {

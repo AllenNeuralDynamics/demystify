@@ -28,9 +28,10 @@ The validated fresh pilot deployment is:
 | OAuth callback | `https://demystify-deploy--jlecoq.replit.app/api/auth/github/callback` |
 | Free publication expiry | September 7, 2026 |
 
-The application source was deployed from commit `5f5739c`. No previous pilot
-rooms were migrated. A synthetic production room was bound to the dedicated
-test repository without creating a branch or pull request.
+The Replit project is overlaid from `origin/main` while retaining its generated
+artifact manifests. The August 8 republish preserved the existing production
+rooms, sessions, and Yjs updates and deployed the collaborator access-recheck
+flow. Do not copy the development database over this production database.
 
 ## Project Setup
 
@@ -107,7 +108,17 @@ import did not create it automatically. Replit provides `DATABASE_URL`. Free
 workspace testing uses the development database. When publishing, enable the
 separate production database; do not point a published app at development data.
 
-DeMystify creates its session, room, and Yjs-update tables at startup.
+DeMystify creates its session, room, and Yjs-update tables at startup. The
+session store performs a harmless lookup during initialization so
+`connect-pg-simple` creates `demystify_sessions` before Replit compares the
+development and production schemas.
+
+Replit generates a migration by comparing those schemas during publication.
+Review that migration before approval. If it proposes dropping
+`demystify_sessions`, `demystify_rooms`, or `demystify_yjs_updates`, cancel the
+publish and run the current server once against the development database so all
+three tables are initialized. Never approve a destructive migration merely to
+complete a republish.
 
 ## Free Workspace URL And GitHub App
 
@@ -185,8 +196,12 @@ To publish:
 2. Under **Machine configuration**, set **Max machines** to `1`.
 3. Use the smallest available machine for the initial test.
 4. Confirm the production database and production secrets are enabled.
-5. Publish and wait for Provision, Security checks, Build, Bundle, and Promote.
-6. If the account does not permit Max machines `1`, stop rather than testing an
+5. For a republish, leave **Copy your development database to production
+   database** disabled; enabling it overwrites production data.
+6. Start publishing and inspect any generated database migration. Cancel if it
+   drops a DeMystify table or otherwise removes production data.
+7. Wait for Provision, Security checks, Build, Bundle, and Promote.
+8. If the account does not permit Max machines `1`, stop rather than testing an
    unsupported multi-instance deployment.
 
 Autoscale instances can stop and restart by design, so reconnect and persistence
@@ -208,6 +223,9 @@ The August 8, 2026 deployment passed these production checks:
 - Both temporary links were revoked, and no test branch or pull request remained.
 - Replit reported the final Autoscale build as `success` with no build in
    progress.
+- A later republish retained the existing room, session, and Yjs rows without a
+   generated migration, and the production bundle contained the collaborator
+   **Recheck access** and pending-invitation guidance.
 
 For ongoing pilot validation:
 
