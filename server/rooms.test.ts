@@ -107,7 +107,7 @@ describe('RoomStore', () => {
     ).rejects.toMatchObject({ status: 409 })
   })
 
-  it('persists viewer capability metadata and restricts management to the owner', async () => {
+  it('persists sharing capability metadata and restricts management to the owner', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-store-'))
     temporaryDirectories.push(directory)
     const filePath = join(directory, 'rooms.json')
@@ -120,9 +120,19 @@ describe('RoomStore', () => {
       createdAt: '2026-08-08T00:00:00.000Z',
       expiresAt: '2026-09-08T00:00:00.000Z',
     }
+    const collaboratorShare = {
+      ...viewerShare,
+      id: 'share-2',
+      tokenHash: 'b'.repeat(64),
+    }
 
     await store.claim('viewer-store-room', owner)
     await store.setViewerShare('viewer-store-room', owner, viewerShare)
+    await store.setCollaboratorShare(
+      'viewer-store-room',
+      owner,
+      collaboratorShare,
+    )
     await expect(
       store.setViewerShare(
         'viewer-store-room',
@@ -135,6 +145,7 @@ describe('RoomStore', () => {
     await restored.initialize()
     await expect(restored.get('viewer-store-room')).resolves.toMatchObject({
       viewerShare,
+      collaboratorShare,
     })
   })
 

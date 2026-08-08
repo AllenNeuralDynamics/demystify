@@ -185,10 +185,12 @@ const verifyPostgresPersistence = async () => {
 let firstProvider
 let secondProvider
 let viewerProvider
+let collaboratorProvider
 let archivedProvider
 let firstDocument
 let secondDocument
 let viewerDocument
+let collaboratorDocument
 let archivedDocument
 
 try {
@@ -241,6 +243,38 @@ try {
     body: JSON.stringify({ content: '# Viewer write must fail' }),
   })
   assert.equal(viewerSnapshot.status, 403)
+
+  const collaboratorLinkResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/collaborator-links`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expiresInDays: 7 }),
+    },
+  )
+  assert.equal(collaboratorLinkResponse.status, 201)
+  const collaboratorLink = await collaboratorLinkResponse.json()
+  assert.match(collaboratorLink.token, /^[A-Za-z0-9_-]{43}$/)
+  const collaboratorSessionResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/collaborator-session`,
+    {
+      method: 'POST',
+      headers: { 'X-Demystify-Share-Token': collaboratorLink.token },
+    },
+  )
+  assert.equal(collaboratorSessionResponse.status, 204)
+  const collaboratorCookie = collaboratorSessionResponse.headers
+    .get('set-cookie')?.split(';', 1)[0]
+  assert.ok(collaboratorCookie, 'Collaborator session cookie was not issued.')
+  const collaboratorClaim = await fetch(`${httpUrl}/api/rooms/${roomName}/claim`, {
+    method: 'POST',
+    headers: { Cookie: collaboratorCookie },
+  })
+  assert.equal(collaboratorClaim.status, 200)
+  assert.equal((await collaboratorClaim.json()).access, 'collaborator')
 
   const unboundSnapshotResponse = await fetch(
     `${httpUrl}/api/rooms/${roomName}/snapshots`,
@@ -297,6 +331,12 @@ try {
   class ViewerWebSocket extends WebSocket {
     constructor(address, protocols) {
       super(address, protocols, { headers: { Cookie: viewerCookie } })
+    }
+  }
+
+  class CollaboratorWebSocket extends WebSocket {
+    constructor(address, protocols) {
+      super(address, protocols, { headers: { Cookie: collaboratorCookie } })
     }
   }
 
@@ -382,11 +422,42 @@ try {
   await waitForSync(viewerProvider)
   viewerText = viewerDocument.getText('content')
   await waitForText(viewerText, expectedText)
+  collaboratorDocument = new Y.Doc()
+  collaboratorProvider = new WebsocketProvider(serverUrl, roomName, collaboratorDocument, {
+    WebSocketPolyfill: CollaboratorWebSocket,
+    disableBc: true,
+  })
+  await waitForSync(collaboratorProvider)
+  let collaboratorText = collaboratorDocument.getText('content')
+  await waitForText(collaboratorText, expectedText)
+  collaboratorText.insert(collaboratorText.length, ' collaborator-blocked')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(secondText.toString(), expectedText)
+  collaboratorProvider.destroy()
+  collaboratorDocument.destroy()
+  collaboratorDocument = new Y.Doc()
+  collaboratorProvider = new WebsocketProvider(serverUrl, roomName, collaboratorDocument, {
+    WebSocketPolyfill: CollaboratorWebSocket,
+    disableBc: true,
+  })
+  await waitForSync(collaboratorProvider)
+  collaboratorText = collaboratorDocument.getText('content')
+  await waitForText(collaboratorText, expectedText)
   const editorExpectedText = `${expectedText} editor-accepted`
   const editorReceived = waitForText(secondText, editorExpectedText)
   const viewerReceived = waitForText(viewerText, editorExpectedText)
+  const collaboratorReceived = waitForText(collaboratorText, editorExpectedText)
   firstText.insert(firstText.length, ' editor-accepted')
-  await Promise.all([editorReceived, viewerReceived])
+  await Promise.all([editorReceived, viewerReceived, collaboratorReceived])
+
+  const collaboratorDisconnected = waitForStatus(collaboratorProvider, 'disconnected')
+  const revokeCollaborator = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/collaborator-links`,
+    { method: 'DELETE', headers: { Cookie: sessionCookie } },
+  )
+  assert.equal(revokeCollaborator.status, 204)
+  await collaboratorDisconnected
+  assert.equal(viewerProvider.wsconnected, true)
 
   const viewerDisconnected = waitForStatus(viewerProvider, 'disconnected')
   const revokeViewer = await fetch(`${httpUrl}/api/rooms/${roomName}/viewer-links`, {
@@ -418,15 +489,17 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; editors and viewers converged; read-only writes blocked.')
+  console.log('Unauthorized users rejected; editors, collaborator guests, and viewers converged; anonymous writes blocked.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()
   viewerProvider?.destroy()
+  collaboratorProvider?.destroy()
   archivedProvider?.destroy()
   firstDocument?.destroy()
   secondDocument?.destroy()
   viewerDocument?.destroy()
+  collaboratorDocument?.destroy()
   archivedDocument?.destroy()
   server.kill('SIGTERM')
   await new Promise((resolve) => {

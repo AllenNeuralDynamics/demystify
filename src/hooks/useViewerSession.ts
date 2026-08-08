@@ -1,29 +1,36 @@
 import { useEffect, useState } from 'react'
-import { activateViewerSession } from '../lib/github'
+import {
+  activateShareSession,
+  type AnonymousShareRole,
+} from '../lib/github'
 
-const readViewerToken = () => {
+const readShareToken = (): { token: string; role: AnonymousShareRole } | null => {
   const parameters = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-  return parameters.get('view')
+  const collaboratorToken = parameters.get('collaborate')
+  if (collaboratorToken) return { token: collaboratorToken, role: 'collaborator' }
+  const viewerToken = parameters.get('view')
+  return viewerToken ? { token: viewerToken, role: 'viewer' } : null
 }
 
-const removeViewerToken = () => {
+const removeShareToken = () => {
   const url = new URL(window.location.href)
   const parameters = new URLSearchParams(url.hash.replace(/^#/, ''))
   parameters.delete('view')
+  parameters.delete('collaborate')
   url.hash = parameters.toString()
   window.history.replaceState(null, '', url)
 }
 
-export const useViewerSession = (roomName: string) => {
-  const [token] = useState(readViewerToken)
-  const [isLoading, setIsLoading] = useState(Boolean(token))
+export const useShareSession = (roomName: string) => {
+  const [shareToken] = useState(readShareToken)
+  const [isLoading, setIsLoading] = useState(Boolean(shareToken))
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!token) return
+    if (!shareToken) return
     let active = true
-    removeViewerToken()
-    activateViewerSession(roomName, token)
+    removeShareToken()
+    activateShareSession(roomName, shareToken.token, shareToken.role)
       .then(() => {
         if (!active) return
         setError(null)
@@ -33,7 +40,7 @@ export const useViewerSession = (roomName: string) => {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'This viewer link is invalid or expired.',
+            : 'This sharing link is invalid or expired.',
         )
       })
       .finally(() => {
@@ -42,7 +49,7 @@ export const useViewerSession = (roomName: string) => {
     return () => {
       active = false
     }
-  }, [roomName, token])
+  }, [roomName, shareToken])
 
-  return { isLoading, error }
+  return { isLoading, error, role: shareToken?.role ?? null }
 }

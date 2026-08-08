@@ -87,10 +87,10 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 
 The **Share** dialog offers two distinct links:
 
-- **Collaborator link:** requires GitHub sign-in and write access to the bound repository.
+- **Collaborator link:** opens the manuscript immediately in read-only mode. The recipient can choose **Sign in to edit**; DeMystify upgrades the same room session only if GitHub confirms write access to the bound repository.
 - **Viewer link:** grants anonymous, read-only access to live text, preview, comments, and presence. The room owner can choose 7, 30, or 90 days, or no expiration, and can rotate or revoke the link at any time.
 
-Viewer secrets are placed in the URL fragment, exchanged once for an HTTP-only session, and removed from the address bar. The server stores only a SHA-256 token hash. Viewer HTTP mutations are rejected, and each viewer WebSocket accepts presence and synchronization requests but rejects Yjs document updates. Editors remain writable in the same room.
+Both link types use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes. Anonymous HTTP mutations are rejected, and each anonymous WebSocket accepts presence and synchronization requests but rejects Yjs document updates. Viewer links never show an edit or sign-in action; collaborator links show only **Sign in to edit**. Editors remain writable in the same room.
 
 ## Architecture
 

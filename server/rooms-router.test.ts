@@ -531,6 +531,7 @@ describe('room publication routes', () => {
     })
 
     const originalFetch = globalThis.fetch
+    let repositoryCanPush = true
     vi.stubGlobal('fetch', async (input: string | URL | Request) => {
       const url = String(input)
       if (url.startsWith('http://127.0.0.1:')) return originalFetch(input)
@@ -541,7 +542,7 @@ describe('room publication routes', () => {
           fork: false,
           default_branch: 'main',
           owner: { login: 'researcher' },
-          permissions: { push: true },
+          permissions: { push: repositoryCanPush },
         })
       }
       throw new Error(`Unexpected GitHub request: ${url}`)
@@ -652,6 +653,92 @@ describe('room publication routes', () => {
         { method: 'POST', headers: { 'X-Demystify-Viewer-Token': secondLink.token } },
       )
       expect(revokedToken.status).toBe(403)
+
+      session.github = {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      }
+      const collaboratorLinkResponse = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/collaborator-links`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expiresInDays: 7 }),
+        },
+      )
+      expect(collaboratorLinkResponse.status).toBe(201)
+      const collaboratorLink = await collaboratorLinkResponse.json() as {
+        token: string
+        collaboratorLink: { expiresAt: string }
+      }
+      expect(collaboratorLink.token).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(collaboratorLink.collaboratorLink.expiresAt).toBeTruthy()
+
+      delete session.github
+      const activateCollaborator = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/collaborator-session`,
+        {
+          method: 'POST',
+          headers: { 'X-Demystify-Share-Token': collaboratorLink.token },
+        },
+      )
+      expect(activateCollaborator.status).toBe(204)
+      const collaboratorClaim = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      await expect(collaboratorClaim.json()).resolves.toMatchObject({
+        access: 'collaborator',
+        collaboratorLink: null,
+        viewerLink: null,
+      })
+      const collaboratorSnapshot = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '# Collaborator must sign in' }),
+        },
+      )
+      expect(collaboratorSnapshot.status).toBe(403)
+
+      session.github = {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      }
+      repositoryCanPush = false
+      const signedInWithoutAccess = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      await expect(signedInWithoutAccess.json()).resolves.toMatchObject({
+        access: 'collaborator',
+      })
+
+      repositoryCanPush = true
+      const upgradedClaim = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      await expect(upgradedClaim.json()).resolves.toMatchObject({
+        access: 'editor',
+        collaboratorLink: { expiresAt: collaboratorLink.collaboratorLink.expiresAt },
+      })
+
+      const revokeCollaborator = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/collaborator-links`,
+        { method: 'DELETE' },
+      )
+      expect(revokeCollaborator.status).toBe(204)
+      delete session.github
+      const revokedCollaborator = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/collaborator-session`,
+        {
+          method: 'POST',
+          headers: { 'X-Demystify-Share-Token': collaboratorLink.token },
+        },
+      )
+      expect(revokedCollaborator.status).toBe(403)
     } finally {
       await closeServer(server)
     }

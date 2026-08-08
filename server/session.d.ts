@@ -22,6 +22,7 @@ declare module 'express-session' {
     viewerRooms?: Record<string, {
       shareId: string
       expiresAt: string | null
+      role?: 'viewer' | 'collaborator'
     }>
   }
 }

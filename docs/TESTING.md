@@ -37,6 +37,14 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 5. Rotate the link. Confirm the old URL and existing viewer session stop working.
 6. Revoke the new link. Confirm active viewer sockets disconnect immediately and cannot reconnect.
 
+## Collaborator Link Test
+
+1. Open a collaborator link in a private browser. Verify the manuscript loads without GitHub and the only modification affordance is **Sign in to edit**.
+2. Sign in with a GitHub account that lacks repository write access. Verify the room stays read-only and reports no edit access.
+3. Sign in with an authorized account. Verify the same room upgrades to an editor without requiring a different link.
+4. Open a viewer link and sign in separately. Verify it remains view-only and never offers the collaborator upgrade action.
+5. Rotate or revoke the collaborator link. Confirm collaborator sessions disconnect while active viewer sessions and editors remain connected.
+
 ## Required Checks
 
 Before treating a test as successful, verify:

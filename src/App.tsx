@@ -14,6 +14,7 @@ import {
   Heading2,
   Italic,
   LoaderCircle,
+  LogIn,
   MessageSquare,
   PanelLeftClose,
   Redo2,
@@ -38,7 +39,7 @@ import { ShareDialog } from './components/ShareDialog'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
 import { useRoomAccess } from './hooks/useRoomAccess'
-import { useViewerSession } from './hooks/useViewerSession'
+import { useShareSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
   loadRepositoryFile,
@@ -122,20 +123,24 @@ function App() {
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
   const github = useGitHubSession()
-  const viewerSession = useViewerSession(roomName)
+  const shareSession = useShareSession(roomName)
   const principalKey = github.session?.user
     ? `user:${github.session.user.id}`
     : 'anonymous'
   const roomAccess = useRoomAccess(
     roomName,
     principalKey,
-    !github.isLoading && !viewerSession.isLoading,
+    !github.isLoading && !shareSession.isLoading,
   )
   const repositoryBinding = roomAccess.binding
-  const isViewer = roomAccess.room?.access === 'viewer'
+  const anonymousRole = roomAccess.room?.access === 'editor'
+    ? null
+    : roomAccess.room?.access ?? shareSession.role
+  const isViewer = anonymousRole === 'viewer'
+  const isGuestCollaborator = anonymousRole === 'collaborator'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const isReadOnly = isViewer || isArchived
+  const isReadOnly = Boolean(anonymousRole) || isArchived
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
@@ -183,6 +188,13 @@ function App() {
 
   const showNotice = (message: string) => {
     setNotice(message)
+  }
+
+  const signInToEdit = () => {
+    const returnTo = `${window.location.pathname}${window.location.search}`
+    window.location.assign(
+      `/api/auth/github?returnTo=${encodeURIComponent(returnTo)}`,
+    )
   }
 
   useEffect(() => {
@@ -493,15 +505,17 @@ function App() {
 
         <div className="document-identity">
           <span className="document-title">{title}</span>
-          <span className={`sync-status ${isArchived ? 'archived' : isViewer ? 'viewer' : collaboration.status}`}>
+          <span className={`sync-status ${isArchived ? 'archived' : anonymousRole ? 'viewer' : collaboration.status}`}>
             <span className="status-dot" />
             {isArchived
               ? 'Archived'
               : isViewer
                 ? 'Viewing'
-              : collaboration.status === 'connected'
-                ? 'Live'
-                : collaboration.status}
+                : isGuestCollaborator
+                  ? 'Read access'
+                  : collaboration.status === 'connected'
+                    ? 'Live'
+                    : collaboration.status}
           </span>
         </div>
 
@@ -527,7 +541,7 @@ function App() {
               </button>
             ))}
           </div>
-          {!isViewer && (
+          {!anonymousRole && (
             <button className="button secondary-button" type="button" onClick={shareDocument}>
               <Share2 size={16} />
               <span>Share</span>
@@ -538,6 +552,18 @@ function App() {
               <Eye size={16} />
               <span>View only</span>
             </button>
+          ) : isGuestCollaborator && !isArchived ? (
+            github.session?.user ? (
+              <button className="button viewer-button" type="button" disabled>
+                <Eye size={16} />
+                <span>No edit access</span>
+              </button>
+            ) : (
+              <button className="button github-button" type="button" onClick={signInToEdit}>
+                <LogIn size={16} />
+                <span>Sign in to edit</span>
+              </button>
+            )
           ) : (
             <button
               className="button github-button"
@@ -615,12 +641,16 @@ function App() {
         </aside>
 
         <section className={`manuscript-workspace ${isReadOnly ? 'archived' : ''}`}>
-          {isViewer ? (
+          {anonymousRole ? (
             <div className="archive-banner viewer-banner" role="status">
               <Eye size={18} />
               <div>
-                <strong>View-only access</strong>
-                <span>Live manuscript updates and review history are available; editing is disabled.</span>
+                <strong>{isViewer ? 'View-only access' : 'Collaborator link'}</strong>
+                <span>
+                  {isViewer
+                    ? 'Live manuscript updates and review history are available; editing is disabled.'
+                    : 'You can read now. Sign in with GitHub and repository write access to edit.'}
+                </span>
               </div>
               {roomAccess.review && (
                 <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
@@ -714,8 +744,8 @@ function App() {
                   onCommentClick={openCommentThread}
                   readOnly={isReadOnly}
                 />
-              ) : viewerSession.error ? (
-                <div className="pane-loading">{viewerSession.error}</div>
+              ) : shareSession.error ? (
+                <div className="pane-loading">{shareSession.error}</div>
               ) : revisionInitializationError ? (
                 <div className="pane-loading">{revisionInitializationError}</div>
               ) : roomAccess.error ? (
@@ -917,19 +947,19 @@ function App() {
         </div>
       )}
 
-      {!isViewer && roomAccess.room && (
+      {!anonymousRole && roomAccess.room && (
         <ShareDialog
           open={shareDialogOpen}
           roomName={roomName}
           room={roomAccess.room}
-          canManageViewerLink={github.session?.user?.id === roomAccess.room.ownerId}
+          canManageLinks={github.session?.user?.id === roomAccess.room.ownerId}
           onClose={() => setShareDialogOpen(false)}
           onRoomRefresh={refreshRoom}
           onNotice={showNotice}
         />
       )}
 
-      {!isViewer && <GitHubDialog
+      {!anonymousRole && <GitHubDialog
         open={githubDialogOpen}
         roomName={roomName}
         documentTitle={title}

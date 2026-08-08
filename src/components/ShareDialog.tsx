@@ -10,8 +10,9 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import {
-  createViewerLink,
-  revokeViewerLink,
+  createShareLink,
+  revokeShareLink,
+  type AnonymousShareRole,
   type CollaborationRoom,
 } from '../lib/github'
 
@@ -19,7 +20,7 @@ interface ShareDialogProps {
   open: boolean
   roomName: string
   room: CollaborationRoom
-  canManageViewerLink: boolean
+  canManageLinks: boolean
   onClose: () => void
   onRoomRefresh: () => Promise<CollaborationRoom | null>
   onNotice: (message: string) => void
@@ -33,9 +34,15 @@ const collaboratorUrl = (roomName: string) => {
   return url.toString()
 }
 
-const viewerUrl = (roomName: string, token: string) => {
+const anonymousUrl = (
+  roomName: string,
+  token: string,
+  role: AnonymousShareRole,
+) => {
   const url = new URL(collaboratorUrl(roomName))
-  url.hash = new URLSearchParams({ view: token }).toString()
+  url.hash = new URLSearchParams({
+    [role === 'viewer' ? 'view' : 'collaborate']: token,
+  }).toString()
   return url.toString()
 }
 
@@ -54,20 +61,23 @@ export const ShareDialog = ({
   open,
   roomName,
   room,
-  canManageViewerLink,
+  canManageLinks,
   onClose,
   onRoomRefresh,
   onNotice,
 }: ShareDialogProps) => {
-  const [expiresInDays, setExpiresInDays] = useState<number | null>(30)
-  const [generatedViewerUrl, setGeneratedViewerUrl] = useState<string | null>(null)
-  const [isWorking, setIsWorking] = useState(false)
+  const [expirations, setExpirations] = useState<Record<AnonymousShareRole, number | null>>({
+    collaborator: 30,
+    viewer: 30,
+  })
+  const [generatedUrls, setGeneratedUrls] = useState<Partial<Record<AnonymousShareRole, string>>>({})
+  const [workingRole, setWorkingRole] = useState<AnonymousShareRole | null>(null)
   const [copied, setCopied] = useState<'collaborator' | 'viewer' | null>(null)
 
   if (!open) return null
 
   const close = () => {
-    setGeneratedViewerUrl(null)
+    setGeneratedUrls({})
     setCopied(null)
     onClose()
   }
@@ -82,35 +92,37 @@ export const ShareDialog = ({
     }
   }
 
-  const generateViewerLink = async () => {
-    setIsWorking(true)
+  const generateLink = async (role: AnonymousShareRole) => {
+    setWorkingRole(role)
     try {
-      const result = await createViewerLink(roomName, expiresInDays)
-      setGeneratedViewerUrl(viewerUrl(roomName, result.token))
+      const result = await createShareLink(roomName, expirations[role], role)
+      setGeneratedUrls((current) => ({
+        ...current,
+        [role]: anonymousUrl(roomName, result.token, role),
+      }))
       await onRoomRefresh()
-      onNotice(room.viewerLink ? 'Viewer link replaced' : 'Viewer link created')
+      const existing = role === 'viewer' ? room.viewerLink : room.collaboratorLink
+      onNotice(`${role === 'viewer' ? 'Viewer' : 'Collaborator'} link ${existing ? 'replaced' : 'created'}`)
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : 'Could not create viewer link')
+      onNotice(error instanceof Error ? error.message : `Could not create ${role} link`)
     } finally {
-      setIsWorking(false)
+      setWorkingRole(null)
     }
   }
 
-  const revoke = async () => {
-    setIsWorking(true)
+  const revoke = async (role: AnonymousShareRole) => {
+    setWorkingRole(role)
     try {
-      await revokeViewerLink(roomName)
-      setGeneratedViewerUrl(null)
+      await revokeShareLink(roomName, role)
+      setGeneratedUrls((current) => ({ ...current, [role]: undefined }))
       await onRoomRefresh()
-      onNotice('Viewer access revoked')
+      onNotice(`${role === 'viewer' ? 'Viewer' : 'Collaborator'} access revoked`)
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : 'Could not revoke viewer link')
+      onNotice(error instanceof Error ? error.message : `Could not revoke ${role} link`)
     } finally {
-      setIsWorking(false)
+      setWorkingRole(null)
     }
   }
-
-  const editorLink = collaboratorUrl(roomName)
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={close}>
@@ -139,13 +151,60 @@ export const ShareDialog = ({
             <div className="share-access-icon"><Link2 size={16} /></div>
             <div className="share-access-copy">
               <strong>Collaborator link</strong>
-              <span>GitHub sign-in and repository write access required.</span>
-              <div className="share-link-control">
-                <input aria-label="Collaborator link" readOnly value={editorLink} />
-                <button type="button" title="Copy collaborator link" onClick={() => void copy('collaborator', editorLink)}>
-                  {copied === 'collaborator' ? <Check size={15} /> : <Copy size={15} />}
-                </button>
-              </div>
+              <span>Anyone with the link can read; GitHub sign-in and repository write access unlock editing.</span>
+
+              {generatedUrls.collaborator && (
+                <div className="share-link-control generated-collaborator-link">
+                  <input aria-label="Collaborator link" readOnly value={generatedUrls.collaborator} />
+                  <button type="button" title="Copy collaborator link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
+                    {copied === 'collaborator' ? <Check size={15} /> : <Copy size={15} />}
+                  </button>
+                </div>
+              )}
+
+              {room.collaboratorLink && (
+                <div className="viewer-link-status">
+                  <span className="viewer-status-dot" />
+                  <span>Active</span>
+                  <span>{formatExpiry(room.collaboratorLink.expiresAt)}</span>
+                </div>
+              )}
+
+              {canManageLinks ? (
+                <div className="viewer-link-actions">
+                  <label>
+                    Expiration
+                    <select
+                      aria-label="Collaborator expiration"
+                      value={expirations.collaborator === null ? 'never' : String(expirations.collaborator)}
+                      onChange={(event) => setExpirations((current) => ({
+                        ...current,
+                        collaborator: event.target.value === 'never' ? null : Number(event.target.value),
+                      }))}
+                    >
+                      <option value="7">7 days</option>
+                      <option value="30">30 days</option>
+                      <option value="90">90 days</option>
+                      <option value="never">No expiration</option>
+                    </select>
+                  </label>
+                  <button className="button primary-button" type="button" disabled={workingRole !== null} onClick={() => void generateLink('collaborator')}>
+                    {workingRole === 'collaborator'
+                      ? <LoaderCircle className="spin" size={14} />
+                      : room.collaboratorLink
+                        ? <RotateCw size={14} />
+                        : <Link2 size={14} />}
+                    {room.collaboratorLink ? 'Replace link' : 'Create collaborator link'}
+                  </button>
+                  {room.collaboratorLink && (
+                    <button className="button danger-button" type="button" disabled={workingRole !== null} onClick={() => void revoke('collaborator')}>
+                      <Trash2 size={14} /> Revoke
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="share-owner-note">Only the room owner can manage sharing links.</p>
+              )}
             </div>
           </section>
 
@@ -155,10 +214,10 @@ export const ShareDialog = ({
               <strong>Viewer link</strong>
               <span>Anyone with the link can read live text, preview, and comments.</span>
 
-              {generatedViewerUrl && (
+              {generatedUrls.viewer && (
                 <div className="share-link-control generated-viewer-link">
-                  <input aria-label="Viewer link" readOnly value={generatedViewerUrl} />
-                  <button type="button" title="Copy viewer link" onClick={() => void copy('viewer', generatedViewerUrl)}>
+                  <input aria-label="Viewer link" readOnly value={generatedUrls.viewer} />
+                  <button type="button" title="Copy viewer link" onClick={() => void copy('viewer', generatedUrls.viewer as string)}>
                     {copied === 'viewer' ? <Check size={15} /> : <Copy size={15} />}
                   </button>
                 </div>
@@ -172,15 +231,17 @@ export const ShareDialog = ({
                 </div>
               )}
 
-              {canManageViewerLink ? (
+              {canManageLinks ? (
                 <div className="viewer-link-actions">
                   <label>
                     Expiration
                     <select
-                      value={expiresInDays === null ? 'never' : String(expiresInDays)}
-                      onChange={(event) => setExpiresInDays(
-                        event.target.value === 'never' ? null : Number(event.target.value),
-                      )}
+                      aria-label="Viewer expiration"
+                      value={expirations.viewer === null ? 'never' : String(expirations.viewer)}
+                      onChange={(event) => setExpirations((current) => ({
+                        ...current,
+                        viewer: event.target.value === 'never' ? null : Number(event.target.value),
+                      }))}
                     >
                       <option value="7">7 days</option>
                       <option value="30">30 days</option>
@@ -188,8 +249,8 @@ export const ShareDialog = ({
                       <option value="never">No expiration</option>
                     </select>
                   </label>
-                  <button className="button primary-button" type="button" disabled={isWorking} onClick={() => void generateViewerLink()}>
-                    {isWorking
+                  <button className="button primary-button" type="button" disabled={workingRole !== null} onClick={() => void generateLink('viewer')}>
+                    {workingRole === 'viewer'
                       ? <LoaderCircle className="spin" size={14} />
                       : room.viewerLink
                         ? <RotateCw size={14} />
@@ -197,13 +258,13 @@ export const ShareDialog = ({
                     {room.viewerLink ? 'Replace link' : 'Create viewer link'}
                   </button>
                   {room.viewerLink && (
-                    <button className="button danger-button" type="button" disabled={isWorking} onClick={() => void revoke()}>
+                    <button className="button danger-button" type="button" disabled={workingRole !== null} onClick={() => void revoke('viewer')}>
                       <Trash2 size={14} /> Revoke
                     </button>
                   )}
                 </div>
               ) : (
-                <p className="share-owner-note">Only the room owner can manage viewer access.</p>
+                <p className="share-owner-note">Only the room owner can manage sharing links.</p>
               )}
             </div>
           </section>

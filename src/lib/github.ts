@@ -91,8 +91,12 @@ export interface CollaborationRoom {
   binding: RepositoryBinding | null
   review: RoomReview | null
   nextRoomName: string | null
-  access: 'editor' | 'viewer'
+  access: 'editor' | 'viewer' | 'collaborator'
   viewerLink: {
+    createdAt: string
+    expiresAt: string | null
+  } | null
+  collaboratorLink: {
     createdAt: string
     expiresAt: string | null
   } | null
@@ -133,45 +137,55 @@ export const claimCollaborationRoom = (roomName: string) =>
     method: 'POST',
   })
 
-export const activateViewerSession = async (roomName: string, token: string) => {
+export type AnonymousShareRole = 'viewer' | 'collaborator'
+
+export const activateShareSession = async (
+  roomName: string,
+  token: string,
+  role: AnonymousShareRole,
+) => {
   const response = await fetch(
-    `/api/rooms/${encodeURIComponent(roomName)}/viewer-session`,
+    `/api/rooms/${encodeURIComponent(roomName)}/${role}-session`,
     {
       method: 'POST',
-      headers: { 'X-Demystify-Viewer-Token': token },
+      headers: { 'X-Demystify-Share-Token': token },
     },
   )
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null
     throw new GitHubApiError(
       response.status,
-      payload?.error ?? 'This viewer link is invalid or expired.',
+      payload?.error ?? 'This sharing link is invalid or expired.',
     )
   }
 }
 
-export const createViewerLink = (
+export const createShareLink = (
   roomName: string,
   expiresInDays: number | null,
+  role: AnonymousShareRole,
 ) =>
   apiRequest<{
     token: string
-    viewerLink: NonNullable<CollaborationRoom['viewerLink']>
-  }>(`/api/rooms/${encodeURIComponent(roomName)}/viewer-links`, {
+    link: NonNullable<CollaborationRoom['viewerLink']>
+  }>(`/api/rooms/${encodeURIComponent(roomName)}/${role}-links`, {
     method: 'POST',
     body: JSON.stringify({ expiresInDays }),
   })
 
-export const revokeViewerLink = async (roomName: string) => {
+export const revokeShareLink = async (
+  roomName: string,
+  role: AnonymousShareRole,
+) => {
   const response = await fetch(
-    `/api/rooms/${encodeURIComponent(roomName)}/viewer-links`,
+    `/api/rooms/${encodeURIComponent(roomName)}/${role}-links`,
     { method: 'DELETE' },
   )
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null
     throw new GitHubApiError(
       response.status,
-      payload?.error ?? 'The viewer link could not be revoked.',
+      payload?.error ?? `The ${role} link could not be revoked.`,
     )
   }
 }
