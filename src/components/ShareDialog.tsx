@@ -151,7 +151,7 @@ export const ShareDialog = ({
             <div className="share-access-icon"><Link2 size={16} /></div>
             <div className="share-access-copy">
               <strong>Collaborator link</strong>
-              <span>Anyone with the link can read; GitHub sign-in and repository write access unlock editing.</span>
+              <span>Anyone with the link can read; GitHub sign-in and accepted repository write access unlock editing.</span>
 
               {generatedUrls.collaborator && (
                 <div className="share-link-control generated-collaborator-link">

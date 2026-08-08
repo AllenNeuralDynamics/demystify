@@ -110,6 +110,7 @@ function App() {
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
   const [initializeRevision] = useState(shouldInitializeRevision)
   const [revisionInitialContent, setRevisionInitialContent] = useState<string | null>(
@@ -133,6 +134,9 @@ function App() {
     !github.isLoading && !shareSession.isLoading,
   )
   const repositoryBinding = roomAccess.binding
+  const repositoryInvitationUrl = repositoryBinding
+    ? `https://github.com/${repositoryBinding.fullName}/invitations`
+    : null
   const anonymousRole = roomAccess.room?.access === 'editor'
     ? null
     : roomAccess.room?.access ?? shareSession.role
@@ -195,6 +199,22 @@ function App() {
     window.location.assign(
       `/api/auth/github?returnTo=${encodeURIComponent(returnTo)}`,
     )
+  }
+
+  const recheckEditAccess = async () => {
+    setIsCheckingEditAccess(true)
+    try {
+      const refreshedRoom = await refreshRoom()
+      showNotice(
+        refreshedRoom?.access === 'editor'
+          ? 'Repository write access confirmed'
+          : 'GitHub still reports no write access. Accept any pending repository invitation, then try again.',
+      )
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Could not recheck repository access')
+    } finally {
+      setIsCheckingEditAccess(false)
+    }
   }
 
   useEffect(() => {
@@ -554,9 +574,16 @@ function App() {
             </button>
           ) : isGuestCollaborator && !isArchived ? (
             github.session?.user ? (
-              <button className="button viewer-button" type="button" disabled>
-                <Eye size={16} />
-                <span>No edit access</span>
+              <button
+                className="button github-button"
+                type="button"
+                disabled={isCheckingEditAccess}
+                onClick={() => void recheckEditAccess()}
+              >
+                {isCheckingEditAccess
+                  ? <LoaderCircle className="spin" size={16} />
+                  : <RefreshCw size={16} />}
+                <span>{isCheckingEditAccess ? 'Checking access' : 'Recheck access'}</span>
               </button>
             ) : (
               <button className="button github-button" type="button" onClick={signInToEdit}>
@@ -649,7 +676,21 @@ function App() {
                 <span>
                   {isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
-                    : 'You can read now. Sign in with GitHub and repository write access to edit.'}
+                    : github.session?.user
+                      ? (
+                          <>
+                            GitHub still reports no repository write access.{' '}
+                            {repositoryInvitationUrl ? (
+                              <>
+                                <a href={repositoryInvitationUrl} target="_blank" rel="noreferrer">
+                                  Accept any pending invitation
+                                </a>
+                                , then select Recheck access.
+                              </>
+                            ) : 'Ask the owner for repository write access, then select Recheck access.'}
+                          </>
+                        )
+                      : 'You can read now. Sign in with GitHub and accepted repository write access to edit.'}
                 </span>
               </div>
               {roomAccess.review && (
