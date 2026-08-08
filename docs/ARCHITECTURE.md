@@ -13,6 +13,8 @@ flowchart LR
 
 The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs.
 
+Anonymous viewer links are capability-based. A 256-bit secret lives only in the URL fragment and is exchanged for a versioned HTTP-only room grant; PostgreSQL or the local room registry stores only its SHA-256 hash, creation time, and optional expiration. WebSocket authorization is per connection: editor sockets accept normal Yjs sync messages, while viewer sockets accept awareness and sync-step requests but discard document updates. Rotating, revoking, or expiring a capability closes active viewer sockets without affecting editors.
+
 Local development uses LevelDB for Yjs updates, an atomic JSON room registry, and in-memory sessions. When PostgreSQL is configured, one shared pool backs sessions, immutable room ownership and repository bindings, and append-only Yjs updates. With either persistence backend, the server finishes hydration before completing the WebSocket handshake; a room is compacted to one current-state update when its last socket disconnects. Production fails closed if PostgreSQL is absent.
 
 The browser uses the official JavaScript MyST parser for immediate feedback. This preview is intentionally lightweight and does not yet execute a repository's full `myst.yml`, plugins, bibliography, or generated-asset pipeline.

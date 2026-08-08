@@ -8,30 +8,34 @@ import {
 } from '../lib/github'
 
 interface AuthorizedRoom {
-  userId: number
+  principalKey: string
   room: CollaborationRoom
 }
 
-export const useRoomAccess = (roomName: string, userId: number | null) => {
+export const useRoomAccess = (
+  roomName: string,
+  principalKey: string,
+  enabled = true,
+) => {
   const [access, setAccess] = useState<AuthorizedRoom | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    if (userId === null) return null
+    if (!enabled) return null
     const claimedRoom = await claimCollaborationRoom(roomName)
-    setAccess({ userId, room: claimedRoom })
+    setAccess({ principalKey, room: claimedRoom })
     setError(null)
     return claimedRoom
-  }, [roomName, userId])
+  }, [enabled, principalKey, roomName])
 
   useEffect(() => {
-    if (userId === null) return
+    if (!enabled) return
     let active = true
 
     claimCollaborationRoom(roomName)
       .then((claimedRoom) => {
         if (!active) return
-        setAccess({ userId, room: claimedRoom })
+        setAccess({ principalKey, room: claimedRoom })
         setError(null)
       })
       .catch((requestError: unknown) => {
@@ -47,33 +51,35 @@ export const useRoomAccess = (roomName: string, userId: number | null) => {
     return () => {
       active = false
     }
-  }, [roomName, userId])
+  }, [enabled, principalKey, roomName])
 
   const bind = async (binding: RepositoryBinding) => {
-    if (userId === null) throw new Error('Connect GitHub before binding a repository.')
+    if (!enabled || access?.room.access !== 'editor') {
+      throw new Error('Editor access is required to bind a repository.')
+    }
     const boundRoom = await bindCollaborationRoom(roomName, binding)
-    setAccess({ userId, room: boundRoom })
+    setAccess({ principalKey, room: boundRoom })
     setError(null)
     return boundRoom
   }
 
   const applyReview = (review: RoomReview | null) => {
     setAccess((current) =>
-      current?.userId === userId
+      current?.principalKey === principalKey
         ? { ...current, room: { ...current.room, review } }
         : current,
     )
   }
 
-  const authorizedRoom = access?.userId === userId ? access.room : null
+  const authorizedRoom = access?.principalKey === principalKey ? access.room : null
 
   return {
     room: authorizedRoom,
     binding: authorizedRoom?.binding ?? null,
     review: authorizedRoom?.review ?? null,
     error,
-    isReady: userId !== null && Boolean(authorizedRoom),
-    isLoading: userId !== null && !authorizedRoom && !error,
+    isReady: enabled && Boolean(authorizedRoom),
+    isLoading: enabled && !authorizedRoom && !error,
     refresh,
     bind,
     applyReview,

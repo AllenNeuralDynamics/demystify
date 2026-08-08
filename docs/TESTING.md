@@ -28,6 +28,15 @@ Use a standalone personal repository that is not a GitHub fork:
 
 Before deleting the branch, refresh its room and verify it becomes read-only. Confirm snapshot and comment mutation requests return `409`, stale WebSocket edits do not reach another client, and **Start next revision** opens a new room bound to the same manuscript without creating a branch until its first snapshot.
 
+## Viewer Link Test
+
+1. Create a viewer link from **Share** and open it in a private browser with no GitHub session.
+2. Verify the fragment secret disappears after activation and the manuscript, preview, comments, and live editor updates load.
+3. Attempt source, comment, snapshot, binding, and revision mutations; each must remain disabled in the UI and return `403` if called directly.
+4. Keep an editor and viewer open simultaneously. Verify editor changes reach the viewer while viewer Yjs updates do not reach the editor.
+5. Rotate the link. Confirm the old URL and existing viewer session stop working.
+6. Revoke the new link. Confirm active viewer sockets disconnect immediately and cannot reconnect.
+
 ## Required Checks
 
 Before treating a test as successful, verify:

@@ -4,7 +4,7 @@ import { createServer, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import express from 'express'
 import session from 'express-session'
-import { WebSocketServer } from 'ws'
+import { WebSocketServer, type WebSocket } from 'ws'
 import {
   createDatabasePool,
   createPostgresSessionStore,
@@ -15,7 +15,7 @@ import {
 } from './database.js'
 import { ApiError, githubRouter } from './github.js'
 import {
-  authorizeRoomRequest,
+  authorizeRoomAccess,
   createRoomRouter,
   PostgresRoomStore,
   RoomStore,
@@ -69,11 +69,52 @@ const roomStore = databasePool
 await roomStore.initialize()
 const readOnlyRooms = new Set<string>()
 const testReadOnlyRooms = new Set<string>()
+const viewerSockets = new WeakSet<WebSocket>()
+const viewerConnectionsByRoom = new Map<string, Set<WebSocket>>()
+const viewerExpiryTimers = new WeakMap<WebSocket, NodeJS.Timeout>()
+
+const removeViewerSocket = (roomName: string, socket: WebSocket) => {
+  const connections = viewerConnectionsByRoom.get(roomName)
+  connections?.delete(socket)
+  if (connections?.size === 0) viewerConnectionsByRoom.delete(roomName)
+  const timer = viewerExpiryTimers.get(socket)
+  if (timer) clearTimeout(timer)
+  viewerExpiryTimers.delete(socket)
+}
+
+const closeRoomViewers = (roomName: string) => {
+  for (const socket of viewerConnectionsByRoom.get(roomName) ?? []) {
+    socket.close(1008, 'Viewer access was revoked')
+  }
+}
+
+const scheduleViewerExpiry = (
+  roomName: string,
+  socket: WebSocket,
+  expiresAt: string | null | undefined,
+) => {
+  socket.once('close', () => removeViewerSocket(roomName, socket))
+  if (!expiresAt) return
+  const closeWhenExpired = () => {
+    const remaining = Date.parse(expiresAt) - Date.now()
+    if (remaining <= 0) {
+      socket.close(1008, 'Viewer access expired')
+      return
+    }
+    viewerExpiryTimers.set(
+      socket,
+      setTimeout(closeWhenExpired, Math.min(remaining, 2_147_000_000)),
+    )
+  }
+  closeWhenExpired()
+}
+
 const lifecycleOptions = {
   onReadOnlyChange: (roomName: string, readOnly: boolean) => {
     if (readOnly) readOnlyRooms.add(roomName)
     else readOnlyRooms.delete(roomName)
   },
+  onViewerAccessRevoked: closeRoomViewers,
 }
 const sessionSecret =
   process.env.SESSION_SECRET ??
@@ -184,7 +225,10 @@ webSocketServer.on('connection', (socket, request) => {
 
   setupReadOnlyAwareWebSocket(
     socket,
-    () => readOnlyRooms.has(roomName) || testReadOnlyRooms.has(roomName),
+    () =>
+      viewerSockets.has(socket) ||
+      readOnlyRooms.has(roomName) ||
+      testReadOnlyRooms.has(roomName),
     (guardedSocket) => setupWSConnection(guardedSocket, request, { docName: roomName }),
   )
 })
@@ -229,8 +273,9 @@ server.on('upgrade', (request, socket, head) => {
       }
 
       let document: ReturnType<typeof getYDoc> | null = null
+      let access: Awaited<ReturnType<typeof authorizeRoomAccess>> | null = null
       try {
-        await authorizeRoomRequest(
+        access = await authorizeRoomAccess(
           request as express.Request,
           roomStore,
           roomName,
@@ -261,8 +306,15 @@ server.on('upgrade', (request, socket, head) => {
         return
       }
 
-      if (socket.destroyed) return
+      if (socket.destroyed || !access) return
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        if (access.role === 'viewer') {
+          viewerSockets.add(webSocket)
+          const connections = viewerConnectionsByRoom.get(roomName) ?? new Set()
+          connections.add(webSocket)
+          viewerConnectionsByRoom.set(roomName, connections)
+          scheduleViewerExpiry(roomName, webSocket, access.viewerExpiresAt)
+        }
         webSocketServer.emit('connection', webSocket, request)
       })
     },

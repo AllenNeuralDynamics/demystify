@@ -107,6 +107,37 @@ describe('RoomStore', () => {
     ).rejects.toMatchObject({ status: 409 })
   })
 
+  it('persists viewer capability metadata and restricts management to the owner', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-store-'))
+    temporaryDirectories.push(directory)
+    const filePath = join(directory, 'rooms.json')
+    const store = new RoomStore(filePath)
+    await store.initialize()
+    const owner = { id: 42, login: 'researcher' }
+    const viewerShare = {
+      id: 'share-1',
+      tokenHash: 'a'.repeat(64),
+      createdAt: '2026-08-08T00:00:00.000Z',
+      expiresAt: '2026-09-08T00:00:00.000Z',
+    }
+
+    await store.claim('viewer-store-room', owner)
+    await store.setViewerShare('viewer-store-room', owner, viewerShare)
+    await expect(
+      store.setViewerShare(
+        'viewer-store-room',
+        { id: 84, login: 'other' },
+        null,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+
+    const restored = new RoomStore(filePath)
+    await restored.initialize()
+    await expect(restored.get('viewer-store-room')).resolves.toMatchObject({
+      viewerShare,
+    })
+  })
+
   it('serializes concurrent first-review creation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-store-'))
     temporaryDirectories.push(directory)

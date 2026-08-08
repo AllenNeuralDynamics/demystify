@@ -103,6 +103,11 @@
   box-shadow: 0 0 0 3px #f5e9b8;
 }
 
+.sync-status.viewer .status-dot {
+  background: #0969da;
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+
 .topbar-actions {
   justify-content: flex-end;
   gap: 8px;
@@ -149,6 +154,12 @@
 .github-button:hover,
 .primary-button:hover {
   background: #343d38;
+}
+
+.viewer-button {
+  border: 1px solid #b7cdf3;
+  background: #edf5ff;
+  color: #175ea8;
 }
 
 .icon-button {
@@ -235,6 +246,11 @@
   display: block;
   font-size: 12px;
   font-weight: 500;
+}
+
+.repository-picker:disabled {
+  cursor: default;
+  opacity: 0.8;
 }
 
 .repository-icon {
@@ -375,6 +391,20 @@
 
 .archive-banner .primary-button {
   min-height: 31px;
+}
+
+.viewer-banner {
+  border-bottom-color: #b7cdf3;
+  background: #edf5ff;
+  color: #174f87;
+}
+
+.viewer-banner span {
+  color: #416d99;
+}
+
+.viewer-banner a {
+  color: #175ea8;
 }
 
 .editor-toolbar {
@@ -939,6 +969,195 @@
   border-radius: 5px;
 }
 
+.share-dialog {
+  width: min(640px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 20px 55px rgba(20, 30, 24, 0.25);
+}
+
+.share-dialog-header {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 15px 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.share-dialog-header > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.share-dialog-header h2,
+.share-dialog-header p {
+  margin: 0;
+}
+
+.share-dialog-header h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+}
+
+.share-dialog-header p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.share-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.share-access-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.share-access-row:last-child {
+  border-bottom: 0;
+}
+
+.share-access-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.share-access-icon.viewer {
+  background: #e8f2ff;
+  color: #175ea8;
+}
+
+.share-access-copy {
+  min-width: 0;
+}
+
+.share-access-copy > strong,
+.share-access-copy > span {
+  display: block;
+}
+
+.share-access-copy > strong {
+  font-size: 13px;
+}
+
+.share-access-copy > span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.share-link-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  margin-top: 10px;
+}
+
+.share-link-control input {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 5px 0 0 5px;
+  background: #fafbfa;
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+}
+
+.share-link-control button {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 0 5px 5px 0;
+  background: white;
+  color: var(--green-dark);
+  cursor: pointer;
+}
+
+.generated-viewer-link input {
+  border-color: #aac9ed;
+  background: #f2f7ff;
+}
+
+.viewer-link-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #47647f;
+  font-size: 10px;
+}
+
+.viewer-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1b8a6d;
+}
+
+.viewer-link-status span:last-child {
+  margin-left: 4px;
+}
+
+.viewer-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.viewer-link-actions label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.viewer-link-actions select {
+  height: 34px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.danger-button {
+  border: 1px solid #ecc0ba;
+  background: white;
+  color: #a43e32;
+}
+
+.share-owner-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -1483,6 +1702,40 @@
 
   .github-dialog {
     max-height: calc(100vh - 16px);
+  }
+
+  .share-dialog {
+    max-height: calc(100vh - 16px);
+  }
+
+  .share-dialog-header {
+    min-height: 66px;
+    padding: 10px 9px 10px 13px;
+  }
+
+  .share-dialog-header p {
+    display: none;
+  }
+
+  .share-access-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 9px;
+    padding: 14px 12px;
+  }
+
+  .share-access-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .viewer-link-actions {
+    align-items: stretch;
+  }
+
+  .viewer-link-actions label,
+  .viewer-link-actions select,
+  .viewer-link-actions .button {
+    width: 100%;
   }
 
   .archive-banner {

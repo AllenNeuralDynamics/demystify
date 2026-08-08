@@ -34,9 +34,11 @@ import {
   type CollaborativeEditorHandle,
 } from './components/CollaborativeEditor'
 import { GitHubDialog } from './components/GitHubDialog'
+import { ShareDialog } from './components/ShareDialog'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
 import { useRoomAccess } from './hooks/useRoomAccess'
+import { useViewerSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
   loadRepositoryFile,
@@ -105,6 +107,7 @@ function App() {
   const [profileName, setProfileName] = useState(profile.name)
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
   const [initializeRevision] = useState(shouldInitializeRevision)
@@ -119,10 +122,20 @@ function App() {
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
   const github = useGitHubSession()
-  const roomAccess = useRoomAccess(roomName, github.session?.user?.id ?? null)
+  const viewerSession = useViewerSession(roomName)
+  const principalKey = github.session?.user
+    ? `user:${github.session.user.id}`
+    : 'anonymous'
+  const roomAccess = useRoomAccess(
+    roomName,
+    principalKey,
+    !github.isLoading && !viewerSession.isLoading,
+  )
   const repositoryBinding = roomAccess.binding
-  const isReadOnly =
+  const isViewer = roomAccess.room?.access === 'viewer'
+  const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
+  const isReadOnly = isViewer || isArchived
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
@@ -344,20 +357,8 @@ function App() {
     sharedComments,
   ])
 
-  const shareDocument = async () => {
-    if (!repositoryBinding) {
-      setGitHubDialogOpen(true)
-      showNotice('Bind a GitHub repository before sharing this room')
-      return
-    }
-    try {
-      const url = new URL(window.location.href)
-      url.searchParams.set('doc', roomName)
-      await navigator.clipboard.writeText(url.toString())
-      showNotice('Collaboration link copied')
-    } catch {
-      showNotice('Could not copy the collaboration link')
-    }
+  const shareDocument = () => {
+    setShareDialogOpen(true)
   }
 
   const createDocument = () => {
@@ -492,10 +493,12 @@ function App() {
 
         <div className="document-identity">
           <span className="document-title">{title}</span>
-          <span className={`sync-status ${isReadOnly ? 'archived' : collaboration.status}`}>
+          <span className={`sync-status ${isArchived ? 'archived' : isViewer ? 'viewer' : collaboration.status}`}>
             <span className="status-dot" />
-            {isReadOnly
+            {isArchived
               ? 'Archived'
+              : isViewer
+                ? 'Viewing'
               : collaboration.status === 'connected'
                 ? 'Live'
                 : collaboration.status}
@@ -524,34 +527,43 @@ function App() {
               </button>
             ))}
           </div>
-          <button className="button secondary-button" type="button" onClick={shareDocument}>
-            <Share2 size={16} />
-            <span>Share</span>
-          </button>
-          <button
-            className="button github-button"
-            type="button"
-            disabled={isSaving}
-            onClick={() => {
-              if (isReadOnly && roomAccess.review) {
-                window.open(roomAccess.review.htmlUrl, '_blank', 'noopener,noreferrer')
-              } else if (github.session?.user && repositoryBinding) void saveToGitHub()
-              else setGitHubDialogOpen(true)
-            }}
-          >
-            {isSaving
-              ? <LoaderCircle className="spin" size={16} />
-              : isReadOnly
-                ? <Archive size={16} />
-                : <GitFork size={16} />}
-            <span>
-              {isReadOnly
-                ? 'Open PR'
-                : github.session?.user && repositoryBinding
-                  ? 'Save to GitHub'
-                  : 'Connect GitHub'}
-            </span>
-          </button>
+          {!isViewer && (
+            <button className="button secondary-button" type="button" onClick={shareDocument}>
+              <Share2 size={16} />
+              <span>Share</span>
+            </button>
+          )}
+          {isViewer ? (
+            <button className="button viewer-button" type="button" disabled>
+              <Eye size={16} />
+              <span>View only</span>
+            </button>
+          ) : (
+            <button
+              className="button github-button"
+              type="button"
+              disabled={isSaving}
+              onClick={() => {
+                if (isArchived && roomAccess.review) {
+                  window.open(roomAccess.review.htmlUrl, '_blank', 'noopener,noreferrer')
+                } else if (github.session?.user && repositoryBinding) void saveToGitHub()
+                else setGitHubDialogOpen(true)
+              }}
+            >
+              {isSaving
+                ? <LoaderCircle className="spin" size={16} />
+                : isArchived
+                  ? <Archive size={16} />
+                  : <GitFork size={16} />}
+              <span>
+                {isArchived
+                  ? 'Open PR'
+                  : github.session?.user && repositoryBinding
+                    ? 'Save to GitHub'
+                    : 'Connect GitHub'}
+              </span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -563,7 +575,7 @@ function App() {
               <FilePlus2 size={16} />
             </button>
           </div>
-          <button className="repository-picker" type="button" onClick={() => setGitHubDialogOpen(true)}>
+          <button className="repository-picker" type="button" disabled={isReadOnly} onClick={() => setGitHubDialogOpen(true)}>
             <span className="repository-icon"><GitFork size={15} /></span>
             <span>
               <strong>{repositoryBinding?.fullName ?? 'Local draft'}</strong>
@@ -603,7 +615,20 @@ function App() {
         </aside>
 
         <section className={`manuscript-workspace ${isReadOnly ? 'archived' : ''}`}>
-          {isReadOnly && roomAccess.review && (
+          {isViewer ? (
+            <div className="archive-banner viewer-banner" role="status">
+              <Eye size={18} />
+              <div>
+                <strong>View-only access</strong>
+                <span>Live manuscript updates and review history are available; editing is disabled.</span>
+              </div>
+              {roomAccess.review && (
+                <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
+                  PR #{roomAccess.review.number}
+                </a>
+              )}
+            </div>
+          ) : isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />
               <div>
@@ -625,7 +650,7 @@ function App() {
                 Start next revision
               </button>
             </div>
-          )}
+          ) : null}
           <div className="editor-toolbar">
             <div className="formatting-tools" aria-label="Formatting tools">
               <button className="icon-button" type="button" title="Undo" disabled={isReadOnly} onClick={() => editorRef.current?.undo()}>
@@ -689,12 +714,14 @@ function App() {
                   onCommentClick={openCommentThread}
                   readOnly={isReadOnly}
                 />
-              ) : !github.session?.user ? (
-                <div className="pane-loading">Connect GitHub to join this room.</div>
+              ) : viewerSession.error ? (
+                <div className="pane-loading">{viewerSession.error}</div>
               ) : revisionInitializationError ? (
                 <div className="pane-loading">{revisionInitializationError}</div>
               ) : roomAccess.error ? (
                 <div className="pane-loading">{roomAccess.error}</div>
+              ) : !github.session?.user ? (
+                <div className="pane-loading">Connect GitHub or open an active viewer link.</div>
               ) : (
                 <div className="pane-loading">Opening shared document...</div>
               )}
@@ -890,7 +917,19 @@ function App() {
         </div>
       )}
 
-      <GitHubDialog
+      {!isViewer && roomAccess.room && (
+        <ShareDialog
+          open={shareDialogOpen}
+          roomName={roomName}
+          room={roomAccess.room}
+          canManageViewerLink={github.session?.user?.id === roomAccess.room.ownerId}
+          onClose={() => setShareDialogOpen(false)}
+          onRoomRefresh={refreshRoom}
+          onNotice={showNotice}
+        />
+      )}
+
+      {!isViewer && <GitHubDialog
         open={githubDialogOpen}
         roomName={roomName}
         documentTitle={title}
@@ -907,7 +946,7 @@ function App() {
           showNotice('GitHub disconnected')
         }}
         onNotice={showNotice}
-      />
+      />}
 
       {notice && <div className="toast" role="status">{notice}</div>}
     </div>

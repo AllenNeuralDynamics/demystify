@@ -31,13 +31,15 @@ const jsonResponse = (body: unknown, status = 200) =>
 const startRoomServer = async (store: RoomStore) => {
   const app = express()
   app.use(express.json())
+  const testSession = {
+    github: {
+      accessToken: 'test-token',
+      user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+    },
+    save: (callback: (error?: Error) => void) => callback(),
+  } as unknown as Session & Partial<SessionData>
   app.use((request, _response, next) => {
-    request.session = {
-      github: {
-        accessToken: 'test-token',
-        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
-      },
-    } as Session & Partial<SessionData>
+    request.session = testSession
     next()
   })
   app.use('/api', createRoomRouter(store))
@@ -48,6 +50,7 @@ const startRoomServer = async (store: RoomStore) => {
   return {
     server,
     baseUrl: `http://127.0.0.1:${address.port}`,
+    session: testSession,
   }
 }
 
@@ -503,6 +506,152 @@ describe('room publication routes', () => {
         roomName: nextRoom.roomName,
         binding: { path: 'paper.md' },
       })
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it('issues revocable anonymous viewer sessions without exposing secrets', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'viewer-room-123'
+    const user = { id: 42, login: 'researcher' }
+    await store.claim(roomName, user)
+    await store.setBinding(roomName, user, {
+      owner: 'researcher',
+      repository: 'paper',
+      fullName: 'researcher/paper',
+      isFork: false,
+      parentFullName: null,
+      path: 'paper.md',
+      baseBranch: 'main',
+      branchName: 'demystify/viewer-room-',
+    })
+
+    const originalFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input)
+      if (url.endsWith('/repos/researcher/paper')) {
+        return jsonResponse({
+          name: 'paper',
+          full_name: 'researcher/paper',
+          fork: false,
+          default_branch: 'main',
+          owner: { login: 'researcher' },
+          permissions: { push: true },
+        })
+      }
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+
+    const { server, baseUrl, session } = await startRoomServer(store)
+    try {
+      const createLink = async () => {
+        const response = await originalFetch(
+          `${baseUrl}/api/rooms/${roomName}/viewer-links`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expiresInDays: 30 }),
+          },
+        )
+        expect(response.status).toBe(201)
+        return response.json() as Promise<{
+          token: string
+          viewerLink: { expiresAt: string }
+        }>
+      }
+
+      const firstLink = await createLink()
+      expect(firstLink.token).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      expect(firstLink.viewerLink.expiresAt).toBeTruthy()
+      const stored = await store.get(roomName)
+      expect(stored?.viewerShare?.tokenHash).not.toBe(firstLink.token)
+
+      const editorClaim = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      const editorRoom = await editorClaim.json() as Record<string, unknown>
+      expect(editorRoom).toMatchObject({
+        access: 'editor',
+        viewerLink: { expiresAt: firstLink.viewerLink.expiresAt },
+      })
+      expect(editorRoom).not.toHaveProperty('viewerShare')
+      expect(JSON.stringify(editorRoom)).not.toContain(stored?.viewerShare?.tokenHash)
+
+      delete session.github
+      const wrongToken = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/viewer-session`,
+        { method: 'POST', headers: { 'X-Demystify-Viewer-Token': 'x'.repeat(43) } },
+      )
+      expect(wrongToken.status).toBe(403)
+      const activate = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/viewer-session`,
+        { method: 'POST', headers: { 'X-Demystify-Viewer-Token': firstLink.token } },
+      )
+      expect(activate.status).toBe(204)
+      expect(session.viewerRooms?.[roomName]).toMatchObject({
+        shareId: stored?.viewerShare?.id,
+        expiresAt: firstLink.viewerLink.expiresAt,
+      })
+
+      const viewerClaim = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      expect(viewerClaim.status).toBe(200)
+      await expect(viewerClaim.json()).resolves.toMatchObject({
+        access: 'viewer',
+        viewerLink: null,
+        binding: { path: 'paper.md' },
+      })
+      const viewerSnapshot = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '# Forbidden viewer write' }),
+        },
+      )
+      expect(viewerSnapshot.status).toBe(403)
+
+      session.github = {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      }
+      const secondLink = await createLink()
+      expect(secondLink.token).not.toBe(firstLink.token)
+      delete session.github
+      const staleGrant = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      expect(staleGrant.status).toBe(401)
+      const staleToken = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/viewer-session`,
+        { method: 'POST', headers: { 'X-Demystify-Viewer-Token': firstLink.token } },
+      )
+      expect(staleToken.status).toBe(403)
+
+      session.github = {
+        accessToken: 'test-token',
+        user: { id: 42, login: 'researcher', name: 'Researcher', avatarUrl: '' },
+      }
+      const revoke = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/viewer-links`,
+        { method: 'DELETE' },
+      )
+      expect(revoke.status).toBe(204)
+      delete session.github
+      const revokedToken = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/viewer-session`,
+        { method: 'POST', headers: { 'X-Demystify-Viewer-Token': secondLink.token } },
+      )
+      expect(revokedToken.status).toBe(403)
     } finally {
       await closeServer(server)
     }

@@ -16,6 +16,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 - Repository browsing and MyST file loading
 - Explicit snapshots to a `demystify/...` branch
 - One persisted draft pull request per room, created by the first snapshot
+- Revocable, expiring view-only links that do not require a GitHub account
 - Responsive source, split, and preview modes
 
 ## Local Development
@@ -82,6 +83,15 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
+## Sharing Access
+
+The **Share** dialog offers two distinct links:
+
+- **Collaborator link:** requires GitHub sign-in and write access to the bound repository.
+- **Viewer link:** grants anonymous, read-only access to live text, preview, comments, and presence. The room owner can choose 7, 30, or 90 days, or no expiration, and can rotate or revoke the link at any time.
+
+Viewer secrets are placed in the URL fragment, exchanged once for an HTTP-only session, and removed from the address bar. The server stores only a SHA-256 token hash. Viewer HTTP mutations are rejected, and each viewer WebSocket accepts presence and synchronization requests but rejects Yjs document updates. Editors remain writable in the same room.
+
 ## Architecture
 
 ```mermaid
@@ -115,6 +125,7 @@ npm start                   # Serve dist and WebSockets in production mode
 - Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
 - Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
 - Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
+- Viewer-link rotation and revocation invalidate anonymous sessions and disconnect active viewer sockets immediately.
 - Repository permission changes take effect for new room claims and WebSocket reconnects. Established sockets are not continuously reauthorized.
 
 Rendered MyST HTML is sanitized with DOMPurify. OAuth requests use a per-session state value. Production dependencies are audited; MyST's plugins use a tested compatibility shim for the patched `markdown-it` release.

@@ -77,6 +77,21 @@ const waitForSync = (provider) =>
     })
   })
 
+const waitForStatus = (provider, expectedStatus) =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error(`Timed out waiting for provider status ${expectedStatus}`)),
+      5_000,
+    )
+    const check = ({ status }) => {
+      if (status !== expectedStatus) return
+      clearTimeout(timeout)
+      provider.off('status', check)
+      resolve()
+    }
+    provider.on('status', check)
+  })
+
 const waitForText = (sharedText, expected) =>
   new Promise((resolve, reject) => {
     const timeout = setTimeout(
@@ -169,9 +184,11 @@ const verifyPostgresPersistence = async () => {
 
 let firstProvider
 let secondProvider
+let viewerProvider
 let archivedProvider
 let firstDocument
 let secondDocument
+let viewerDocument
 let archivedDocument
 
 try {
@@ -184,6 +201,46 @@ try {
     headers: { Cookie: sessionCookie },
   })
   assert.equal(claimResponse.status, 201)
+
+  const viewerLinkResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/viewer-links`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expiresInDays: 7 }),
+    },
+  )
+  assert.equal(viewerLinkResponse.status, 201)
+  const viewerLink = await viewerLinkResponse.json()
+  assert.match(viewerLink.token, /^[A-Za-z0-9_-]{43}$/)
+  const viewerSessionResponse = await fetch(
+    `${httpUrl}/api/rooms/${roomName}/viewer-session`,
+    {
+      method: 'POST',
+      headers: { 'X-Demystify-Viewer-Token': viewerLink.token },
+    },
+  )
+  assert.equal(viewerSessionResponse.status, 204)
+  const viewerCookie = viewerSessionResponse.headers.get('set-cookie')?.split(';', 1)[0]
+  assert.ok(viewerCookie, 'Viewer session cookie was not issued.')
+  const viewerClaim = await fetch(`${httpUrl}/api/rooms/${roomName}/claim`, {
+    method: 'POST',
+    headers: { Cookie: viewerCookie },
+  })
+  assert.equal(viewerClaim.status, 200)
+  assert.equal((await viewerClaim.json()).access, 'viewer')
+  const viewerSnapshot = await fetch(`${httpUrl}/api/rooms/${roomName}/snapshots`, {
+    method: 'POST',
+    headers: {
+      Cookie: viewerCookie,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content: '# Viewer write must fail' }),
+  })
+  assert.equal(viewerSnapshot.status, 403)
 
   const unboundSnapshotResponse = await fetch(
     `${httpUrl}/api/rooms/${roomName}/snapshots`,
@@ -234,6 +291,12 @@ try {
   class AuthenticatedWebSocket extends WebSocket {
     constructor(address, protocols) {
       super(address, protocols, { headers: { Cookie: sessionCookie } })
+    }
+  }
+
+  class ViewerWebSocket extends WebSocket {
+    constructor(address, protocols) {
+      super(address, protocols, { headers: { Cookie: viewerCookie } })
     }
   }
 
@@ -297,6 +360,42 @@ try {
   )
   assert.equal(secondText.toString().slice(receivedStart.index, receivedEnd.index), expectedText)
 
+  viewerDocument = new Y.Doc()
+  viewerProvider = new WebsocketProvider(serverUrl, roomName, viewerDocument, {
+    WebSocketPolyfill: ViewerWebSocket,
+    disableBc: true,
+  })
+  await waitForSync(viewerProvider)
+  let viewerText = viewerDocument.getText('content')
+  await waitForText(viewerText, expectedText)
+  viewerText.insert(viewerText.length, ' viewer-blocked')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(secondText.toString(), expectedText)
+
+  viewerProvider.destroy()
+  viewerDocument.destroy()
+  viewerDocument = new Y.Doc()
+  viewerProvider = new WebsocketProvider(serverUrl, roomName, viewerDocument, {
+    WebSocketPolyfill: ViewerWebSocket,
+    disableBc: true,
+  })
+  await waitForSync(viewerProvider)
+  viewerText = viewerDocument.getText('content')
+  await waitForText(viewerText, expectedText)
+  const editorExpectedText = `${expectedText} editor-accepted`
+  const editorReceived = waitForText(secondText, editorExpectedText)
+  const viewerReceived = waitForText(viewerText, editorExpectedText)
+  firstText.insert(firstText.length, ' editor-accepted')
+  await Promise.all([editorReceived, viewerReceived])
+
+  const viewerDisconnected = waitForStatus(viewerProvider, 'disconnected')
+  const revokeViewer = await fetch(`${httpUrl}/api/rooms/${roomName}/viewer-links`, {
+    method: 'DELETE',
+    headers: { Cookie: sessionCookie },
+  })
+  assert.equal(revokeViewer.status, 204)
+  await viewerDisconnected
+
   const readOnlyResponse = await fetch(
     `${httpUrl}/api/test/rooms/${roomName}/read-only`,
     { method: 'POST', headers: { Cookie: sessionCookie } },
@@ -305,7 +404,7 @@ try {
 
   firstText.insert(firstText.length, ' blocked')
   await new Promise((resolve) => setTimeout(resolve, 300))
-  assert.equal(secondText.toString(), expectedText)
+  assert.equal(secondText.toString(), editorExpectedText)
 
   archivedDocument = new Y.Doc()
   archivedProvider = new WebsocketProvider(serverUrl, roomName, archivedDocument, {
@@ -314,18 +413,20 @@ try {
   })
   await waitForSync(archivedProvider)
   const archivedText = archivedDocument.getText('content')
-  await waitForText(archivedText, expectedText)
+  await waitForText(archivedText, editorExpectedText)
   archivedText.insert(archivedText.length, ' rejected')
   await new Promise((resolve) => setTimeout(resolve, 300))
-  assert.equal(secondText.toString(), expectedText)
+  assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; authorized clients converged; archived writes blocked.')
+  console.log('Unauthorized users rejected; editors and viewers converged; read-only writes blocked.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()
+  viewerProvider?.destroy()
   archivedProvider?.destroy()
   firstDocument?.destroy()
   secondDocument?.destroy()
+  viewerDocument?.destroy()
   archivedDocument?.destroy()
   server.kill('SIGTERM')
   await new Promise((resolve) => {

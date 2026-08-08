@@ -91,6 +91,11 @@ export interface CollaborationRoom {
   binding: RepositoryBinding | null
   review: RoomReview | null
   nextRoomName: string | null
+  access: 'editor' | 'viewer'
+  viewerLink: {
+    createdAt: string
+    expiresAt: string | null
+  } | null
   createdAt: string
   updatedAt: string
 }
@@ -127,6 +132,49 @@ export const claimCollaborationRoom = (roomName: string) =>
   apiRequest<CollaborationRoom>(`/api/rooms/${encodeURIComponent(roomName)}/claim`, {
     method: 'POST',
   })
+
+export const activateViewerSession = async (roomName: string, token: string) => {
+  const response = await fetch(
+    `/api/rooms/${encodeURIComponent(roomName)}/viewer-session`,
+    {
+      method: 'POST',
+      headers: { 'X-Demystify-Viewer-Token': token },
+    },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+    throw new GitHubApiError(
+      response.status,
+      payload?.error ?? 'This viewer link is invalid or expired.',
+    )
+  }
+}
+
+export const createViewerLink = (
+  roomName: string,
+  expiresInDays: number | null,
+) =>
+  apiRequest<{
+    token: string
+    viewerLink: NonNullable<CollaborationRoom['viewerLink']>
+  }>(`/api/rooms/${encodeURIComponent(roomName)}/viewer-links`, {
+    method: 'POST',
+    body: JSON.stringify({ expiresInDays }),
+  })
+
+export const revokeViewerLink = async (roomName: string) => {
+  const response = await fetch(
+    `/api/rooms/${encodeURIComponent(roomName)}/viewer-links`,
+    { method: 'DELETE' },
+  )
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+    throw new GitHubApiError(
+      response.status,
+      payload?.error ?? 'The viewer link could not be revoked.',
+    )
+  }
+}
 
 export const bindCollaborationRoom = (
   roomName: string,

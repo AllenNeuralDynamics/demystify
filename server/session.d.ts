@@ -19,6 +19,10 @@ declare module 'express-session' {
     githubOAuthState?: string
     githubReturnTo?: string
     github?: GitHubSessionAuth
+    viewerRooms?: Record<string, {
+      shareId: string
+      expiresAt: string | null
+    }>
   }
 }
 

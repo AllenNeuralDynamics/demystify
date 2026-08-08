@@ -1,4 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
@@ -36,6 +41,13 @@ export interface RoomReview {
   updatedAt: string
 }
 
+export interface RoomViewerShare {
+  id: string
+  tokenHash: string
+  createdAt: string
+  expiresAt: string | null
+}
+
 export interface RoomRecord {
   roomName: string
   ownerId: number
@@ -43,6 +55,7 @@ export interface RoomRecord {
   binding: RoomBinding | null
   review: RoomReview | null
   nextRoomName: string | null
+  viewerShare: RoomViewerShare | null
   createdAt: string
   updatedAt: string
 }
@@ -71,15 +84,30 @@ export interface RoomStoreLike {
     user: RoomUser,
     binding: RoomBinding,
   ): Promise<RoomRecord>
+  setViewerShare(
+    roomName: string,
+    user: RoomUser,
+    viewerShare: RoomViewerShare | null,
+  ): Promise<RoomRecord>
 }
 
 export interface RoomLifecycleOptions {
   onReadOnlyChange?: (roomName: string, readOnly: boolean) => void
+  onViewerAccessRevoked?: (roomName: string) => void
+}
+
+export type RoomAccessRole = 'editor' | 'viewer'
+
+export interface AuthorizedRoomAccess {
+  room: RoomRecord
+  role: RoomAccessRole
+  viewerExpiresAt?: string | null
 }
 
 const roomPattern = /^[A-Za-z0-9_-]{8,100}$/
 const repositoryPartPattern = /^[A-Za-z0-9_.-]+$/
 const commentIdPattern = /^[A-Za-z0-9_-]{1,100}$/
+const viewerTokenPattern = /^[A-Za-z0-9_-]{43}$/
 
 export const validateRoomName = (roomName: string) => {
   if (!roomPattern.test(roomName)) {
@@ -92,6 +120,56 @@ const requireUser = (request: Request): RoomUser => {
   const user = request.session.github?.user
   if (!user) throw new ApiError(401, 'Connect GitHub to access this room.')
   return { id: user.id, login: user.login }
+}
+
+const saveSession = (request: Request) =>
+  new Promise<void>((resolve, reject) => {
+    request.session.save((error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+
+const hashViewerToken = (token: string) =>
+  createHash('sha256').update(token).digest('hex')
+
+const viewerTokenMatches = (token: string, expectedHash: string) => {
+  const actual = Buffer.from(hashViewerToken(token), 'hex')
+  const expected = Buffer.from(expectedHash, 'hex')
+  return actual.length === expected.length && timingSafeEqual(actual, expected)
+}
+
+const isViewerShareActive = (viewerShare: RoomViewerShare | null) =>
+  Boolean(
+    viewerShare &&
+    (!viewerShare.expiresAt || Date.parse(viewerShare.expiresAt) > Date.now()),
+  )
+
+const getViewerGrant = (request: Request, room: RoomRecord) => {
+  const grant = request.session.viewerRooms?.[room.roomName]
+  if (
+    !grant ||
+    !isViewerShareActive(room.viewerShare) ||
+    grant.shareId !== room.viewerShare?.id ||
+    (grant.expiresAt && Date.parse(grant.expiresAt) <= Date.now())
+  ) {
+    return null
+  }
+  return grant
+}
+
+export const toClientRoom = ({ room, role }: AuthorizedRoomAccess) => {
+  const { viewerShare, ...publicRoom } = room
+  return {
+    ...publicRoom,
+    access: role,
+    viewerLink: role === 'editor' && viewerShare
+      ? {
+          createdAt: viewerShare.createdAt,
+          expiresAt: viewerShare.expiresAt,
+        }
+      : null,
+  }
 }
 
 const readBindingString = (value: unknown, field: string) => {
@@ -186,6 +264,7 @@ export class RoomStore implements RoomStoreLike {
             ...record,
             review: record.review ?? null,
             nextRoomName: record.nextRoomName ?? null,
+            viewerShare: record.viewerShare ?? null,
           })
         }
       }
@@ -211,6 +290,7 @@ export class RoomStore implements RoomStoreLike {
         binding: null,
         review: null,
         nextRoomName: null,
+        viewerShare: null,
         createdAt: now,
         updatedAt: now,
       }
@@ -305,6 +385,7 @@ export class RoomStore implements RoomStoreLike {
         },
         review: null,
         nextRoomName: null,
+        viewerShare: null,
         createdAt: now,
         updatedAt: now,
       }
@@ -316,6 +397,28 @@ export class RoomStore implements RoomStoreLike {
       })
       await this.persist()
       return nextRoom
+    })
+  }
+
+  setViewerShare(
+    roomName: string,
+    user: RoomUser,
+    viewerShare: RoomViewerShare | null,
+  ) {
+    return this.withLock(async () => {
+      const room = this.rooms.get(roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.ownerId !== user.id) {
+        throw new ApiError(403, 'Only the room owner can manage viewer links.')
+      }
+      const updated = {
+        ...room,
+        viewerShare,
+        updatedAt: new Date().toISOString(),
+      }
+      this.rooms.set(roomName, updated)
+      await this.persist()
+      return updated
     })
   }
 
@@ -346,6 +449,7 @@ interface PostgresRoomRow {
   binding: RoomBinding | null
   review: RoomReview | null
   next_room_name: string | null
+  viewer_share: RoomViewerShare | null
   created_at: Date
   updated_at: Date
 }
@@ -357,6 +461,7 @@ const rowToRoomRecord = (row: PostgresRoomRow): RoomRecord => ({
   binding: row.binding,
   review: row.review ?? null,
   nextRoomName: row.next_room_name ?? null,
+  viewerShare: row.viewer_share ?? null,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 })
@@ -375,6 +480,7 @@ export class PostgresRoomStore implements RoomStoreLike {
         binding JSONB,
         review JSONB,
         next_room_name VARCHAR(100),
+        viewer_share JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -386,6 +492,10 @@ export class PostgresRoomStore implements RoomStoreLike {
     await this.pool.query(`
       ALTER TABLE demystify_rooms
       ADD COLUMN IF NOT EXISTS next_room_name VARCHAR(100)
+    `)
+    await this.pool.query(`
+      ALTER TABLE demystify_rooms
+      ADD COLUMN IF NOT EXISTS viewer_share JSONB
     `)
   }
 
@@ -543,6 +653,38 @@ export class PostgresRoomStore implements RoomStoreLike {
     }
   }
 
+  async setViewerShare(
+    roomName: string,
+    user: RoomUser,
+    viewerShare: RoomViewerShare | null,
+  ) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const room = await this.getForUpdate(client, roomName)
+      if (!room) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (room.ownerId !== user.id) {
+        throw new ApiError(403, 'Only the room owner can manage viewer links.')
+      }
+      const result = await client.query<PostgresRoomRow>(
+        `
+          UPDATE demystify_rooms
+          SET viewer_share = $2::jsonb, updated_at = NOW()
+          WHERE room_name = $1
+          RETURNING *
+        `,
+        [roomName, viewerShare ? JSON.stringify(viewerShare) : null],
+      )
+      await client.query('COMMIT')
+      return rowToRoomRecord(result.rows[0])
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   private async createReview(
     roomName: string,
     createReview: () => Promise<RoomReview>,
@@ -590,15 +732,14 @@ export class PostgresRoomStore implements RoomStoreLike {
   }
 }
 
-export const authorizeRoomRequest = async (
+const authorizeEditorRoom = async (
   request: Request,
   roomStore: RoomStoreLike,
-  roomName: string,
+  room: RoomRecord,
   options: RoomLifecycleOptions = {},
 ) => {
   const user = requireUser(request)
-  const room = await roomStore.get(roomName)
-  if (!room) throw new ApiError(404, 'This collaboration room has not been claimed.')
+  const roomName = room.roomName
 
   if (!room.binding) {
     if (room.ownerId !== user.id) {
@@ -637,6 +778,53 @@ export const authorizeRoomRequest = async (
   return refreshedRoom
 }
 
+export const authorizeRoomAccess = async (
+  request: Request,
+  roomStore: RoomStoreLike,
+  roomName: string,
+  options: RoomLifecycleOptions = {},
+): Promise<AuthorizedRoomAccess> => {
+  const room = await roomStore.get(roomName)
+  if (!room) throw new ApiError(404, 'This collaboration room has not been claimed.')
+  const viewerGrant = getViewerGrant(request, room)
+
+  if (request.session.github?.user) {
+    try {
+      return {
+        room: await authorizeEditorRoom(request, roomStore, room, options),
+        role: 'editor',
+      }
+    } catch (error) {
+      if (!viewerGrant || !(error instanceof ApiError) || error.status !== 403) {
+        throw error
+      }
+    }
+  }
+
+  if (!viewerGrant) {
+    throw new ApiError(401, 'Connect GitHub or use an active viewer link.')
+  }
+  options.onReadOnlyChange?.(roomName, isTerminalReview(room.review))
+  return {
+    room,
+    role: 'viewer',
+    viewerExpiresAt: viewerGrant.expiresAt,
+  }
+}
+
+export const authorizeRoomRequest = async (
+  request: Request,
+  roomStore: RoomStoreLike,
+  roomName: string,
+  options: RoomLifecycleOptions = {},
+) => {
+  const access = await authorizeRoomAccess(request, roomStore, roomName, options)
+  if (access.role !== 'editor') {
+    throw new ApiError(403, 'Viewer access is read-only.')
+  }
+  return access.room
+}
+
 export const createRoomRouter = (
   roomStore: RoomStoreLike,
   options: RoomLifecycleOptions = {},
@@ -644,22 +832,48 @@ export const createRoomRouter = (
   const router = Router()
   const commentMirrorQueues = new Map<string, Promise<void>>()
 
+  router.post('/rooms/:roomName/viewer-session', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const token = request.get('X-Demystify-Viewer-Token') ?? ''
+    if (!viewerTokenPattern.test(token)) {
+      throw new ApiError(403, 'This viewer link is invalid or expired.')
+    }
+    const room = await roomStore.get(roomName)
+    if (
+      !room ||
+      !isViewerShareActive(room.viewerShare) ||
+      !room.viewerShare ||
+      !viewerTokenMatches(token, room.viewerShare.tokenHash)
+    ) {
+      throw new ApiError(403, 'This viewer link is invalid or expired.')
+    }
+    request.session.viewerRooms ??= {}
+    request.session.viewerRooms[roomName] = {
+      shareId: room.viewerShare.id,
+      expiresAt: room.viewerShare.expiresAt,
+    }
+    await saveSession(request)
+    response.status(204).end()
+  })
+
   router.post('/rooms/:roomName/claim', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
-    const user = requireUser(request)
     const existing = await roomStore.get(roomName)
 
     if (existing) {
-      response.json(await authorizeRoomRequest(request, roomStore, roomName, options))
+      response.json(toClientRoom(
+        await authorizeRoomAccess(request, roomStore, roomName, options),
+      ))
       return
     }
 
+    const user = requireUser(request)
     const claimed = await roomStore.claim(roomName, user)
     if (claimed.ownerId !== user.id) {
       await authorizeRoomRequest(request, roomStore, roomName, options)
     }
     options.onReadOnlyChange?.(roomName, false)
-    response.status(201).json(claimed)
+    response.status(201).json(toClientRoom({ room: claimed, role: 'editor' }))
   })
 
   router.put('/rooms/:roomName/binding', async (request, response) => {
@@ -685,7 +899,50 @@ export const createRoomRouter = (
       baseBranch: repositoryAccess.default_branch,
       branchName,
     }
-    response.json(await roomStore.setBinding(roomName, user, binding))
+    response.json(toClientRoom({
+      room: await roomStore.setBinding(roomName, user, binding),
+      role: 'editor',
+    }))
+  })
+
+  router.post('/rooms/:roomName/viewer-links', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    await authorizeRoomRequest(request, roomStore, roomName, options)
+    const user = requireUser(request)
+    const expiresInDays = request.body.expiresInDays
+    if (
+      expiresInDays !== null &&
+      (!Number.isSafeInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 365)
+    ) {
+      throw new ApiError(400, 'expiresInDays must be null or an integer from 1 to 365.')
+    }
+    const token = randomBytes(32).toString('base64url')
+    const now = new Date()
+    const viewerShare: RoomViewerShare = {
+      id: randomUUID(),
+      tokenHash: hashViewerToken(token),
+      createdAt: now.toISOString(),
+      expiresAt: expiresInDays === null
+        ? null
+        : new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1_000).toISOString(),
+    }
+    const updated = await roomStore.setViewerShare(roomName, user, viewerShare)
+    options.onViewerAccessRevoked?.(roomName)
+    response.status(201).json({
+      token,
+      viewerLink: toClientRoom({ room: updated, role: 'editor' }).viewerLink,
+    })
+  })
+
+  router.delete('/rooms/:roomName/viewer-links', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    await authorizeRoomRequest(request, roomStore, roomName, options)
+    const user = requireUser(request)
+    await roomStore.setViewerShare(roomName, user, null)
+    delete request.session.viewerRooms?.[roomName]
+    await saveSession(request)
+    options.onViewerAccessRevoked?.(roomName)
+    response.status(204).end()
   })
 
   router.post('/rooms/:roomName/snapshots', async (request, response) => {
@@ -929,7 +1186,7 @@ export const createRoomRouter = (
     const binding = requireBinding(room)
     const boundRoom = await roomStore.createRevision(roomName, user, binding)
     options.onReadOnlyChange?.(boundRoom.roomName, false)
-    response.status(201).json(boundRoom)
+    response.status(201).json(toClientRoom({ room: boundRoom, role: 'editor' }))
   })
 
   return router
