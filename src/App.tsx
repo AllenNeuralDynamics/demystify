@@ -1,4 +1,5 @@
 import {
+  Archive,
   Bold,
   Check,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   FilePlus2,
   FileText,
   GitFork,
+  GitBranchPlus,
   GitPullRequest,
   Heading2,
   Italic,
@@ -37,8 +39,10 @@ import { useGitHubSession } from './hooks/useGitHubSession'
 import { useRoomAccess } from './hooks/useRoomAccess'
 import {
   createSnapshot,
+  loadRepositoryFile,
   mirrorRoomComment,
   mirrorRoomCommentReply,
+  startRoomRevision,
   syncRoomComments,
   type RepositoryBinding,
 } from './lib/github'
@@ -77,6 +81,9 @@ const consumeGitHubResult = () => {
   return result === 'connected' ? 'GitHub connected' : 'GitHub connection failed'
 }
 
+const shouldInitializeRevision = () =>
+  new URL(window.location.href).searchParams.get('revision') === '1'
+
 const formatRelativeTime = (isoDate: string) => {
   const elapsedMinutes = Math.floor((Date.now() - Date.parse(isoDate)) / 60_000)
   if (elapsedMinutes < 1) return 'now'
@@ -99,6 +106,12 @@ function App() {
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isStartingRevision, setIsStartingRevision] = useState(false)
+  const [initializeRevision] = useState(shouldInitializeRevision)
+  const [revisionInitialContent, setRevisionInitialContent] = useState<string | null>(
+    initializeRevision ? null : sampleManuscript,
+  )
+  const [revisionInitializationError, setRevisionInitializationError] = useState<string | null>(null)
   const [commentSyncErrors, setCommentSyncErrors] = useState<Record<string, string>>({})
   const [commentPollError, setCommentPollError] = useState<string | null>(null)
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
@@ -108,6 +121,10 @@ function App() {
   const github = useGitHubSession()
   const roomAccess = useRoomAccess(roomName, github.session?.user?.id ?? null)
   const repositoryBinding = roomAccess.binding
+  const isReadOnly =
+    roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
+  const roomReviewNumber = roomAccess.review?.number
+  const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
     ? {
         ...profile,
@@ -118,8 +135,9 @@ function App() {
   const collaboration = useCollaboration(
     roomName,
     collaborationProfile,
-    sampleManuscript,
-    roomAccess.isReady,
+    revisionInitialContent ?? sampleManuscript,
+    roomAccess.isReady && revisionInitialContent !== null,
+    isReadOnly,
   )
   const sharedComments = collaboration.comments
   const applyCommentMirror = collaboration.applyCommentMirror
@@ -161,8 +179,48 @@ function App() {
   }, [notice])
 
   useEffect(() => {
+    if (!initializeRevision || !roomAccess.isReady || !repositoryBinding) return
+    let active = true
+    loadRepositoryFile(repositoryBinding)
+      .then((file) => {
+        if (!active) return
+        setRevisionInitialContent(file.content)
+        setRevisionInitializationError(null)
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setRevisionInitializationError(
+          error instanceof Error
+            ? error.message
+            : 'The next revision could not load its base manuscript.',
+        )
+      })
+    return () => {
+      active = false
+    }
+  }, [initializeRevision, repositoryBinding, roomAccess.isReady])
+
+  useEffect(() => {
+    if (!roomReviewNumber) return
+    let active = true
+    const refresh = () => {
+      void refreshRoom().catch((error: unknown) => {
+        if (!active) return
+        showNotice(error instanceof Error ? error.message : 'Room status refresh failed')
+      })
+    }
+    const interval = window.setInterval(refresh, 15_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [refreshRoom, roomReviewNumber])
+
+  useEffect(() => {
     const reviewNumber = roomAccess.review?.number
-    if (!reviewNumber) return
+    if (!reviewNumber || isReadOnly) return
 
     for (const comment of sharedComments) {
       if (comment.github?.resolved === comment.resolved) continue
@@ -205,13 +263,14 @@ function App() {
     applyCommentMirror,
     commentSyncRevision,
     roomAccess.review?.number,
+    isReadOnly,
     resolveCommentAnchor,
     roomName,
     sharedComments,
   ])
 
   useEffect(() => {
-    if (!roomAccess.review?.number) return
+    if (!roomAccess.review?.number || isReadOnly) return
     let active = true
     const sync = () => {
       void syncRoomComments(roomName)
@@ -235,11 +294,11 @@ function App() {
       window.clearInterval(interval)
       window.removeEventListener('focus', sync)
     }
-  }, [applyGitHubCommentSync, roomAccess.review?.number, roomName])
+  }, [applyGitHubCommentSync, isReadOnly, roomAccess.review?.number, roomName])
 
   useEffect(() => {
     const reviewNumber = roomAccess.review?.number
-    if (!reviewNumber) return
+    if (!reviewNumber || isReadOnly) return
 
     for (const message of sharedCommentMessages) {
       if (message.github) continue
@@ -279,6 +338,7 @@ function App() {
     applyCommentMessageMirror,
     commentSyncRevision,
     roomAccess.review?.number,
+    isReadOnly,
     roomName,
     sharedCommentMessages,
     sharedComments,
@@ -303,7 +363,23 @@ function App() {
   const createDocument = () => {
     const url = new URL(window.location.href)
     url.searchParams.set('doc', crypto.randomUUID())
+    url.searchParams.delete('revision')
     window.location.assign(url)
+  }
+
+  const startNextRevision = async () => {
+    if (!isReadOnly) return
+    setIsStartingRevision(true)
+    try {
+      const nextRoom = await startRoomRevision(roomName)
+      const url = new URL(window.location.href)
+      url.searchParams.set('doc', nextRoom.roomName)
+      url.searchParams.set('revision', '1')
+      window.location.assign(url)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Could not start the next revision')
+      setIsStartingRevision(false)
+    }
   }
 
   const submitComment = () => {
@@ -352,6 +428,10 @@ function App() {
   }
 
   const saveToGitHub = async () => {
+    if (isReadOnly) {
+      showNotice('This room is archived. Start the next revision to continue editing.')
+      return false
+    }
     if (!github.session?.user || !repositoryBinding) {
       setGitHubDialogOpen(true)
       return false
@@ -381,11 +461,13 @@ function App() {
   }
 
   const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
+    if (isReadOnly) return
     await roomAccess.bind(binding)
     collaboration.replaceContent(content)
   }
 
   const bindRepositoryDraft = async (binding: RepositoryBinding) => {
+    if (isReadOnly) return
     await roomAccess.bind(binding)
   }
 
@@ -410,9 +492,13 @@ function App() {
 
         <div className="document-identity">
           <span className="document-title">{title}</span>
-          <span className={`sync-status ${collaboration.status}`}>
+          <span className={`sync-status ${isReadOnly ? 'archived' : collaboration.status}`}>
             <span className="status-dot" />
-            {collaboration.status === 'connected' ? 'Live' : collaboration.status}
+            {isReadOnly
+              ? 'Archived'
+              : collaboration.status === 'connected'
+                ? 'Live'
+                : collaboration.status}
           </span>
         </div>
 
@@ -447,13 +533,23 @@ function App() {
             type="button"
             disabled={isSaving}
             onClick={() => {
-              if (github.session?.user && repositoryBinding) void saveToGitHub()
+              if (isReadOnly && roomAccess.review) {
+                window.open(roomAccess.review.htmlUrl, '_blank', 'noopener,noreferrer')
+              } else if (github.session?.user && repositoryBinding) void saveToGitHub()
               else setGitHubDialogOpen(true)
             }}
           >
-            {isSaving ? <LoaderCircle className="spin" size={16} /> : <GitFork size={16} />}
+            {isSaving
+              ? <LoaderCircle className="spin" size={16} />
+              : isReadOnly
+                ? <Archive size={16} />
+                : <GitFork size={16} />}
             <span>
-              {github.session?.user && repositoryBinding ? 'Save to GitHub' : 'Connect GitHub'}
+              {isReadOnly
+                ? 'Open PR'
+                : github.session?.user && repositoryBinding
+                  ? 'Save to GitHub'
+                  : 'Connect GitHub'}
             </span>
           </button>
         </div>
@@ -506,26 +602,49 @@ function App() {
           </div>
         </aside>
 
-        <section className="manuscript-workspace">
+        <section className={`manuscript-workspace ${isReadOnly ? 'archived' : ''}`}>
+          {isReadOnly && roomAccess.review && (
+            <div className="archive-banner" role="status">
+              <Archive size={18} />
+              <div>
+                <strong>Revision {roomAccess.review.state}</strong>
+                <span>This room is read-only. Its text and review history remain available.</span>
+              </div>
+              <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
+                PR #{roomAccess.review.number}
+              </a>
+              <button
+                className="button primary-button"
+                type="button"
+                disabled={isStartingRevision}
+                onClick={() => void startNextRevision()}
+              >
+                {isStartingRevision
+                  ? <LoaderCircle className="spin" size={15} />
+                  : <GitBranchPlus size={15} />}
+                Start next revision
+              </button>
+            </div>
+          )}
           <div className="editor-toolbar">
             <div className="formatting-tools" aria-label="Formatting tools">
-              <button className="icon-button" type="button" title="Undo" onClick={() => editorRef.current?.undo()}>
+              <button className="icon-button" type="button" title="Undo" disabled={isReadOnly} onClick={() => editorRef.current?.undo()}>
                 <Undo2 size={17} />
               </button>
-              <button className="icon-button" type="button" title="Redo" onClick={() => editorRef.current?.redo()}>
+              <button className="icon-button" type="button" title="Redo" disabled={isReadOnly} onClick={() => editorRef.current?.redo()}>
                 <Redo2 size={17} />
               </button>
               <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Heading" onClick={() => editorRef.current?.prefixLine('## ')}>
+              <button className="icon-button" type="button" title="Heading" disabled={isReadOnly} onClick={() => editorRef.current?.prefixLine('## ')}>
                 <Heading2 size={17} />
               </button>
-              <button className="icon-button" type="button" title="Bold" onClick={() => editorRef.current?.wrapSelection('**')}>
+              <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
               </button>
-              <button className="icon-button" type="button" title="Italic" onClick={() => editorRef.current?.wrapSelection('*')}>
+              <button className="icon-button" type="button" title="Italic" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('*')}>
                 <Italic size={17} />
               </button>
-              <button className="icon-button" type="button" title="Inline code" onClick={() => editorRef.current?.wrapSelection('`')}>
+              <button className="icon-button" type="button" title="Inline code" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('`')}>
                 <Code2 size={17} />
               </button>
               <span className="toolbar-divider" />
@@ -553,7 +672,7 @@ function App() {
 
             <div className="document-stats">
               <span>{wordCount.toLocaleString()} words</span>
-              <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving} onClick={() => void saveToGitHub()}>
+              <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving || isReadOnly} onClick={() => void saveToGitHub()}>
                 {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
               </button>
             </div>
@@ -568,9 +687,12 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
+                  readOnly={isReadOnly}
                 />
               ) : !github.session?.user ? (
                 <div className="pane-loading">Connect GitHub to join this room.</div>
+              ) : revisionInitializationError ? (
+                <div className="pane-loading">{revisionInitializationError}</div>
               ) : roomAccess.error ? (
                 <div className="pane-loading">{roomAccess.error}</div>
               ) : (
@@ -606,13 +728,14 @@ function App() {
                   <textarea
                     aria-label="New comment"
                     placeholder="Leave a comment..."
+                    disabled={isReadOnly}
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitComment()
                     }}
                   />
-                  <button className="button comment-button" type="button" disabled={!commentDraft.trim()} onClick={submitComment}>
+                  <button className="button comment-button" type="button" disabled={isReadOnly || !commentDraft.trim()} onClick={submitComment}>
                     Comment
                   </button>
                 </div>
@@ -674,6 +797,7 @@ function App() {
                                 <button
                                   type="button"
                                   title={commentSyncErrors[message.id]}
+                                  disabled={isReadOnly}
                                   onClick={() => retryMessageSync(message.id)}
                                 >
                                   <RefreshCw size={12} /> Retry sync
@@ -691,6 +815,7 @@ function App() {
                         <input
                           aria-label={`Reply to comment by ${comment.authorName}`}
                           placeholder="Reply"
+                          disabled={isReadOnly}
                           value={replyDrafts[comment.id] ?? ''}
                           onFocus={() => setActiveCommentId(comment.id)}
                           onChange={(event) => setReplyDrafts((current) => ({
@@ -706,14 +831,14 @@ function App() {
                         <button
                           type="button"
                           title="Reply"
-                          disabled={!(replyDrafts[comment.id] ?? '').trim()}
+                          disabled={isReadOnly || !(replyDrafts[comment.id] ?? '').trim()}
                           onClick={() => submitReply(comment)}
                         >
                           <Reply size={14} />
                         </button>
                       </div>
                       <div className="comment-actions">
-                        <button type="button" onClick={() => collaboration.toggleComment(comment)}>
+                        <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
                           <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
                         </button>
                         <div className="comment-github-state">
@@ -731,6 +856,7 @@ function App() {
                             <button
                               type="button"
                               title={commentSyncErrors[comment.id]}
+                              disabled={isReadOnly}
                               onClick={() => retryCommentSync(comment)}
                             >
                               <RefreshCw size={13} /> Retry sync

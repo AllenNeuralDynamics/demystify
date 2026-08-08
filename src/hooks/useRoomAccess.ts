@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   bindCollaborationRoom,
   claimCollaborationRoom,
@@ -15,6 +15,14 @@ interface AuthorizedRoom {
 export const useRoomAccess = (roomName: string, userId: number | null) => {
   const [access, setAccess] = useState<AuthorizedRoom | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (userId === null) return null
+    const claimedRoom = await claimCollaborationRoom(roomName)
+    setAccess({ userId, room: claimedRoom })
+    setError(null)
+    return claimedRoom
+  }, [roomName, userId])
 
   useEffect(() => {
     if (userId === null) return
@@ -66,6 +74,7 @@ export const useRoomAccess = (roomName: string, userId: number | null) => {
     error,
     isReady: userId !== null && Boolean(authorizedRoom),
     isLoading: userId !== null && !authorizedRoom && !error,
+    refresh,
     bind,
     applyReview,
   }

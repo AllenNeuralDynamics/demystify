@@ -21,6 +21,7 @@ import {
   RoomStore,
   validateRoomName,
 } from './rooms.js'
+import { setupReadOnlyAwareWebSocket } from './read-only-websocket.js'
 
 const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
@@ -66,6 +67,14 @@ const roomStore = databasePool
   ? new PostgresRoomStore(databasePool)
   : new RoomStore(process.env.ROOMS_PATH ?? '.data/rooms.json')
 await roomStore.initialize()
+const readOnlyRooms = new Set<string>()
+const testReadOnlyRooms = new Set<string>()
+const lifecycleOptions = {
+  onReadOnlyChange: (roomName: string, readOnly: boolean) => {
+    if (readOnly) readOnlyRooms.add(roomName)
+    else readOnlyRooms.delete(roomName)
+  },
+}
 const sessionSecret =
   process.env.SESSION_SECRET ??
   (isProduction ? '' : 'demystify-local-development-session-secret')
@@ -120,8 +129,12 @@ if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_AUTH === '1') {
       else response.status(204).end()
     })
   })
+  app.post('/api/test/rooms/:roomName/read-only', (request, response) => {
+    testReadOnlyRooms.add(validateRoomName(request.params.roomName))
+    response.status(204).end()
+  })
 }
-app.use('/api', createRoomRouter(roomStore))
+app.use('/api', createRoomRouter(roomStore, lifecycleOptions))
 app.use('/api', githubRouter)
 
 if (isProduction) {
@@ -169,7 +182,11 @@ webSocketServer.on('connection', (socket, request) => {
     return
   }
 
-  setupWSConnection(socket, request, { docName: roomName })
+  setupReadOnlyAwareWebSocket(
+    socket,
+    () => readOnlyRooms.has(roomName) || testReadOnlyRooms.has(roomName),
+    (guardedSocket) => setupWSConnection(guardedSocket, request, { docName: roomName }),
+  )
 })
 
 const rejectUpgrade = (
@@ -213,7 +230,12 @@ server.on('upgrade', (request, socket, head) => {
 
       let document: ReturnType<typeof getYDoc> | null = null
       try {
-        await authorizeRoomRequest(request as express.Request, roomStore, roomName)
+        await authorizeRoomRequest(
+          request as express.Request,
+          roomStore,
+          roomName,
+          lifecycleOptions,
+        )
         if (yjsPersistence) {
           document = getYDoc(roomName)
           await yjsPersistence.waitForHydration(document)

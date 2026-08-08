@@ -129,6 +129,21 @@ describe('room publication routes', () => {
           draft: true,
         })
       }
+      if (url.endsWith('/pulls/17')) {
+        return jsonResponse({
+          number: 17,
+          html_url: 'https://github.com/researcher/paper/pull/17',
+          title: 'Update Test paper',
+          state: 'open',
+          draft: true,
+          merged_at: null,
+          head: {
+            ref: 'demystify/snapshot-rev',
+            repo: { full_name: 'researcher/paper' },
+          },
+          base: { ref: 'main' },
+        })
+      }
       throw new Error(`Unexpected GitHub request: ${init?.method ?? 'GET'} ${url}`)
     })
 
@@ -211,6 +226,21 @@ describe('room publication routes', () => {
           permissions: { push: true },
         })
       }
+      if (url.endsWith('/pulls/17')) {
+        return jsonResponse({
+          number: 17,
+          html_url: 'https://github.com/researcher/paper/pull/17',
+          title: 'Update paper',
+          state: 'open',
+          draft: true,
+          merged_at: null,
+          head: {
+            ref: 'demystify/comment-rev',
+            repo: { full_name: 'researcher/paper' },
+          },
+          base: { ref: 'main' },
+        })
+      }
       if (url.includes('/git/ref/heads/')) {
         return jsonResponse({ object: { sha: 'branch-sha' } })
       }
@@ -268,7 +298,7 @@ describe('room publication routes', () => {
       parentFullName: null,
       path: 'paper.md',
       baseBranch: 'main',
-      branchName: 'demystify/comment-rev',
+      branchName: 'demystify/comment-revi',
     })
     await store.setReview(roomName, {
       number: 17,
@@ -295,6 +325,21 @@ describe('room publication routes', () => {
           default_branch: 'main',
           owner: { login: 'researcher' },
           permissions: { push: true },
+        })
+      }
+      if (url.endsWith('/pulls/17')) {
+        return jsonResponse({
+          number: 17,
+          html_url: 'https://github.com/researcher/paper/pull/17',
+          title: 'Update paper',
+          state: 'open',
+          draft: true,
+          merged_at: null,
+          head: {
+            ref: 'demystify/comment-revi',
+            repo: { full_name: 'researcher/paper' },
+          },
+          base: { ref: 'main' },
         })
       }
       if (url.includes('/issues/17/comments?')) {
@@ -346,6 +391,118 @@ describe('room publication routes', () => {
       )
       expect(githubRequests.join('\n')).not.toContain('/issues/999/')
       expect(commentCreates).toBe(1)
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it('archives a merged room before writes and starts a fresh bound revision', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'terminal-room-123'
+    const user = { id: 42, login: 'researcher' }
+    await store.claim(roomName, user)
+    await store.setBinding(roomName, user, {
+      owner: 'researcher',
+      repository: 'paper',
+      fullName: 'researcher/paper',
+      isFork: false,
+      parentFullName: null,
+      path: 'paper.md',
+      baseBranch: 'main',
+      branchName: 'demystify/terminal-roo',
+    })
+    await store.setReview(roomName, {
+      number: 17,
+      htmlUrl: 'https://github.com/researcher/paper/pull/17',
+      title: 'Update paper',
+      state: 'draft',
+      createdAt: '2026-08-08T05:00:00Z',
+      updatedAt: '2026-08-08T05:00:00Z',
+    })
+
+    const originalFetch = globalThis.fetch
+    const githubRequests: string[] = []
+    vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input)
+      githubRequests.push(url)
+      if (url.endsWith('/repos/researcher/paper')) {
+        return jsonResponse({
+          name: 'paper',
+          full_name: 'researcher/paper',
+          fork: false,
+          default_branch: 'main',
+          owner: { login: 'researcher' },
+          permissions: { push: true },
+        })
+      }
+      if (url.endsWith('/pulls/17')) {
+        return jsonResponse({
+          number: 17,
+          html_url: 'https://github.com/researcher/paper/pull/17',
+          title: 'Update paper',
+          state: 'closed',
+          draft: false,
+          merged_at: '2026-08-08T06:00:00Z',
+          head: {
+            ref: 'demystify/terminal-roo',
+            repo: { full_name: 'researcher/paper' },
+          },
+          base: { ref: 'main' },
+        })
+      }
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+
+    const { server, baseUrl } = await startRoomServer(store)
+    try {
+      const snapshot = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '# Must not be committed' }),
+        },
+      )
+      expect(snapshot.status).toBe(409)
+      await expect(snapshot.text()).resolves.toContain('read-only')
+      expect(githubRequests.some((url) => url.includes('/git/ref'))).toBe(false)
+      expect(githubRequests.some((url) => url.includes('/contents/'))).toBe(false)
+      await expect(store.get(roomName)).resolves.toMatchObject({
+        review: { number: 17, state: 'merged' },
+      })
+
+      const revision = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/revisions`,
+        { method: 'POST' },
+      )
+      expect(revision.status).toBe(201)
+      const nextRoom = await revision.json() as {
+        roomName: string
+        review: null
+        binding: RoomBinding
+      }
+      expect(nextRoom.roomName).not.toBe(roomName)
+      expect(nextRoom.review).toBeNull()
+      expect(nextRoom.binding).toMatchObject({
+        fullName: 'researcher/paper',
+        path: 'paper.md',
+        baseBranch: 'main',
+        branchName: `demystify/${nextRoom.roomName.slice(0, 12)}`,
+      })
+
+      const repeatedRevision = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/revisions`,
+        { method: 'POST' },
+      )
+      expect(repeatedRevision.status).toBe(201)
+      await expect(repeatedRevision.json()).resolves.toMatchObject({
+        roomName: nextRoom.roomName,
+        binding: { path: 'paper.md' },
+      })
     } finally {
       await closeServer(server)
     }

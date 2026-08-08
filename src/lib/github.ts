@@ -90,6 +90,7 @@ export interface CollaborationRoom {
   ownerLogin: string
   binding: RepositoryBinding | null
   review: RoomReview | null
+  nextRoomName: string | null
   createdAt: string
   updatedAt: string
 }
@@ -141,6 +142,12 @@ export const bindCollaborationRoom = (
         path: binding.path,
       }),
     },
+  )
+
+export const startRoomRevision = (roomName: string) =>
+  apiRequest<CollaborationRoom>(
+    `/api/rooms/${encodeURIComponent(roomName)}/revisions`,
+    { method: 'POST' },
   )
 
 export const disconnectGitHub = async () => {

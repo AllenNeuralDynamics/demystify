@@ -84,6 +84,7 @@ export const useCollaboration = (
   profile: CollaboratorProfile,
   initialContent: string,
   enabled = true,
+  readOnly = false,
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
@@ -139,6 +140,7 @@ export const useCollaboration = (
     }
     const initializeEmptyDocument = () => {
       setIsSynced(true)
+      if (readOnly) return
       if (text.length > 0 || metadata.get('initialized')) return
 
       const candidate = document.clientID
@@ -185,7 +187,7 @@ export const useCollaboration = (
       setSession(null)
       setIsSynced(false)
     }
-  }, [enabled, initialContent, roomName])
+  }, [enabled, initialContent, readOnly, roomName])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -193,7 +195,7 @@ export const useCollaboration = (
 
   const addComment = (body: string, selection?: { from: number; to: number }) => {
     const trimmedBody = body.trim()
-    if (!session || !trimmedBody) return
+    if (!session || readOnly || !trimmedBody) return
 
     const id = crypto.randomUUID()
     const anchor = selection
@@ -214,7 +216,7 @@ export const useCollaboration = (
 
   const addCommentReply = (threadId: string, body: string) => {
     const trimmedBody = body.trim()
-    if (!session || !trimmedBody || !session.comments.has(threadId)) return
+    if (!session || readOnly || !trimmedBody || !session.comments.has(threadId)) return
     const id = crypto.randomUUID()
     session.commentMessages.set(id, {
       id,
@@ -229,6 +231,7 @@ export const useCollaboration = (
   }
 
   const toggleComment = (comment: SharedComment) => {
+    if (readOnly) return
     session?.comments.set(comment.id, { ...comment, resolved: !comment.resolved })
   }
 
@@ -238,21 +241,21 @@ export const useCollaboration = (
     resolved: boolean,
   ) => {
     const comment = session?.comments.get(commentId)
-    if (!session || !comment) return
+    if (!session || readOnly || !comment) return
     session.comments.set(commentId, {
       ...comment,
       github: { ...mirror, resolved },
     })
-  }, [session])
+  }, [readOnly, session])
 
   const applyCommentMessageMirror = useCallback((
     messageId: string,
     mirror: PullRequestCommentMirror,
   ) => {
     const message = session?.commentMessages.get(messageId)
-    if (!session || !message) return
+    if (!session || readOnly || !message) return
     session.commentMessages.set(messageId, { ...message, github: mirror })
-  }, [session])
+  }, [readOnly, session])
 
   const resolveAnchor = useCallback((comment: SharedComment) => {
     if (!session || !comment.anchor) return null
@@ -260,7 +263,7 @@ export const useCollaboration = (
   }, [session])
 
   const applyGitHubCommentSync = useCallback((sync: PullRequestCommentSync) => {
-    if (!session) return
+    if (!session || readOnly) return
     session.document.transact(() => {
       for (const message of sync.messages) {
         const current = session.commentMessages.get(message.id)
@@ -281,10 +284,10 @@ export const useCollaboration = (
         })
       }
     })
-  }, [session])
+  }, [readOnly, session])
 
   const replaceContent = (nextContent: string) => {
-    if (!session) return
+    if (!session || readOnly) return
     const normalized = normalizeSourceText(nextContent)
     session.document.transact(() => {
       session.text.delete(0, session.text.length)

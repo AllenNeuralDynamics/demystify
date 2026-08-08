@@ -169,8 +169,10 @@ const verifyPostgresPersistence = async () => {
 
 let firstProvider
 let secondProvider
+let archivedProvider
 let firstDocument
 let secondDocument
+let archivedDocument
 
 try {
   await waitForServer()
@@ -239,9 +241,11 @@ try {
   secondDocument = new Y.Doc()
   firstProvider = new WebsocketProvider(serverUrl, roomName, firstDocument, {
     WebSocketPolyfill: AuthenticatedWebSocket,
+    disableBc: true,
   })
   secondProvider = new WebsocketProvider(serverUrl, roomName, secondDocument, {
     WebSocketPolyfill: AuthenticatedWebSocket,
+    disableBc: true,
   })
 
   await Promise.all([waitForSync(firstProvider), waitForSync(secondProvider)])
@@ -292,13 +296,37 @@ try {
     secondDocument,
   )
   assert.equal(secondText.toString().slice(receivedStart.index, receivedEnd.index), expectedText)
+
+  const readOnlyResponse = await fetch(
+    `${httpUrl}/api/test/rooms/${roomName}/read-only`,
+    { method: 'POST', headers: { Cookie: sessionCookie } },
+  )
+  assert.equal(readOnlyResponse.status, 204)
+
+  firstText.insert(firstText.length, ' blocked')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(secondText.toString(), expectedText)
+
+  archivedDocument = new Y.Doc()
+  archivedProvider = new WebsocketProvider(serverUrl, roomName, archivedDocument, {
+    WebSocketPolyfill: AuthenticatedWebSocket,
+    disableBc: true,
+  })
+  await waitForSync(archivedProvider)
+  const archivedText = archivedDocument.getText('content')
+  await waitForText(archivedText, expectedText)
+  archivedText.insert(archivedText.length, ' rejected')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(secondText.toString(), expectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; authorized clients converged.')
+  console.log('Unauthorized users rejected; authorized clients converged; archived writes blocked.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()
+  archivedProvider?.destroy()
   firstDocument?.destroy()
   secondDocument?.destroy()
+  archivedDocument?.destroy()
   server.kill('SIGTERM')
   await new Promise((resolve) => {
     if (server.exitCode !== null) resolve()

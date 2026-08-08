@@ -26,6 +26,8 @@ Use a standalone personal repository that is not a GitHub fork:
 9. Verify that both head and base belong to the standalone repository.
 10. Close the PR and delete the test branch or repository when finished.
 
+Before deleting the branch, refresh its room and verify it becomes read-only. Confirm snapshot and comment mutation requests return `409`, stale WebSocket edits do not reach another client, and **Start next revision** opens a new room bound to the same manuscript without creating a branch until its first snapshot.
+
 ## Required Checks
 
 Before treating a test as successful, verify:

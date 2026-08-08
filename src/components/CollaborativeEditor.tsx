@@ -1,6 +1,6 @@
 import { redo, undo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
-import { EditorState, StateEffect, StateField } from '@codemirror/state'
+import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
@@ -22,6 +22,7 @@ interface CollaborativeEditorProps {
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
+  readOnly?: boolean
 }
 
 export interface CollaborativeEditorHandle {
@@ -113,10 +114,12 @@ const editorTheme = EditorView.theme({
 export const CollaborativeEditor = forwardRef<
   CollaborativeEditorHandle,
   CollaborativeEditorProps
->(({ sharedText, provider, commentHighlights = [], onCommentClick }, ref) => {
+>(({ sharedText, provider, commentHighlights = [], onCommentClick, readOnly = false }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onCommentClickRef = useRef(onCommentClick)
+  const readOnlyRef = useRef(readOnly)
+  const readOnlyCompartmentRef = useRef(new Compartment())
 
   useEffect(() => {
     onCommentClickRef.current = onCommentClick
@@ -133,6 +136,10 @@ export const CollaborativeEditor = forwardRef<
         markdown(),
         EditorView.lineWrapping,
         editorTheme,
+        readOnlyCompartmentRef.current.of([
+          EditorState.readOnly.of(readOnlyRef.current),
+          EditorView.editable.of(!readOnlyRef.current),
+        ]),
         commentHighlightField,
         EditorView.domEventHandlers({
           click: (event) => {
@@ -159,6 +166,16 @@ export const CollaborativeEditor = forwardRef<
   }, [provider, sharedText])
 
   useEffect(() => {
+    readOnlyRef.current = readOnly
+    viewRef.current?.dispatch({
+      effects: readOnlyCompartmentRef.current.reconfigure([
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
+      ]),
+    })
+  }, [readOnly])
+
+  useEffect(() => {
     viewRef.current?.dispatch({
       effects: setCommentHighlights.of(commentHighlights),
     })
@@ -166,14 +183,14 @@ export const CollaborativeEditor = forwardRef<
 
   useImperativeHandle(ref, () => ({
     undo: () => {
-      if (viewRef.current) undo(viewRef.current)
+      if (viewRef.current && !readOnlyRef.current) undo(viewRef.current)
     },
     redo: () => {
-      if (viewRef.current) redo(viewRef.current)
+      if (viewRef.current && !readOnlyRef.current) redo(viewRef.current)
     },
     wrapSelection: (before, after = before) => {
       const view = viewRef.current
-      if (!view) return
+      if (!view || readOnlyRef.current) return
       const { from, to } = view.state.selection.main
       const selectedText = view.state.sliceDoc(from, to)
       view.dispatch({
@@ -184,7 +201,7 @@ export const CollaborativeEditor = forwardRef<
     },
     prefixLine: (prefix) => {
       const view = viewRef.current
-      if (!view) return
+      if (!view || readOnlyRef.current) return
       const line = view.state.doc.lineAt(view.state.selection.main.head)
       view.dispatch({
         changes: { from: line.from, insert: prefix },

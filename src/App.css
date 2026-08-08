@@ -98,6 +98,11 @@
   background: #d79a2c;
 }
 
+.sync-status.archived .status-dot {
+  background: #9b7b18;
+  box-shadow: 0 0 0 3px #f5e9b8;
+}
+
 .topbar-actions {
   justify-content: flex-end;
   gap: 8px;
@@ -321,6 +326,55 @@
   overflow: hidden;
   display: grid;
   grid-template-rows: 43px minmax(0, 1fr);
+}
+
+.manuscript-workspace.archived {
+  grid-template-rows: 56px 43px minmax(0, 1fr);
+}
+
+.archive-banner {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid #d8c58a;
+  background: #fff8df;
+  color: #55430a;
+}
+
+.archive-banner div {
+  min-width: 0;
+}
+
+.archive-banner strong,
+.archive-banner span {
+  display: block;
+}
+
+.archive-banner strong {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.archive-banner span {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #766221;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-banner a {
+  color: #5f4c0f;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.archive-banner .primary-button {
+  min-height: 31px;
 }
 
 .editor-toolbar {
@@ -1360,6 +1414,22 @@
     width: min(320px, 90vw);
     box-shadow: -10px 0 28px rgba(28, 38, 32, 0.12);
   }
+
+  .manuscript-workspace.archived {
+    grid-template-rows: 64px 43px minmax(0, 1fr);
+  }
+
+  .archive-banner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .archive-banner a {
+    display: none;
+  }
+
+  .manuscript-workspace.archived .document-panes.comments-open .comments-panel {
+    top: 169px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1413,6 +1483,20 @@
 
   .github-dialog {
     max-height: calc(100vh - 16px);
+  }
+
+  .archive-banner {
+    padding: 0 8px;
+  }
+
+  .archive-banner span {
+    display: none;
+  }
+
+  .archive-banner .primary-button {
+    width: 34px;
+    padding: 0;
+    font-size: 0;
   }
 
   .github-dialog-header {

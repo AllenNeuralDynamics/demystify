@@ -78,6 +78,7 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it.
 7. Comments created before the PR exists remain queued until the first changed snapshot. Changed lines become native GitHub review threads; unchanged lines fall back to marked PR conversation comments with path, lines, and quoted context.
 8. Replies and native review-thread resolution synchronize in both directions while the room is open. DeMystify polls GitHub on focus and every 15 seconds.
+9. Closing or merging the PR archives the room. Text, comments, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
@@ -125,6 +126,6 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
 - Suggestion/tracked-change mode is not implemented yet.
-- Each bound room owns one manuscript path, working branch, and pull request. A merged revision starts in a new room.
+- Each bound room owns one manuscript path, working branch, and pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

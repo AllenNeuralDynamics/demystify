@@ -92,6 +92,13 @@ interface GitPullRequest {
   merged_at?: string | null
   head?: {
     sha: string
+    ref?: string
+    repo?: {
+      full_name: string
+    } | null
+  }
+  base?: {
+    ref: string
   }
 }
 
@@ -499,6 +506,26 @@ export const findRepositoryPullRequest = async (
     `${repositoryPath}/pulls?state=all&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
   )
   return existing[0] ? toRepositoryPullRequest(existing[0]) : null
+}
+
+export const getRepositoryPullRequest = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+): Promise<RepositoryPullRequest> => {
+  const { owner, repository, baseBranch, branchName } = target
+  const pullRequest = await githubRequest<GitPullRequest>(
+    request,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/pulls/${pullRequestNumber}`,
+  )
+  if (
+    pullRequest.head?.ref !== branchName ||
+    pullRequest.base?.ref !== baseBranch ||
+    (pullRequest.head.repo && pullRequest.head.repo.full_name !== `${owner}/${repository}`)
+  ) {
+    throw new ApiError(409, 'The room pull request no longer matches its repository binding.')
+  }
+  return toRepositoryPullRequest(pullRequest)
 }
 
 const getCommentMarker = (commentId: string) =>

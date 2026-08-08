@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
@@ -7,6 +8,7 @@ import {
   createRepositoryPullRequest,
   createRepositorySnapshot,
   findRepositoryPullRequest,
+  getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
   requireRepositoryWriteAccess,
   upsertRepositoryPullRequestComment,
@@ -40,6 +42,7 @@ export interface RoomRecord {
   ownerLogin: string
   binding: RoomBinding | null
   review: RoomReview | null
+  nextRoomName: string | null
   createdAt: string
   updatedAt: string
 }
@@ -63,6 +66,15 @@ export interface RoomStoreLike {
     roomName: string,
     createReview: () => Promise<RoomReview>,
   ): Promise<RoomRecord>
+  createRevision(
+    roomName: string,
+    user: RoomUser,
+    binding: RoomBinding,
+  ): Promise<RoomRecord>
+}
+
+export interface RoomLifecycleOptions {
+  onReadOnlyChange?: (roomName: string, readOnly: boolean) => void
 }
 
 const roomPattern = /^[A-Za-z0-9_-]{8,100}$/
@@ -146,6 +158,19 @@ const toRoomReview = (
   }
 }
 
+export const isTerminalReview = (review: RoomReview | null) =>
+  review?.state === 'closed' || review?.state === 'merged'
+
+export const requireWritableRoom = (room: RoomRecord) => {
+  if (isTerminalReview(room.review)) {
+    throw new ApiError(
+      409,
+      `This room is read-only because pull request #${room.review?.number} is ${room.review?.state}. Start the next revision to continue editing.`,
+    )
+  }
+  return room
+}
+
 export class RoomStore implements RoomStoreLike {
   private readonly rooms = new Map<string, RoomRecord>()
   private queue: Promise<void> = Promise.resolve()
@@ -160,6 +185,7 @@ export class RoomStore implements RoomStoreLike {
           this.rooms.set(record.roomName, {
             ...record,
             review: record.review ?? null,
+            nextRoomName: record.nextRoomName ?? null,
           })
         }
       }
@@ -184,6 +210,7 @@ export class RoomStore implements RoomStoreLike {
         ownerLogin: user.login,
         binding: null,
         review: null,
+        nextRoomName: null,
         createdAt: now,
         updatedAt: now,
       }
@@ -256,6 +283,42 @@ export class RoomStore implements RoomStoreLike {
     })
   }
 
+  createRevision(roomName: string, user: RoomUser, binding: RoomBinding) {
+    return this.withLock(async () => {
+      const sourceRoom = this.rooms.get(roomName)
+      if (!sourceRoom) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (sourceRoom.nextRoomName) {
+        const existing = this.rooms.get(sourceRoom.nextRoomName)
+        if (!existing) throw new ApiError(500, 'The next revision room is unavailable.')
+        return existing
+      }
+
+      const nextRoomName = randomUUID()
+      const now = new Date().toISOString()
+      const nextRoom: RoomRecord = {
+        roomName: nextRoomName,
+        ownerId: user.id,
+        ownerLogin: user.login,
+        binding: {
+          ...binding,
+          branchName: `demystify/${nextRoomName.slice(0, 12)}`,
+        },
+        review: null,
+        nextRoomName: null,
+        createdAt: now,
+        updatedAt: now,
+      }
+      this.rooms.set(nextRoomName, nextRoom)
+      this.rooms.set(roomName, {
+        ...sourceRoom,
+        nextRoomName,
+        updatedAt: now,
+      })
+      await this.persist()
+      return nextRoom
+    })
+  }
+
   private withLock<Result>(operation: () => Promise<Result>): Promise<Result> {
     const result = this.queue.then(operation)
     this.queue = result.then(
@@ -282,6 +345,7 @@ interface PostgresRoomRow {
   owner_login: string
   binding: RoomBinding | null
   review: RoomReview | null
+  next_room_name: string | null
   created_at: Date
   updated_at: Date
 }
@@ -292,6 +356,7 @@ const rowToRoomRecord = (row: PostgresRoomRow): RoomRecord => ({
   ownerLogin: row.owner_login,
   binding: row.binding,
   review: row.review ?? null,
+  nextRoomName: row.next_room_name ?? null,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 })
@@ -309,6 +374,7 @@ export class PostgresRoomStore implements RoomStoreLike {
         owner_login TEXT NOT NULL,
         binding JSONB,
         review JSONB,
+        next_room_name VARCHAR(100),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -316,6 +382,10 @@ export class PostgresRoomStore implements RoomStoreLike {
     await this.pool.query(`
       ALTER TABLE demystify_rooms
       ADD COLUMN IF NOT EXISTS review JSONB
+    `)
+    await this.pool.query(`
+      ALTER TABLE demystify_rooms
+      ADD COLUMN IF NOT EXISTS next_room_name VARCHAR(100)
     `)
   }
 
@@ -425,6 +495,54 @@ export class PostgresRoomStore implements RoomStoreLike {
     return creation
   }
 
+  async createRevision(roomName: string, user: RoomUser, binding: RoomBinding) {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const sourceRoom = await this.getForUpdate(client, roomName)
+      if (!sourceRoom) throw new ApiError(404, 'This collaboration room does not exist.')
+      if (sourceRoom.nextRoomName) {
+        const existing = await client.query<PostgresRoomRow>(
+          `SELECT * FROM demystify_rooms WHERE room_name = $1`,
+          [sourceRoom.nextRoomName],
+        )
+        if (!existing.rows[0]) throw new ApiError(500, 'The next revision room is unavailable.')
+        await client.query('COMMIT')
+        return rowToRoomRecord(existing.rows[0])
+      }
+
+      const nextRoomName = randomUUID()
+      const nextBinding: RoomBinding = {
+        ...binding,
+        branchName: `demystify/${nextRoomName.slice(0, 12)}`,
+      }
+      const created = await client.query<PostgresRoomRow>(
+        `
+          INSERT INTO demystify_rooms (
+            room_name, owner_id, owner_login, binding
+          ) VALUES ($1, $2, $3, $4::jsonb)
+          RETURNING *
+        `,
+        [nextRoomName, user.id, user.login, JSON.stringify(nextBinding)],
+      )
+      await client.query(
+        `
+          UPDATE demystify_rooms
+          SET next_room_name = $2, updated_at = NOW()
+          WHERE room_name = $1
+        `,
+        [roomName, nextRoomName],
+      )
+      await client.query('COMMIT')
+      return rowToRoomRecord(created.rows[0])
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   private async createReview(
     roomName: string,
     createReview: () => Promise<RoomReview>,
@@ -476,6 +594,7 @@ export const authorizeRoomRequest = async (
   request: Request,
   roomStore: RoomStoreLike,
   roomName: string,
+  options: RoomLifecycleOptions = {},
 ) => {
   const user = requireUser(request)
   const room = await roomStore.get(roomName)
@@ -485,6 +604,7 @@ export const authorizeRoomRequest = async (
     if (room.ownerId !== user.id) {
       throw new ApiError(403, 'This unbound room is private to its owner.')
     }
+    options.onReadOnlyChange?.(roomName, false)
     return room
   }
 
@@ -493,10 +613,34 @@ export const authorizeRoomRequest = async (
     room.binding.owner,
     room.binding.repository,
   )
-  return room
+  if (!room.review) {
+    options.onReadOnlyChange?.(roomName, false)
+    return room
+  }
+
+  const currentReview = await getRepositoryPullRequest(
+    request,
+    requireBinding(room),
+    room.review.number,
+  )
+  const reviewChanged =
+    currentReview.htmlUrl !== room.review.htmlUrl ||
+    currentReview.title !== room.review.title ||
+    currentReview.state !== room.review.state
+  const refreshedRoom = reviewChanged
+    ? await roomStore.setReview(
+        roomName,
+        toRoomReview(currentReview, room.review),
+      )
+    : room
+  options.onReadOnlyChange?.(roomName, isTerminalReview(refreshedRoom.review))
+  return refreshedRoom
 }
 
-export const createRoomRouter = (roomStore: RoomStoreLike) => {
+export const createRoomRouter = (
+  roomStore: RoomStoreLike,
+  options: RoomLifecycleOptions = {},
+) => {
   const router = Router()
   const commentMirrorQueues = new Map<string, Promise<void>>()
 
@@ -506,15 +650,15 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
     const existing = await roomStore.get(roomName)
 
     if (existing) {
-      await authorizeRoomRequest(request, roomStore, roomName)
-      response.json(existing)
+      response.json(await authorizeRoomRequest(request, roomStore, roomName, options))
       return
     }
 
     const claimed = await roomStore.claim(roomName, user)
     if (claimed.ownerId !== user.id) {
-      await authorizeRoomRequest(request, roomStore, roomName)
+      await authorizeRoomRequest(request, roomStore, roomName, options)
     }
+    options.onReadOnlyChange?.(roomName, false)
     response.status(201).json(claimed)
   })
 
@@ -546,7 +690,9 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
 
   router.post('/rooms/:roomName/snapshots', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
-    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const room = requireWritableRoom(
+      await authorizeRoomRequest(request, roomStore, roomName, options),
+    )
     const binding = requireBinding(room)
     const content = readText(request.body.content, 'content')
     const commitMessage =
@@ -593,7 +739,9 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
 
   router.post('/rooms/:roomName/pull-requests', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
-    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const room = requireWritableRoom(
+      await authorizeRoomRequest(request, roomStore, roomName, options),
+    )
     const binding = requireBinding(room)
     const title = readBindingString(request.body.title, 'title').slice(0, 200)
 
@@ -611,7 +759,9 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       throw new ApiError(400, 'A valid comment ID is required.')
     }
 
-    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const room = requireWritableRoom(
+      await authorizeRoomRequest(request, roomStore, roomName, options),
+    )
     const binding = requireBinding(room)
     if (!room.review) {
       throw new ApiError(
@@ -698,7 +848,9 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
         throw new ApiError(400, 'Valid thread and message IDs are required.')
       }
 
-      const room = await authorizeRoomRequest(request, roomStore, roomName)
+      const room = requireWritableRoom(
+        await authorizeRoomRequest(request, roomStore, roomName, options),
+      )
       const binding = requireBinding(room)
       if (!room.review) {
         throw new ApiError(409, 'Save a changed snapshot before mirroring replies.')
@@ -751,7 +903,7 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
 
   router.get('/rooms/:roomName/comments/sync', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
-    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const room = await authorizeRoomRequest(request, roomStore, roomName, options)
     const binding = requireBinding(room)
     if (!room.review) {
       response.json({ messages: [], resolutions: [] })
@@ -762,6 +914,22 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       binding,
       room.review.number,
     ))
+  })
+
+  router.post('/rooms/:roomName/revisions', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const room = await authorizeRoomRequest(request, roomStore, roomName, options)
+    if (!isTerminalReview(room.review)) {
+      throw new ApiError(
+        409,
+        'Start the next revision after this room pull request is closed or merged.',
+      )
+    }
+    const user = requireUser(request)
+    const binding = requireBinding(room)
+    const boundRoom = await roomStore.createRevision(roomName, user, binding)
+    options.onReadOnlyChange?.(boundRoom.roomName, false)
+    response.status(201).json(boundRoom)
   })
 
   return router
