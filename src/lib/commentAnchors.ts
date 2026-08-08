@@ -95,6 +95,22 @@ export const resolveCommentAnchor = (
     const from = Math.min(start.index, end.index)
     const to = Math.max(start.index, end.index)
     const quote = source.slice(from, to)
+    if (from === to || !quote.trim()) {
+      const restoredFrom = anchor.quote ? source.indexOf(anchor.quote) : -1
+      const quoteIsUnique = restoredFrom >= 0 &&
+        source.indexOf(anchor.quote, restoredFrom + 1) === -1
+      if (quoteIsUnique) {
+        const restoredTo = restoredFrom + anchor.quote.length
+        return {
+          from: restoredFrom,
+          to: restoredTo,
+          quote: anchor.quote,
+          startLine: getLineNumber(source, restoredFrom),
+          endLine: getLineNumber(source, Math.max(restoredFrom, restoredTo - 1)),
+          orphaned: false,
+        }
+      }
+    }
     return {
       from,
       to,

@@ -49,4 +49,21 @@ describe('comment anchors', () => {
       orphaned: true,
     })
   })
+
+  it('reattaches when the exact deleted paragraph uniquely reappears', () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Target paragraph.')
+    const anchor = createCommentAnchor(text, 0, text.length)
+
+    text.delete(0, text.length)
+    text.insert(0, 'Preface\n\nTarget paragraph.')
+
+    expect(resolveCommentAnchor(document, text, anchor)).toMatchObject({
+      quote: 'Target paragraph.',
+      startLine: 3,
+      endLine: 3,
+      orphaned: false,
+    })
+  })
 })
