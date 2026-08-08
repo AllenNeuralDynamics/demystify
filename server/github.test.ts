@@ -2,6 +2,7 @@ import type { Request } from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createRepositoryPullRequest,
+  getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
   upsertRepositoryPullRequestComment,
   upsertRepositoryPullRequestCommentReply,
@@ -68,6 +69,30 @@ describe('createRepositoryPullRequest', () => {
       head: 'demystify/test-room',
       base: 'main',
       draft: true,
+    })
+  })
+
+  it('treats a closed draft pull request as closed', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      number: 17,
+      html_url: 'https://github.com/researcher/paper/pull/17',
+      title: 'Closed draft',
+      state: 'closed',
+      draft: true,
+      merged_at: null,
+      head: {
+        ref: 'demystify/test-room',
+        repo: { full_name: 'researcher/paper' },
+      },
+      base: { ref: 'main' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getRepositoryPullRequest(request, target, 17)).resolves.toEqual({
+      number: 17,
+      htmlUrl: 'https://github.com/researcher/paper/pull/17',
+      title: 'Closed draft',
+      state: 'closed',
     })
   })
 

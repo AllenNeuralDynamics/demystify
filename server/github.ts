@@ -191,9 +191,11 @@ const toRepositoryPullRequest = (
   title: pullRequest.title,
   state: pullRequest.merged_at
     ? 'merged'
-    : pullRequest.draft
-      ? 'draft'
-      : pullRequest.state,
+    : pullRequest.state === 'closed'
+      ? 'closed'
+      : pullRequest.draft
+        ? 'draft'
+        : 'open',
 })
 
 export class ApiError extends Error {
