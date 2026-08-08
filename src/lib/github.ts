@@ -51,6 +51,12 @@ export interface RoomReview {
   updatedAt: string
 }
 
+export interface PullRequestCommentMirror {
+  id: number
+  htmlUrl: string
+  updatedAt: string
+}
+
 export interface SnapshotResult {
   branchName: string
   commitSha: string
@@ -174,6 +180,29 @@ export const createPullRequest = (roomName: string, title: string) =>
       method: 'POST',
       body: JSON.stringify({
         title,
+      }),
+    },
+  )
+
+export const mirrorRoomComment = (
+  roomName: string,
+  comment: {
+    id: string
+    githubCommentId?: number
+    authorName: string
+    body: string
+    resolved: boolean
+  },
+) =>
+  apiRequest<PullRequestCommentMirror>(
+    `/api/rooms/${encodeURIComponent(roomName)}/comments/${encodeURIComponent(comment.id)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        githubCommentId: comment.githubCommentId,
+        authorName: comment.authorName,
+        body: comment.body,
+        resolved: comment.resolved,
       }),
     },
   )

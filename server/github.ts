@@ -92,11 +92,32 @@ interface GitPullRequest {
   merged_at?: string | null
 }
 
+interface GitHubIssueComment {
+  id: number
+  html_url: string
+  body: string
+  updated_at: string
+}
+
 export interface RepositoryPullRequest {
   number: number
   htmlUrl: string
   title: string
   state: 'draft' | 'open' | 'closed' | 'merged'
+}
+
+export interface RepositoryPullRequestComment {
+  id: number
+  htmlUrl: string
+  updatedAt: string
+}
+
+export interface RepositoryPullRequestCommentInput {
+  id: string
+  githubCommentId?: number
+  authorName: string
+  body: string
+  resolved: boolean
 }
 
 export interface RepositoryWriteTarget {
@@ -430,6 +451,80 @@ export const findRepositoryPullRequest = async (
     `${repositoryPath}/pulls?state=all&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}`,
   )
   return existing[0] ? toRepositoryPullRequest(existing[0]) : null
+}
+
+const getCommentMarker = (commentId: string) =>
+  `<!-- demystify-comment:${commentId} -->`
+
+const escapeHtml = (value: string) => value
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;')
+
+const formatPullRequestComment = (
+  comment: RepositoryPullRequestCommentInput,
+) => {
+  const status = comment.resolved ? 'Resolved' : 'Open'
+  return [
+    comment.body,
+    `<sub>DeMystify comment by ${escapeHtml(comment.authorName)} - ${status}</sub>`,
+    getCommentMarker(comment.id),
+  ].join('\n\n')
+}
+
+export const upsertRepositoryPullRequestComment = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+  comment: RepositoryPullRequestCommentInput,
+): Promise<RepositoryPullRequestComment> => {
+  const { owner, repository } = target
+  const repositoryPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`
+  const marker = getCommentMarker(comment.id)
+  let existing: GitHubIssueComment | undefined
+  if (comment.githubCommentId) {
+    try {
+      const candidate = await githubRequest<GitHubIssueComment>(
+        request,
+        `${repositoryPath}/issues/comments/${comment.githubCommentId}`,
+      )
+      if (!candidate.body.includes(marker)) {
+        throw new ApiError(409, 'The GitHub comment does not belong to this room comment.')
+      }
+      existing = candidate
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error
+    }
+  }
+  if (!existing) {
+    const comments = await githubRequest<GitHubIssueComment[]>(
+      request,
+      `${repositoryPath}/issues/${pullRequestNumber}/comments?per_page=100&sort=created&direction=desc`,
+    )
+    existing = comments.find((candidate) => candidate.body.includes(marker))
+  }
+  const body = formatPullRequestComment(comment)
+
+  const mirrored = existing?.body === body
+    ? existing
+    : await githubRequest<GitHubIssueComment>(
+        request,
+        existing
+          ? `${repositoryPath}/issues/comments/${existing.id}`
+          : `${repositoryPath}/issues/${pullRequestNumber}/comments`,
+        {
+          method: existing ? 'PATCH' : 'POST',
+          body: JSON.stringify({ body }),
+        },
+      )
+
+  return {
+    id: mirrored.id,
+    htmlUrl: mirrored.html_url,
+    updatedAt: mirrored.updated_at,
+  }
 }
 
 export const githubRouter = Router()

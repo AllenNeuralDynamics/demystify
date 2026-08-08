@@ -8,6 +8,7 @@ import {
   createRepositorySnapshot,
   findRepositoryPullRequest,
   requireRepositoryWriteAccess,
+  upsertRepositoryPullRequestComment,
   type RepositoryPullRequest,
 } from './github.js'
 
@@ -64,6 +65,7 @@ export interface RoomStoreLike {
 
 const roomPattern = /^[A-Za-z0-9_-]{8,100}$/
 const repositoryPartPattern = /^[A-Za-z0-9_.-]+$/
+const commentIdPattern = /^[A-Za-z0-9_-]{1,100}$/
 
 export const validateRoomName = (roomName: string) => {
   if (!roomPattern.test(roomName)) {
@@ -106,6 +108,15 @@ const readText = (value: unknown, field: string) => {
     throw new ApiError(400, `${field} must be text.`)
   }
   return value
+}
+
+const readCommentText = (value: unknown, field: string, maxLength: number) => {
+  const parsed = readText(value, field).trim()
+  if (!parsed) throw new ApiError(400, `${field} is required.`)
+  if (parsed.length > maxLength) {
+    throw new ApiError(400, `${field} must be ${maxLength} characters or fewer.`)
+  }
+  return parsed
 }
 
 const requireBinding = (room: RoomRecord) => {
@@ -485,6 +496,7 @@ export const authorizeRoomRequest = async (
 
 export const createRoomRouter = (roomStore: RoomStoreLike) => {
   const router = Router()
+  const commentMirrorQueues = new Map<string, Promise<void>>()
 
   router.post('/rooms/:roomName/claim', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
@@ -588,6 +600,60 @@ export const createRoomRouter = (roomStore: RoomStoreLike) => {
       return toRoomReview(pullRequest)
     })
     response.json(updatedRoom.review)
+  })
+
+  router.put('/rooms/:roomName/comments/:commentId', async (request, response) => {
+    const roomName = validateRoomName(request.params.roomName)
+    const commentId = request.params.commentId
+    if (!commentIdPattern.test(commentId)) {
+      throw new ApiError(400, 'A valid comment ID is required.')
+    }
+
+    const room = await authorizeRoomRequest(request, roomStore, roomName)
+    const binding = requireBinding(room)
+    if (!room.review) {
+      throw new ApiError(
+        409,
+        'Save a changed snapshot before mirroring comments to GitHub.',
+      )
+    }
+    const reviewNumber = room.review.number
+
+    const body = readCommentText(request.body.body, 'body', 60_000)
+    const authorName = readCommentText(request.body.authorName, 'authorName', 100)
+    if (typeof request.body.resolved !== 'boolean') {
+      throw new ApiError(400, 'resolved must be a boolean.')
+    }
+    const githubCommentId = request.body.githubCommentId
+    if (
+      githubCommentId !== undefined &&
+      (!Number.isSafeInteger(githubCommentId) || githubCommentId <= 0)
+    ) {
+      throw new ApiError(400, 'githubCommentId must be a positive integer.')
+    }
+
+    const mirrorKey = `${roomName}:${commentId}`
+    const previousMirror = commentMirrorQueues.get(mirrorKey) ?? Promise.resolve()
+    const mirror = previousMirror.then(() => upsertRepositoryPullRequestComment(
+      request,
+      binding,
+      reviewNumber,
+      {
+        id: commentId,
+        ...(githubCommentId ? { githubCommentId } : {}),
+        authorName,
+        body,
+        resolved: request.body.resolved,
+      },
+    ))
+    const queueTail = mirror.then(() => undefined, () => undefined)
+    commentMirrorQueues.set(mirrorKey, queueTail)
+    void queueTail.finally(() => {
+      if (commentMirrorQueues.get(mirrorKey) === queueTail) {
+        commentMirrorQueues.delete(mirrorKey)
+      }
+    })
+    response.json(await mirror)
   })
 
   return router

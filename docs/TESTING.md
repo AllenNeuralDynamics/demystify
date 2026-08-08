@@ -18,9 +18,12 @@ Use a standalone personal repository that is not a GitHub fork:
 1. Create a new test repository with an `index.md` file.
 2. Add that repository to the test GitHub App installation.
 3. Open `index.md` in DeMystify and make a harmless edit.
-4. Save the snapshot and create the pull request.
-5. Verify that both head and base belong to the standalone repository.
-6. Close the PR and delete the test branch or repository when finished.
+4. Add a room comment before the first snapshot and verify it remains queued.
+5. Save a changed snapshot and verify the pull request and queued comment are created.
+6. Add another room comment and follow its **PR comment** link.
+7. Resolve and reopen a room comment; verify the same GitHub comment is updated rather than duplicated.
+8. Verify that both head and base belong to the standalone repository.
+9. Close the PR and delete the test branch or repository when finished.
 
 ## Required Checks
 
@@ -30,6 +33,7 @@ Before treating a test as successful, verify:
 - The branch exists only in the intended repository.
 - The compare view contains only the intended file and lines.
 - The PR base repository, base branch, and head branch are exactly correct.
+- Each room comment appears once in the PR conversation and contains its hidden DeMystify marker.
 - No upstream repository received an open PR.
 
 ## Collaboration Persistence Test

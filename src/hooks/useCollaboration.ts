@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
+import type { PullRequestCommentMirror } from '../lib/github'
 import type { CollaboratorProfile } from '../lib/profile'
 import {
   normalizeSourceText,
@@ -22,6 +23,9 @@ export interface SharedComment {
   body: string
   createdAt: string
   resolved: boolean
+  github?: PullRequestCommentMirror & {
+    resolved: boolean
+  }
 }
 
 interface CollaborationSession {
@@ -168,6 +172,19 @@ export const useCollaboration = (
     session?.comments.set(comment.id, { ...comment, resolved: !comment.resolved })
   }
 
+  const applyCommentMirror = useCallback((
+    commentId: string,
+    mirror: PullRequestCommentMirror,
+    resolved: boolean,
+  ) => {
+    const comment = session?.comments.get(commentId)
+    if (!session || !comment) return
+    session.comments.set(commentId, {
+      ...comment,
+      github: { ...mirror, resolved },
+    })
+  }, [session])
+
   const replaceContent = (nextContent: string) => {
     if (!session) return
     const normalized = normalizeSourceText(nextContent)
@@ -197,6 +214,7 @@ export const useCollaboration = (
     isSynced,
     addComment,
     toggleComment,
+    applyCommentMirror,
     replaceContent,
     getSnapshotContent,
   }

@@ -688,7 +688,8 @@
   line-height: 1.5;
 }
 
-.comment button {
+.comment button,
+.comment-actions a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -697,6 +698,30 @@
   color: var(--green-dark);
   font-size: 10px;
   font-weight: 500;
+}
+
+.comment-actions {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.comment-actions a {
+  text-decoration: none;
+}
+
+.comment-github-state {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.comment-github-state span {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .view-source .preview-pane,

@@ -8,7 +8,7 @@ flowchart LR
   B --> M[MyST parser + KaTeX]
   W <--> L[(LevelDB locally or PostgreSQL)]
   B <-->|HTTP-only session| G[GitHub App gateway]
-  G <-->|Contents and pull requests| R[GitHub repository]
+  G <-->|Contents, pull requests, and comments| R[GitHub repository]
 ```
 
 The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs.
@@ -20,6 +20,8 @@ The browser uses the official JavaScript MyST parser for immediate feedback. Thi
 Room bindings are immutable after their first repository file is selected. This prevents an existing socket population authorized for one repository from being silently carried into another repository's document; changing files requires a new room.
 
 GitHub is updated only through explicit snapshots. The gateway derives the repository, path, base branch, and stable `demystify/<room>` branch from the authorized immutable room binding. The first snapshot writes the manuscript through the Contents API, creates a draft pull request, and persists that review identity on the room. Later snapshots update the same branch and pull request. Legacy rooms discover an existing open PR by their deterministic branch before persisting it.
+
+Comments remain part of the shared Yjs document. Once a room has a persisted pull request, the browser mirrors each comment through a room-authorized server route into the PR conversation. A hidden `demystify-comment:<uuid>` marker makes retries idempotent, and resolve/reopen operations update the same GitHub comment. Pre-PR comments remain queued in Yjs. The current comments are document-level and synchronization is one-way; inline review threads and GitHub-to-DeMystify updates require source anchors and webhooks or polling.
 
 ## Production Target
 

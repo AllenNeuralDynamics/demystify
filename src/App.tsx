@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Code2,
   Eye,
+  ExternalLink,
   FilePlus2,
   FileText,
   GitFork,
@@ -14,6 +15,7 @@ import {
   MessageSquare,
   PanelLeftClose,
   Redo2,
+  RefreshCw,
   Save,
   Share2,
   SplitSquareHorizontal,
@@ -28,10 +30,14 @@ import {
   type CollaborativeEditorHandle,
 } from './components/CollaborativeEditor'
 import { GitHubDialog } from './components/GitHubDialog'
-import { useCollaboration } from './hooks/useCollaboration'
+import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
 import { useRoomAccess } from './hooks/useRoomAccess'
-import { createSnapshot, type RepositoryBinding } from './lib/github'
+import {
+  createSnapshot,
+  mirrorRoomComment,
+  type RepositoryBinding,
+} from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
 import { sampleManuscript } from './lib/sampleManuscript'
 
@@ -87,7 +93,10 @@ function App() {
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [commentSyncErrors, setCommentSyncErrors] = useState<Record<string, string>>({})
+  const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
+  const commentSyncAttempts = useRef(new Map<string, string>())
   const github = useGitHubSession()
   const roomAccess = useRoomAccess(roomName, github.session?.user?.id ?? null)
   const repositoryBinding = roomAccess.binding
@@ -104,6 +113,8 @@ function App() {
     sampleManuscript,
     roomAccess.isReady,
   )
+  const sharedComments = collaboration.comments
+  const applyCommentMirror = collaboration.applyCommentMirror
 
   const title = getDocumentTitle(collaboration.content)
   const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
@@ -120,6 +131,46 @@ function App() {
     const timeout = window.setTimeout(() => setNotice(null), 2_400)
     return () => window.clearTimeout(timeout)
   }, [notice])
+
+  useEffect(() => {
+    const reviewNumber = roomAccess.review?.number
+    if (!reviewNumber) return
+
+    for (const comment of sharedComments) {
+      if (comment.github?.resolved === comment.resolved) continue
+      const version = `${reviewNumber}:${comment.resolved}:${comment.body}`
+      if (commentSyncAttempts.current.get(comment.id) === version) continue
+      commentSyncAttempts.current.set(comment.id, version)
+
+      void mirrorRoomComment(roomName, {
+        ...comment,
+        githubCommentId: comment.github?.id,
+      })
+        .then((mirror) => {
+          applyCommentMirror(comment.id, mirror, comment.resolved)
+          setCommentSyncErrors((current) => {
+            if (!(comment.id in current)) return current
+            const next = { ...current }
+            delete next[comment.id]
+            return next
+          })
+        })
+        .catch((error: unknown) => {
+          setCommentSyncErrors((current) => ({
+            ...current,
+            [comment.id]: error instanceof Error
+              ? error.message
+              : 'GitHub comment sync failed.',
+          }))
+        })
+    }
+  }, [
+    applyCommentMirror,
+    commentSyncRevision,
+    roomAccess.review?.number,
+    roomName,
+    sharedComments,
+  ])
 
   const shareDocument = async () => {
     if (!repositoryBinding) {
@@ -146,6 +197,11 @@ function App() {
   const submitComment = () => {
     collaboration.addComment(commentDraft)
     setCommentDraft('')
+  }
+
+  const retryCommentSync = (comment: SharedComment) => {
+    commentSyncAttempts.current.delete(comment.id)
+    setCommentSyncRevision((revision) => revision + 1)
   }
 
   const updateProfile = () => {
@@ -433,9 +489,34 @@ function App() {
                         <time dateTime={comment.createdAt}>{formatRelativeTime(comment.createdAt)}</time>
                       </div>
                       <p>{comment.body}</p>
-                      <button type="button" onClick={() => collaboration.toggleComment(comment)}>
-                        <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
-                      </button>
+                      <div className="comment-actions">
+                        <button type="button" onClick={() => collaboration.toggleComment(comment)}>
+                          <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
+                        </button>
+                        <div className="comment-github-state">
+                          {comment.github && (
+                            <a
+                              href={comment.github.htmlUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Open this comment on GitHub"
+                            >
+                              <ExternalLink size={13} /> PR comment
+                            </a>
+                          )}
+                          {commentSyncErrors[comment.id] ? (
+                            <button
+                              type="button"
+                              title={commentSyncErrors[comment.id]}
+                              onClick={() => retryCommentSync(comment)}
+                            >
+                              <RefreshCw size={13} /> Retry sync
+                            </button>
+                          ) : comment.github?.resolved !== comment.resolved ? (
+                            <span>{roomAccess.review ? 'Syncing to PR' : 'Queued for PR'}</span>
+                          ) : null}
+                        </div>
+                      </div>
                     </article>
                   ))}
                 </div>
