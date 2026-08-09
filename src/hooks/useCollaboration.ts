@@ -16,6 +16,12 @@ import {
   serializeSourceText,
   type SourceLineEnding,
 } from '../lib/sourceText'
+import {
+  applyCollaborativeTextEdit,
+  createCollaborativeTextEditAnchor,
+  type CollaborativeTextEditAnchor,
+  type CollaborativeTextEditResult,
+} from '../lib/collaborativeTextEdit'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -297,6 +303,28 @@ export const useCollaboration = (
     })
   }
 
+  const beginTextEdit = useCallback((
+    from: number,
+    to: number,
+    expectedText: string,
+  ): CollaborativeTextEditAnchor | null => {
+    if (!session || readOnly) return null
+    return createCollaborativeTextEditAnchor(session.text, from, to, expectedText)
+  }, [readOnly, session])
+
+  const commitTextEdit = useCallback((
+    anchor: CollaborativeTextEditAnchor,
+    replacement: string,
+  ): CollaborativeTextEditResult => {
+    if (!session || readOnly) return 'unavailable'
+    return applyCollaborativeTextEdit(
+      session.document,
+      session.text,
+      anchor,
+      replacement.replace(/\r\n?/g, '\n'),
+    )
+  }, [readOnly, session])
+
   const getSnapshotContent = () => {
     if (!session) return content
     return serializeSourceText(
@@ -321,6 +349,8 @@ export const useCollaboration = (
     applyCommentMessageMirror,
     applyGitHubCommentSync,
     resolveAnchor,
+    beginTextEdit,
+    commitTextEdit,
     replaceContent,
     getSnapshotContent,
   }

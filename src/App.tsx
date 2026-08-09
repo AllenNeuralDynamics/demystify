@@ -12,7 +12,6 @@ import {
   GitFork,
   GitBranchPlus,
   GitPullRequest,
-  Heading2,
   Italic,
   LoaderCircle,
   LogIn,
@@ -37,6 +36,7 @@ import {
 } from './components/CollaborativeEditor'
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
+import { MystInsertMenu } from './components/MystInsertMenu'
 import { ShareDialog } from './components/ShareDialog'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
@@ -825,7 +825,7 @@ function App() {
             </div>
           ) : null}
           <div className="editor-toolbar">
-            <div className="formatting-tools" aria-label="Formatting tools">
+            <div className="formatting-tools" aria-label="Authoring tools">
               <button className="icon-button" type="button" title="Undo" disabled={isReadOnly} onClick={() => editorRef.current?.undo()}>
                 <Undo2 size={17} />
               </button>
@@ -833,9 +833,14 @@ function App() {
                 <Redo2 size={17} />
               </button>
               <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Heading" disabled={isReadOnly} onClick={() => editorRef.current?.prefixLine('## ')}>
-                <Heading2 size={17} />
-              </button>
+              <MystInsertMenu
+                disabled={isReadOnly}
+                onInsert={(pattern) => editorRef.current?.insertSnippet(
+                  pattern.template,
+                  pattern.selectedTextPlaceholder,
+                )}
+              />
+              <span className="toolbar-divider" />
               <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
               </button>
@@ -863,8 +868,8 @@ function App() {
               <button className={view === 'split' ? 'active' : ''} type="button" title="Split view" onClick={() => setView('split')}>
                 <SplitSquareHorizontal size={15} /><span>Split</span>
               </button>
-              <button className={view === 'preview' ? 'active' : ''} type="button" title="Preview only" onClick={() => setView('preview')}>
-                <Eye size={15} /><span>Preview</span>
+              <button className={view === 'preview' ? 'active' : ''} type="button" title="Visual editor" onClick={() => setView('preview')}>
+                <Eye size={15} /><span>Visual</span>
               </button>
             </div>
 
@@ -900,15 +905,23 @@ function App() {
               )}
             </section>
 
-            <section className="preview-pane" aria-label="Browser preview">
+            <section className="preview-pane" aria-label={isReadOnly ? 'Browser preview' : 'Visual document editor'}>
               <div className="preview-label">
-                <span>Browser preview</span>
+                <span>{isReadOnly ? 'Browser preview' : 'Visual editor'}</span>
                 <span>{collaboration.isSynced ? 'Live draft' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
                   assetBaseUrl={repositoryAssetBaseUrl}
                   content={collaboration.content}
+                  editable={!isReadOnly && collaboration.isSynced}
+                  onBeginEdit={(block) => collaboration.beginTextEdit(
+                    block.from,
+                    block.to,
+                    block.value,
+                  )}
+                  onCommitEdit={collaboration.commitTextEdit}
+                  onEditError={showNotice}
                 />
               </Suspense>
             </section>

@@ -1,5 +1,6 @@
 import { redo, undo } from '@codemirror/commands'
-import { markdown } from '@codemirror/lang-markdown'
+import { snippet } from '@codemirror/autocomplete'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
@@ -8,6 +9,10 @@ import { yCollab } from 'y-codemirror.next'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import { getCommentRange } from '../lib/commentAnchors'
+import {
+  fillSnippetSelection,
+  mystAuthoringCompletionSource,
+} from '../lib/mystAuthoring'
 
 export interface CommentHighlight {
   id: string
@@ -29,7 +34,7 @@ export interface CollaborativeEditorHandle {
   undo: () => void
   redo: () => void
   wrapSelection: (before: string, after?: string) => void
-  prefixLine: (prefix: string) => void
+  insertSnippet: (template: string, selectedTextPlaceholder?: string) => void
   getCommentSelection: () => { from: number; to: number } | null
   revealRange: (from: number, to: number) => void
   focus: () => void
@@ -134,6 +139,7 @@ export const CollaborativeEditor = forwardRef<
       extensions: [
         basicSetup,
         markdown(),
+        markdownLanguage.data.of({ autocomplete: mystAuthoringCompletionSource }),
         EditorView.lineWrapping,
         editorTheme,
         readOnlyCompartmentRef.current.of([
@@ -199,14 +205,17 @@ export const CollaborativeEditor = forwardRef<
       })
       view.focus()
     },
-    prefixLine: (prefix) => {
+    insertSnippet: (template, selectedTextPlaceholder) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current) return
-      const line = view.state.doc.lineAt(view.state.selection.main.head)
-      view.dispatch({
-        changes: { from: line.from, insert: prefix },
-        selection: { anchor: view.state.selection.main.head + prefix.length },
-      })
+      const { from, to } = view.state.selection.main
+      const selectedText = view.state.sliceDoc(from, to)
+      const resolvedTemplate = fillSnippetSelection(
+        template,
+        selectedTextPlaceholder,
+        selectedText,
+      )
+      snippet(resolvedTemplate)(view, null, from, to)
       view.focus()
     },
     getCommentSelection: () => {
