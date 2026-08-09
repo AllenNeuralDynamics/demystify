@@ -6,7 +6,11 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  readAuthorshipMetadataSources,
+  type AuthorshipMetadataSource,
+} from '../lib/authorshipMetadata'
 import type { BibliographyEditResult } from '../lib/references'
 import {
   createMystAffiliation,
@@ -22,9 +26,13 @@ import {
 } from '../lib/mystMetadata'
 
 type MetadataScope = 'page' | 'project'
+const emptyProjectFiles: Record<string, string> = {}
 
 interface PublicationMetadataProps {
+  authorshipSources?: AuthorshipMetadataSource[]
   pageSource: string
+  pagePath?: string
+  projectFiles?: Record<string, string>
   projectSource: string
   projectPath: string
   readOnly: boolean
@@ -61,7 +69,10 @@ const inheritedText = (value: string | string[]) => {
 }
 
 export const PublicationMetadata = ({
+  authorshipSources,
   pageSource,
+  pagePath = 'manuscript.md',
+  projectFiles = emptyProjectFiles,
   projectSource,
   projectPath,
   readOnly,
@@ -76,6 +87,11 @@ export const PublicationMetadata = ({
   const [projectDirty, setProjectDirty] = useState(false)
   const [errors, setErrors] = useState<string[]>(initial.error ? [initial.error] : [])
   const [warnings, setWarnings] = useState<string[]>([])
+  const detectedAuthorshipSources = useMemo(
+    () => readAuthorshipMetadataSources(pageSource, pagePath, projectFiles),
+    [pagePath, pageSource, projectFiles],
+  )
+  const visibleAuthorshipSources = authorshipSources ?? detectedAuthorshipSources
   const current = scope === 'page' ? pageDraft : projectDraft
   const inherited = initial.sources.project
 
@@ -264,7 +280,7 @@ export const PublicationMetadata = ({
               </button>
             </div>
             <div className="metadata-card-list">
-              {!current.authors.length && <div className="metadata-empty">No authors set in this scope.</div>}
+              {!current.authors.length && <div className="metadata-empty">No canonical MyST authors set in this scope.</div>}
               {current.authors.map((author, index) => (
                 <article className="metadata-card" key={author.rowId}>
                   <div className="metadata-card-title">
@@ -327,6 +343,79 @@ export const PublicationMetadata = ({
               ))}
             </div>
           </section>
+
+          {visibleAuthorshipSources.length > 0 && (
+            <section className="metadata-section metadata-authorship-section">
+              <div className="metadata-section-heading">
+                <div>
+                  <h3>Authorship YAML</h3>
+                  <span>AuthorshipExtractor contributor records; read-only in this panel</span>
+                </div>
+              </div>
+              <div className="metadata-authorship-sources">
+                {visibleAuthorshipSources.map((source, sourceIndex) => (
+                  <section
+                    className="metadata-authorship-source"
+                    key={`${source.path ?? 'invalid'}-${source.label}-${sourceIndex}`}
+                  >
+                    <header>
+                      <div>
+                        <strong>{source.label}</strong>
+                        <code>{source.path ?? 'Invalid YAML path'}</code>
+                      </div>
+                      {!source.error && (
+                        <span>
+                          {source.contributors.length} contributor{source.contributors.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </header>
+                    {source.error ? (
+                      <div className="metadata-authorship-error" role="alert">{source.error}</div>
+                    ) : (
+                      <div
+                        className="metadata-authorship-list"
+                        role="list"
+                        aria-label={`${source.label} from ${source.path}`}
+                      >
+                        {source.contributors.map((contributor, index) => {
+                          const details = [
+                            contributor.id ? `ID ${contributor.id}` : '',
+                            contributor.orcid ? `ORCID ${contributor.orcid}` : '',
+                            contributor.email,
+                            contributor.affiliations.join(', '),
+                          ].filter(Boolean)
+                          return (
+                            <article
+                              className="metadata-authorship-row"
+                              key={`${contributor.id || contributor.name}-${index}`}
+                              role="listitem"
+                            >
+                              <span className="metadata-card-icon"><UserRound size={15} /></span>
+                              <div>
+                                <strong>
+                                  {contributor.name}
+                                  {contributor.corresponding ? ' (corresponding)' : ''}
+                                </strong>
+                                {details.length > 0 && <small>{details.join(' | ')}</small>}
+                              </div>
+                              {contributor.roles.length > 0 && (
+                                <span className="metadata-authorship-roles">
+                                  {contributor.roles.join(', ')}
+                                </span>
+                              )}
+                            </article>
+                          )
+                        })}
+                        {source.contributors.length === 0 && (
+                          <div className="metadata-empty">No contributors found in this YAML source.</div>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="metadata-section">
             <div className="metadata-section-heading">

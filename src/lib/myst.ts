@@ -4,7 +4,10 @@ import { mystParser } from 'myst-parser'
 import { State, formatHtml, mystToHast, transform } from 'myst-to-html'
 import rehypeStringify from 'rehype-stringify'
 import { unified } from 'unified'
-import { parseDocument } from 'yaml'
+import {
+  loadAuthorshipMetadataSource,
+  type AuthorshipContributorMetadata,
+} from './authorshipMetadata'
 import { tryParseBibliography, type PaperReference } from './references'
 
 export interface MystRenderResult {
@@ -511,108 +514,6 @@ const previewTabItemDirective: DirectiveSpec = {
   }, ...directiveBody(data)],
 }
 
-interface AuthorshipContributorPreview {
-  affiliations: string[]
-  corresponding: boolean
-  name: string
-  roles: string[]
-}
-
-interface AuthorshipDatasetPreview {
-  contributors: AuthorshipContributorPreview[]
-  error: string | null
-  label: string
-  path: string | null
-}
-
-const asObject = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-
-const stringValues = (value: unknown) => Array.isArray(value)
-  ? value.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim()] : [])
-  : []
-
-const resolvePreviewProjectPath = (sourcePath: string, value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) return null
-  const reference = trimmed.split('#', 1)[0]
-  const baseDirectory = sourcePath.split('/').slice(0, -1)
-  const segments = reference.startsWith('/')
-    ? reference.slice(1).split('/')
-    : [...baseDirectory, ...reference.split('/')]
-  const normalized: string[] = []
-  for (const segment of segments) {
-    if (!segment || segment === '.') continue
-    if (segment === '..') {
-      if (!normalized.length) return null
-      normalized.pop()
-      continue
-    }
-    normalized.push(segment)
-  }
-  return normalized.length ? normalized.join('/') : null
-}
-
-const parseAuthorshipContributors = (source: string) => {
-  let root: Record<string, unknown> | null
-  try {
-    const document = parseDocument(source)
-    if (document.errors.length) return null
-    root = asObject(document.toJS())
-  } catch {
-    return null
-  }
-  const project = asObject(root?.project)
-  const contributorValues = Array.isArray(project?.contributors)
-    ? project.contributors
-    : Array.isArray(root?.contributors)
-      ? root.contributors
-      : []
-  const affiliationValues = Array.isArray(project?.affiliations)
-    ? project.affiliations
-    : Array.isArray(root?.affiliations)
-      ? root.affiliations
-      : []
-  const affiliations = new Map(affiliationValues.flatMap((value) => {
-    const affiliation = asObject(value)
-    const id = typeof affiliation?.id === 'string' ? affiliation.id.trim() : ''
-    const name = typeof affiliation?.name === 'string' ? affiliation.name.trim() : ''
-    return id ? [[id, name || id] as const] : []
-  }))
-
-  return contributorValues.flatMap((value): AuthorshipContributorPreview[] => {
-    const contributor = asObject(value)
-    if (!contributor) return []
-    const explicitName = typeof contributor.name === 'string' ? contributor.name.trim() : ''
-    const nameParts = [contributor.first_name, contributor.last_name]
-      .flatMap((part) => typeof part === 'string' && part.trim() ? [part.trim()] : [])
-    const id = typeof contributor.id === 'string' ? contributor.id.trim() : ''
-    const name = explicitName || nameParts.join(' ') || id
-    if (!name) return []
-    const contributorAffiliations = Array.isArray(contributor.affiliations)
-      ? contributor.affiliations.flatMap((entry) => {
-          if (typeof entry === 'string' && entry.trim()) {
-            const key = entry.trim()
-            return [affiliations.get(key) ?? key]
-          }
-          const affiliation = asObject(entry)
-          const affiliationName = typeof affiliation?.name === 'string'
-            ? affiliation.name.trim()
-            : ''
-          return affiliationName ? [affiliationName] : []
-        })
-      : []
-    return [{
-      affiliations: Array.from(new Set(contributorAffiliations)),
-      corresponding: contributor.corresponding === true,
-      name,
-      roles: Array.from(new Set(stringValues(contributor.roles))),
-    }]
-  })
-}
-
 const getDirectiveOption = (
   data: DirectiveData,
   name: string,
@@ -626,23 +527,14 @@ const loadAuthorshipDataset = (
   pathValue: string,
   label: string,
   options: MystRenderOptions,
-): AuthorshipDatasetPreview => {
-  const path = resolvePreviewProjectPath(options.sourcePath ?? 'manuscript.md', pathValue)
-  if (!path || !/\.ya?ml$/i.test(path)) {
-    return { contributors: [], error: 'The authorship data path is invalid.', label, path }
-  }
-  const source = options.projectFiles?.[path]
-  if (source === undefined) {
-    return { contributors: [], error: `${path} is not available in this collaboration.`, label, path }
-  }
-  const contributors = parseAuthorshipContributors(source)
-  if (!contributors) {
-    return { contributors: [], error: `${path} contains invalid YAML.`, label, path }
-  }
-  return { contributors, error: null, label, path }
-}
+) => loadAuthorshipMetadataSource(
+  pathValue,
+  label,
+  options.sourcePath ?? 'manuscript.md',
+  options.projectFiles ?? {},
+)
 
-const contributorPreviewChildren = (contributor: AuthorshipContributorPreview): GenericNode[] => {
+const contributorPreviewChildren = (contributor: AuthorshipContributorMetadata): GenericNode[] => {
   const extraRoles = Math.max(0, contributor.roles.length - 3)
   const roleSummary = contributor.roles.length
     ? `${contributor.roles.slice(0, 3).join(', ')}${extraRoles ? ` +${extraRoles} roles` : ''}`

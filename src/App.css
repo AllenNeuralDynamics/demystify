@@ -559,9 +559,17 @@
   z-index: 12;
 }
 
-.formatting-tools,
-.document-stats {
+.formatting-tools {
   gap: 1px;
+}
+
+.document-stats {
+  gap: 7px;
+}
+
+.document-stats > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .formatting-tools {
@@ -1879,6 +1887,102 @@
   border: 1px dashed #cbd4ce;
   border-radius: 5px;
   color: #8d9791;
+  font-size: 10px;
+}
+
+.metadata-authorship-sources {
+  display: grid;
+  gap: 12px;
+}
+
+.metadata-authorship-source {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfb;
+}
+
+.metadata-authorship-source > header {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--soft-line);
+  background: #f4f7f5;
+}
+
+.metadata-authorship-source > header strong,
+.metadata-authorship-source > header code {
+  display: block;
+}
+
+.metadata-authorship-source > header strong {
+  font-size: 11px;
+}
+
+.metadata-authorship-source > header code {
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+}
+
+.metadata-authorship-source > header > span {
+  flex: 0 0 auto;
+  color: var(--green-dark);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.metadata-authorship-list {
+  display: grid;
+}
+
+.metadata-authorship-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(120px, 0.7fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.metadata-authorship-row:last-child {
+  border-bottom: 0;
+}
+
+.metadata-authorship-row > div {
+  min-width: 0;
+}
+
+.metadata-authorship-row strong,
+.metadata-authorship-row small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.metadata-authorship-row strong {
+  font-size: 10px;
+}
+
+.metadata-authorship-row small,
+.metadata-authorship-roles {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.metadata-authorship-roles {
+  min-width: 0;
+  text-align: right;
+}
+
+.metadata-authorship-error {
+  padding: 14px;
+  color: #9d3d33;
   font-size: 10px;
 }
 
@@ -3340,6 +3444,15 @@
     grid-column: 1 / -1;
     padding: 4px 0 0;
     white-space: normal;
+  }
+
+  .metadata-authorship-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .metadata-authorship-roles {
+    grid-column: 2;
+    text-align: left;
   }
 
   .metadata-section {

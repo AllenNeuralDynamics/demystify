@@ -1,8 +1,61 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
+import { readAuthorshipMetadataSources } from './authorshipMetadata'
 import { renderMyst } from './myst'
 
 describe('renderMyst', () => {
+  it('loads contributor metadata from directive-relative AuthorshipExtractor YAML', () => {
+    const sources = readAuthorshipMetadataSources(
+      `:::{authorship-explorer}\n:authors: ../people/authors.yml\n:::`,
+      'paper/index.md',
+      {
+        'people/authors.yml': `project:
+  contributors:
+    - id: ada
+      name: Ada Researcher
+      orcid: 0000-0002-1825-0097
+      email: ada@example.org
+      corresponding: true
+      affiliations:
+        - Allen Institute
+      roles:
+        - Software
+        - Writing - original draft
+`,
+      },
+    )
+
+    expect(sources).toEqual([{
+      contributors: [{
+        affiliations: ['Allen Institute'],
+        corresponding: true,
+        email: 'ada@example.org',
+        id: 'ada',
+        name: 'Ada Researcher',
+        orcid: '0000-0002-1825-0097',
+        roles: ['Software', 'Writing - original draft'],
+      }],
+      error: null,
+      label: 'Contributors',
+      path: 'people/authors.yml',
+    }])
+  })
+
+  it('rejects AuthorshipExtractor YAML paths that escape the project root', () => {
+    const sources = readAuthorshipMetadataSources(
+      `:::{authorship-explorer}\n:authors: ../../authors.yml\n:::`,
+      'paper/index.md',
+      { 'authors.yml': 'contributors: []' },
+    )
+
+    expect(sources).toEqual([{
+      contributors: [],
+      error: 'The authorship data path is invalid.',
+      label: 'Contributors',
+      path: null,
+    }])
+  })
+
   it('resolves MyST citations against BibTeX and appends cited references', () => {
     const bibliography = `@article{stringer2019,
   title={Spontaneous behaviors drive multidimensional activity},

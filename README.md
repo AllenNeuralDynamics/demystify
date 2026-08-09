@@ -134,6 +134,9 @@ source editor so Markdown tools cannot rewrite structured data. Relative preview
 assets resolve from the active file.
 The first local path in `project.bibliography` is the managed reference library;
 when none is configured, DeMystify falls back to a sibling `references.bib`.
+The Metadata panel also lists contributors from directive-linked
+AuthorshipExtractor YAML as a read-only source, including IDs, ORCID, affiliations,
+and CRediT roles. Canonical page and `myst.yml` metadata remain independently editable.
 
 Saving creates one Git tree and commit for all changed manuscript files, the
 managed bibliography, and project configuration. GitHub review comments remain

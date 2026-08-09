@@ -1380,6 +1380,8 @@ function App() {
         )}>
           <PublicationMetadata
             pageSource={activeContent}
+            pagePath={activeFilePath}
+            projectFiles={collaboration.projectFiles}
             projectSource={collaboration.mystConfig}
             projectPath={collaboration.mystConfigPath}
             readOnly={isReadOnly}

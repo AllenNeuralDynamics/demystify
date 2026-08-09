@@ -187,4 +187,46 @@ describe('PublicationMetadata', () => {
 
     await act(async () => root.unmount())
   })
+
+  it('shows AuthorshipExtractor YAML contributors without making them editable', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <PublicationMetadata
+          authorshipSources={[{
+            contributors: [{
+              affiliations: ['Allen Institute'],
+              corresponding: true,
+              email: 'ada@example.org',
+              id: 'ada',
+              name: 'Ada Researcher',
+              orcid: '0000-0002-1825-0097',
+              roles: ['Software', 'Writing - original draft'],
+            }],
+            error: null,
+            label: 'Contributors',
+            path: 'authors.yml',
+          }]}
+          pageSource={pageSource}
+          projectSource={projectSource}
+          projectPath="myst.yml"
+          readOnly={false}
+          onApply={applySpy()}
+          onClose={() => undefined}
+        />,
+      )
+    })
+
+    expect(container.textContent).toContain('Authorship YAML')
+    expect(container.textContent).toContain('authors.yml')
+    expect(container.textContent).toContain('1 contributor')
+    expect(container.textContent).toContain('Ada Researcher (corresponding)')
+    expect(container.textContent).toContain('ORCID 0000-0002-1825-0097')
+    expect(container.textContent).toContain('Software, Writing - original draft')
+    expect(container.textContent).toContain('No canonical MyST authors set in this scope.')
+    expect(container.querySelector<HTMLInputElement>('input[value="Ada Researcher"]')).toBeNull()
+
+    await act(async () => root.unmount())
+  })
 })
