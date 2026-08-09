@@ -555,6 +555,10 @@
   background: white;
 }
 
+.editor-toolbar:has(.myst-insert-trigger.active) {
+  z-index: 12;
+}
+
 .formatting-tools,
 .document-stats {
   gap: 1px;
@@ -564,6 +568,10 @@
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.formatting-tools:has(.myst-insert-trigger.active) {
+  overflow: visible;
 }
 
 .formatting-tools::-webkit-scrollbar {
