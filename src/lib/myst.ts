@@ -4,6 +4,7 @@ import { mystParser } from 'myst-parser'
 import { State, formatHtml, mystToHast, transform } from 'myst-to-html'
 import rehypeStringify from 'rehype-stringify'
 import { unified } from 'unified'
+import { parseDocument } from 'yaml'
 import { tryParseBibliography, type PaperReference } from './references'
 
 export interface MystRenderResult {
@@ -38,6 +39,8 @@ export type MystEditableInline =
 interface MystRenderOptions {
   assetBaseUrl?: string
   bibliography?: string
+  projectFiles?: Record<string, string>
+  sourcePath?: string
 }
 
 interface ProtectedHtmlBlock {
@@ -155,6 +158,13 @@ interface PreviewTreeNode {
   data?: {
     hProperties?: Record<string, unknown>
   }
+}
+
+interface PreviewHtmlNode {
+  type?: string
+  tagName?: string
+  properties?: Record<string, unknown>
+  children?: PreviewHtmlNode[]
 }
 
 const citationAuthor = (reference: PaperReference) => {
@@ -443,6 +453,7 @@ const prepareEditableBlocks = (
     'mystDirective',
     'mystDirectiveBody',
     'admonition',
+    'caption',
     'container',
   ])
   const visitNode = (node: PreviewTreeNode, supportedContainer: boolean) => {
@@ -500,29 +511,274 @@ const previewTabItemDirective: DirectiveSpec = {
   }, ...directiveBody(data)],
 }
 
-const previewAuthorshipExplorerDirective: DirectiveSpec = {
+interface AuthorshipContributorPreview {
+  affiliations: string[]
+  corresponding: boolean
+  name: string
+  roles: string[]
+}
+
+interface AuthorshipDatasetPreview {
+  contributors: AuthorshipContributorPreview[]
+  error: string | null
+  label: string
+  path: string | null
+}
+
+const asObject = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+
+const stringValues = (value: unknown) => Array.isArray(value)
+  ? value.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim()] : [])
+  : []
+
+const resolvePreviewProjectPath = (sourcePath: string, value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) return null
+  const reference = trimmed.split('#', 1)[0]
+  const baseDirectory = sourcePath.split('/').slice(0, -1)
+  const segments = reference.startsWith('/')
+    ? reference.slice(1).split('/')
+    : [...baseDirectory, ...reference.split('/')]
+  const normalized: string[] = []
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') {
+      if (!normalized.length) return null
+      normalized.pop()
+      continue
+    }
+    normalized.push(segment)
+  }
+  return normalized.length ? normalized.join('/') : null
+}
+
+const parseAuthorshipContributors = (source: string) => {
+  let root: Record<string, unknown> | null
+  try {
+    const document = parseDocument(source)
+    if (document.errors.length) return null
+    root = asObject(document.toJS())
+  } catch {
+    return null
+  }
+  const project = asObject(root?.project)
+  const contributorValues = Array.isArray(project?.contributors)
+    ? project.contributors
+    : Array.isArray(root?.contributors)
+      ? root.contributors
+      : []
+  const affiliationValues = Array.isArray(project?.affiliations)
+    ? project.affiliations
+    : Array.isArray(root?.affiliations)
+      ? root.affiliations
+      : []
+  const affiliations = new Map(affiliationValues.flatMap((value) => {
+    const affiliation = asObject(value)
+    const id = typeof affiliation?.id === 'string' ? affiliation.id.trim() : ''
+    const name = typeof affiliation?.name === 'string' ? affiliation.name.trim() : ''
+    return id ? [[id, name || id] as const] : []
+  }))
+
+  return contributorValues.flatMap((value): AuthorshipContributorPreview[] => {
+    const contributor = asObject(value)
+    if (!contributor) return []
+    const explicitName = typeof contributor.name === 'string' ? contributor.name.trim() : ''
+    const nameParts = [contributor.first_name, contributor.last_name]
+      .flatMap((part) => typeof part === 'string' && part.trim() ? [part.trim()] : [])
+    const id = typeof contributor.id === 'string' ? contributor.id.trim() : ''
+    const name = explicitName || nameParts.join(' ') || id
+    if (!name) return []
+    const contributorAffiliations = Array.isArray(contributor.affiliations)
+      ? contributor.affiliations.flatMap((entry) => {
+          if (typeof entry === 'string' && entry.trim()) {
+            const key = entry.trim()
+            return [affiliations.get(key) ?? key]
+          }
+          const affiliation = asObject(entry)
+          const affiliationName = typeof affiliation?.name === 'string'
+            ? affiliation.name.trim()
+            : ''
+          return affiliationName ? [affiliationName] : []
+        })
+      : []
+    return [{
+      affiliations: Array.from(new Set(contributorAffiliations)),
+      corresponding: contributor.corresponding === true,
+      name,
+      roles: Array.from(new Set(stringValues(contributor.roles))),
+    }]
+  })
+}
+
+const getDirectiveOption = (
+  data: DirectiveData,
+  name: string,
+  fallback: string,
+) => {
+  const value = data.options?.[name]
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+const loadAuthorshipDataset = (
+  pathValue: string,
+  label: string,
+  options: MystRenderOptions,
+): AuthorshipDatasetPreview => {
+  const path = resolvePreviewProjectPath(options.sourcePath ?? 'manuscript.md', pathValue)
+  if (!path || !/\.ya?ml$/i.test(path)) {
+    return { contributors: [], error: 'The authorship data path is invalid.', label, path }
+  }
+  const source = options.projectFiles?.[path]
+  if (source === undefined) {
+    return { contributors: [], error: `${path} is not available in this collaboration.`, label, path }
+  }
+  const contributors = parseAuthorshipContributors(source)
+  if (!contributors) {
+    return { contributors: [], error: `${path} contains invalid YAML.`, label, path }
+  }
+  return { contributors, error: null, label, path }
+}
+
+const contributorPreviewChildren = (contributor: AuthorshipContributorPreview): GenericNode[] => {
+  const extraRoles = Math.max(0, contributor.roles.length - 3)
+  const roleSummary = contributor.roles.length
+    ? `${contributor.roles.slice(0, 3).join(', ')}${extraRoles ? ` +${extraRoles} roles` : ''}`
+    : ''
+  const details = [
+    roleSummary,
+    contributor.affiliations.slice(0, 1).join(''),
+  ].filter(Boolean)
+  return [{
+    type: 'strong',
+    children: [{
+      type: 'text',
+      value: `${contributor.name}${contributor.corresponding ? ' (corresponding)' : ''}`,
+    }],
+  }, ...(details.length
+    ? [{
+        type: 'text',
+        value: `: ${details.join(' | ')}`,
+      } as GenericNode]
+    : [])]
+}
+
+const authorshipPreviewNodes = (
+  data: DirectiveData,
+  options: MystRenderOptions,
+): GenericNode[] => {
+  const contributorCountLabel = (count: number) =>
+    `${count} contributor${count === 1 ? '' : 's'}`
+  const datasets = [loadAuthorshipDataset(
+    getDirectiveOption(data, 'authors', './authors.yml'),
+    'Contributors',
+    options,
+  )]
+  const alternatePath = getDirectiveOption(data, 'authors-alt', '')
+  if (alternatePath) {
+    datasets.push(loadAuthorshipDataset(
+      alternatePath,
+      getDirectiveOption(data, 'alt-label', 'Real contributors'),
+      options,
+    ))
+  }
+  const secondAlternatePath = getDirectiveOption(data, 'authors-alt2', '')
+  if (secondAlternatePath) {
+    datasets.push(loadAuthorshipDataset(
+      secondAlternatePath,
+      getDirectiveOption(data, 'alt2-label', 'Large team'),
+      options,
+    ))
+  }
+
+  const primary = datasets[0]
+  const roleCount = new Set(primary.contributors.flatMap((contributor) => contributor.roles)).size
+  const affiliationCount = new Set(
+    primary.contributors.flatMap((contributor) => contributor.affiliations),
+  ).size
+  const summary = [
+    contributorCountLabel(primary.contributors.length),
+    ...(roleCount ? [`${roleCount} CRediT role${roleCount === 1 ? '' : 's'}`] : []),
+    ...(affiliationCount
+      ? [`${affiliationCount} affiliation${affiliationCount === 1 ? '' : 's'}`]
+      : []),
+  ].join(' | ')
+  const previewLimit = 12
+  const visibleContributors = primary.contributors.slice(0, previewLimit)
+  const hiddenCount = primary.contributors.length - visibleContributors.length
+  const children: GenericNode[] = [{
+    type: 'paragraph',
+    children: [{
+      type: 'strong',
+      children: [{ type: 'text', value: 'Authorship roster' }],
+    }, { type: 'break' }, {
+      type: 'text',
+      value: primary.error ?? summary,
+    }],
+  }]
+  if (visibleContributors.length) {
+    children.push({
+      type: 'list',
+      ordered: false,
+      children: visibleContributors.map((contributor) => ({
+        type: 'listItem',
+        children: [{
+          type: 'paragraph',
+          children: contributorPreviewChildren(contributor),
+        }],
+      })),
+    })
+  }
+  if (hiddenCount > 0) {
+    children.push({
+      type: 'paragraph',
+      children: [{ type: 'text', value: `And ${hiddenCount} more contributors.` }],
+    })
+  }
+  if (datasets.length > 1) {
+    children.push({
+      type: 'paragraph',
+      children: [{
+        type: 'text',
+        value: datasets.slice(1).map((dataset) => dataset.error
+          ? `${dataset.label}: ${dataset.error}`
+          : `${dataset.label}: ${contributorCountLabel(dataset.contributors.length)}`).join(' | '),
+      }],
+    })
+  }
+  if (primary.path && !primary.error) {
+    children.push({
+      type: 'paragraph',
+      children: [{
+        type: 'text',
+        value: `Source: ${primary.path}. Interactive views are available in the publication build.`,
+      }],
+    })
+  }
+  return [{
+    type: 'blockquote',
+    data: { hProperties: { className: ['authorship-preview'] } },
+    children,
+  }]
+}
+
+const createPreviewAuthorshipExplorerDirective = (
+  options: MystRenderOptions,
+): DirectiveSpec => ({
   name: 'authorship-explorer',
   options: {
     authors: { type: String },
+    'authors-alt': { type: String },
+    'alt-label': { type: String },
+    'authors-alt2': { type: String },
+    'alt2-label': { type: String },
     height: { type: String },
   },
   body: { type: 'myst' },
-  run: () => [{
-    type: 'blockquote',
-    children: [{
-      type: 'paragraph',
-      children: [{
-        type: 'strong',
-        children: [{ type: 'text', value: 'Authorship roster' }],
-      }, {
-        type: 'break',
-      }, {
-        type: 'text',
-        value: 'Generated from the repository metadata in the publication build.',
-      }],
-    }],
-  }],
-}
+  run: (data) => authorshipPreviewNodes(data, options),
+})
 
 const prepareLightweightPreview = () => (tree: PreviewTreeNode) => {
   const visitNode = (node: PreviewTreeNode) => {
@@ -565,6 +821,56 @@ const resolvePreviewAssets = (html: string, assetBaseUrl?: string) => {
   return template.innerHTML
 }
 
+const prepareFigureCaptions = () => (tree: PreviewHtmlNode) => {
+  const visitNode = (node: PreviewHtmlNode) => {
+    if (node.type === 'element' && node.tagName === 'figure' && node.children) {
+      const paragraphIndexes = node.children.flatMap((child, index) => {
+        const className = child.properties?.className
+        const classes = Array.isArray(className) ? className : [className]
+        return child.type === 'element' &&
+          child.tagName === 'p' &&
+          !classes.includes('iframe-preview')
+          ? [index]
+          : []
+      })
+      const existingCaptionIndex = node.children.findIndex((child) =>
+        child.type === 'element' && child.tagName === 'figcaption')
+      if (paragraphIndexes.length && existingCaptionIndex >= 0) {
+        const existingCaption = node.children[existingCaptionIndex]
+        const captionParagraphs = paragraphIndexes.map((index) => node.children?.[index])
+          .filter((child): child is PreviewHtmlNode => Boolean(child))
+        existingCaption.children = [
+          ...(existingCaption.children ?? []),
+          ...captionParagraphs,
+        ]
+        const paragraphIndexSet = new Set(paragraphIndexes)
+        node.children = node.children.filter((_child, index) => !paragraphIndexSet.has(index))
+      } else if (paragraphIndexes.length === 1) {
+        const caption = node.children[paragraphIndexes[0]]
+        caption.tagName = 'figcaption'
+      } else if (paragraphIndexes.length > 1) {
+        const captions = paragraphIndexes.map((index) => node.children?.[index])
+          .filter((child): child is PreviewHtmlNode => Boolean(child))
+        const firstCaption = paragraphIndexes[0]
+        const paragraphIndexSet = new Set(paragraphIndexes)
+        node.children = node.children.flatMap((child, index) => {
+          if (index === firstCaption) {
+            return [{
+              type: 'element',
+              tagName: 'figcaption',
+              properties: {},
+              children: captions,
+            }]
+          }
+          return paragraphIndexSet.has(index) ? [] : [child]
+        })
+      }
+    }
+    node.children?.forEach(visitNode)
+  }
+  visitNode(tree)
+}
+
 export const renderMyst = (
   source: string,
   options: MystRenderOptions = {},
@@ -577,7 +883,7 @@ export const renderMyst = (
         directives: [
           previewTabSetDirective,
           previewTabItemDirective,
-          previewAuthorshipExplorerDirective,
+          createPreviewAuthorshipExplorerDirective(options),
         ],
       })
       .use(() => prepareEditableBlocks(
@@ -589,6 +895,7 @@ export const renderMyst = (
       .use(prepareLightweightPreview)
       .use(transform, new State())
       .use(mystToHast)
+      .use(prepareFigureCaptions)
       .use(formatHtml)
       .use(rehypeStringify)
     const file = pipeline.processSync(protectedHtml.source)

@@ -10,7 +10,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 - Simultaneous conflict-free editing with Yjs and WebSockets
 - Live collaborator cursors, presence, and shared comments
-- Debounced JavaScript MyST preview with safe HTML, repository figures, static iframe placeholders, tables, and KaTeX math
+- Debounced JavaScript MyST preview with safe HTML, repository figures, static iframe placeholders, AuthorshipExtractor rosters, tables, and KaTeX math
 - LevelDB-backed local persistence and PostgreSQL-backed production persistence
 - GitHub App OAuth with HTTP-only server sessions
 - Repository browsing and MyST file loading
@@ -102,7 +102,8 @@ The same picker is available while editing rendered prose. Visual editing
 supports headings and paragraphs with plain text, bold, italic, inline code,
 links, line breaks, and atomic citation chips. That includes single-line list
 items and blockquotes, admonition and tab body prose, and figure captions while
-preserving their surrounding MyST markers. Tables, math and code blocks,
+preserving their surrounding MyST markers. Captions attached to sandboxed iframe
+placeholders remain editable as ordinary MyST prose. Tables, math and code blocks,
 directive settings, marked multiline blocks, and unsupported inline MyST remain
 rendered but read-only, so source syntax is never silently flattened.
 
@@ -123,9 +124,13 @@ advanced untouched author fields remain in place.
 
 For repository-backed rooms, DeMystify discovers project source files from MyST
 export `article`/`articles`, project and export TOCs, JATS `sub_articles`, and
-recursive `{include}` directives. Repository-local `.md` and `.myst` sources
-appear in the Files panel, each has a live heading outline, and each secondary
-file is a shared Yjs text. Relative preview assets resolve from the active file.
+recursive `{include}` directives. An `{authorship-explorer}` directive also
+discovers its `authors`, `authors-alt`, and `authors-alt2` YAML dependencies
+relative to the containing Markdown file. Repository-local `.md`, `.myst`,
+`.yml`, and `.yaml` sources appear in the Files panel and are shared Yjs texts.
+Markdown files have a live heading outline and Visual mode; YAML remains in the
+source editor so Markdown tools cannot rewrite structured data. Relative preview
+assets resolve from the active file.
 The first local path in `project.bibliography` is the managed reference library;
 when none is configured, DeMystify falls back to a sibling `references.bib`.
 
@@ -134,7 +139,9 @@ managed bibliography, and project configuration. GitHub review comments remain
 limited to the primary bound manuscript for now; secondary-file comments are
 disabled rather than attached to an incorrect path. The browser preview still
 uses the lightweight MyST parser and does not execute project plugins, templates,
-or build-time code.
+or build-time code. For AuthorshipExtractor specifically, it parses only the
+collaborative repository YAML and renders a bounded static roster; the plugin's
+interactive views continue to run only in the repository's full MyST build.
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
@@ -190,7 +197,7 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 
 ## Current MVP Boundaries
 
-- The browser preview is a fast reading aid, not an authoritative publication build. It renders the open file after a short pause, resolves committed public-repository figures, and substitutes static iframe placeholders. Repository plugins, bibliography, custom site styles, generated assets, and interactive figures remain the responsibility of repository CI and the full MyST build.
+- The browser preview is a fast reading aid, not an authoritative publication build. It renders the open file after a short pause, resolves committed public-repository figures, substitutes static iframe placeholders, and provides a data-backed static fallback for AuthorshipExtractor. Remote plugin code, custom site styles, generated assets, and interactive figures remain the responsibility of repository CI and the full MyST build.
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
 - Suggestion/tracked-change mode is not implemented yet.

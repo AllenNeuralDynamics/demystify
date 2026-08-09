@@ -5,6 +5,7 @@ import {
   createRepositoryPullRequest,
   findRepositoryMystConfig,
   findRepositoryProjectFiles,
+  getAuthorshipDataPaths,
   getMystBibliographyPaths,
   getMystConfigCandidatePaths,
   getMystProjectFilePaths,
@@ -45,6 +46,19 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('getAuthorshipDataPaths', () => {
+  it('resolves backtick directives, defaults, and second alternate data paths', () => {
+    expect(getAuthorshipDataPaths(`\`\`\`{authorship-explorer}
+:authors-alt2: "../review/authors.yml"
+:alt2-label: Review team
+\`\`\`
+`, 'paper/sections/index.md')).toEqual([
+      'paper/sections/authors.yml',
+      'paper/review/authors.yml',
+    ])
+  })
 })
 
 describe('createRepositoryFilesSnapshot', () => {
@@ -197,7 +211,18 @@ project:
   toc:
     - file: results.md
 `,
-      'paper/index.md': '# Index\n\n:::{include} sections/abstract.md\n:::\n',
+  'paper/index.md': `# Index
+
+:::{authorship-explorer}
+:authors: ./authors.yml
+:authors-alt: ./authors-review.yml
+:::
+
+:::{include} sections/abstract.md
+:::
+`,
+  'paper/authors.yml': 'project:\n  contributors: []\n',
+  'paper/authors-review.yml': 'project:\n  contributors: []\n',
       'paper/methods.md': '# Methods\n',
       'paper/results.md': '# Results\n',
       'paper/sections/abstract.md': '# Abstract\n',
@@ -228,6 +253,8 @@ project:
     expect(result.config.path).toBe('paper/myst.yml')
     expect(result.bibliographyPaths).toEqual(['paper/refs/library.bib'])
     expect(result.files.map((file) => file.path).sort()).toEqual([
+      'paper/authors-review.yml',
+      'paper/authors.yml',
       'paper/index.md',
       'paper/methods.md',
       'paper/results.md',

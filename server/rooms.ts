@@ -1138,8 +1138,8 @@ export const createRoomRouter = (
             }
             const record = file as Record<string, unknown>
             const path = validatePath(record.path)
-            if (!/\.(?:md|myst)$/i.test(path)) {
-              throw new ApiError(400, 'Project files must be .md or .myst source files.')
+            if (!/\.(?:md|myst|ya?ml)$/i.test(path)) {
+              throw new ApiError(400, 'Project files must be MyST Markdown or YAML source files.')
             }
             if (
               path === binding.path ||

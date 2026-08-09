@@ -512,6 +512,33 @@ const includePaths = (source: string, sourcePath: string) => Array.from(source.m
 ), (match) => resolveProjectFilePath(sourcePath, match[1] ?? match[2]))
   .filter((path): path is string => Boolean(path))
 
+export const getAuthorshipDataPaths = (source: string, sourcePath: string) => {
+  const output = new Set<string>()
+  const lines = source.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = lines[index].match(/^\s*((?::){3,}|(?:`){3,})\{authorship-explorer\}\s*$/i)
+    if (!opening) continue
+    const delimiter = opening[1][0]
+    const closingPattern = new RegExp(`^\\s*\\${delimiter}{3,}\\s*$`)
+    const references = new Map<string, string>()
+    for (index += 1; index < lines.length && !closingPattern.test(lines[index]); index += 1) {
+      const option = lines[index].match(/^\s*:(authors(?:-alt2?)?):\s*(.*?)\s*$/i)
+      if (!option) continue
+      references.set(option[1].toLowerCase(), option[2].replace(/^(?:"(.*)"|'(.*)')$/, '$1$2'))
+    }
+    const values = [references.get('authors') ?? './authors.yml']
+    for (const option of ['authors-alt', 'authors-alt2']) {
+      const value = references.get(option)
+      if (value) values.push(value)
+    }
+    values.forEach((value) => {
+      const path = resolveRepositoryPath(sourcePath, value)
+      if (path && /\.ya?ml$/i.test(path)) output.add(path)
+    })
+  }
+  return [...output]
+}
+
 export const findRepositoryProjectFiles = async (
   request: Request,
   owner: string,
@@ -546,9 +573,14 @@ export const findRepositoryProjectFiles = async (
       )
       const decoded = decodeGitHubTextFile(file)
       files.push(decoded)
-      includePaths(decoded.content, decoded.path).forEach((includePath) => {
-        if (!seen.has(includePath)) pending.push(includePath)
-      })
+      if (projectFilePattern.test(decoded.path)) {
+        includePaths(decoded.content, decoded.path).forEach((includePath) => {
+          if (!seen.has(includePath)) pending.push(includePath)
+        })
+        getAuthorshipDataPaths(decoded.content, decoded.path).forEach((dataPath) => {
+          if (!seen.has(dataPath)) pending.push(dataPath)
+        })
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         missing.push(path)

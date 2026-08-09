@@ -1163,6 +1163,44 @@
   font-weight: 600;
 }
 
+.myst-preview .authorship-preview {
+  margin: 22px 0;
+  padding: 15px 17px;
+  border: 1px solid #d7e1db;
+  border-left: 3px solid var(--green);
+  background: #f5f8f6;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.myst-preview .authorship-preview > p:first-child {
+  margin-bottom: 10px;
+  color: var(--green-dark);
+}
+
+.myst-preview .authorship-preview ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 0 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.myst-preview .authorship-preview li {
+  min-width: 0;
+  padding: 7px 0;
+  border-top: 1px solid #dce5df;
+  overflow-wrap: anywhere;
+}
+
+.myst-preview .authorship-preview > p + p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .myst-preview table {
   width: 100%;
   margin: 20px 0;

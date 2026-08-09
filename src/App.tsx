@@ -72,6 +72,8 @@ import { sampleManuscript } from './lib/sampleManuscript'
 
 type WorkspaceView = 'source' | 'split' | 'preview'
 
+const isMystSourcePath = (path: string) => /\.(?:md|myst)$/i.test(path)
+
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
   return { default: module.MystPreview }
@@ -213,6 +215,7 @@ function App() {
   const activeFilePath = activeProjectPath && projectFilePaths.includes(activeProjectPath)
     ? activeProjectPath
     : primaryFilePath
+  const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
   const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
     ?? collaboration.sharedText
@@ -224,9 +227,13 @@ function App() {
     : undefined
   const projectManuscriptContent = useMemo(() => [
     collaboration.content,
-    ...Object.values(collaboration.projectFiles),
+    ...Object.entries(collaboration.projectFiles).flatMap(([path, fileContent]) =>
+      isMystSourcePath(path) ? [fileContent] : []),
   ].join('\n'), [collaboration.content, collaboration.projectFiles])
-  const activeOutline = useMemo(() => getMystOutline(activeContent), [activeContent])
+  const activeOutline = useMemo(
+    () => isActiveMystSource ? getMystOutline(activeContent) : [],
+    [activeContent, isActiveMystSource],
+  )
   const sharedComments = collaboration.comments
   const initializeBibliography = collaboration.initializeBibliography
   const initializeMystConfig = collaboration.initializeMystConfig
@@ -902,6 +909,7 @@ function App() {
                   onClick={() => {
                     setActiveProjectPath(path)
                     setCommentsOpen(false)
+                    if (!isMystSourcePath(path)) setView('source')
                     if (window.innerWidth <= 820) setSidebarOpen(false)
                   }}
                 >
@@ -1024,7 +1032,7 @@ function App() {
               </button>
               <span className="toolbar-divider" />
               <MystInsertMenu
-                disabled={isReadOnly}
+                disabled={isReadOnly || !isActiveMystSource}
                 onInsert={(pattern) => editorRef.current?.insertSnippet(
                   pattern.template,
                   pattern.selectedTextPlaceholder,
@@ -1034,7 +1042,7 @@ function App() {
                 className="citation-trigger"
                 type="button"
                 title="Cite a paper"
-                disabled={isReadOnly}
+                disabled={isReadOnly || !isActiveMystSource}
                 onClick={() => {
                   setVisualCitationInserter(null)
                   setCitationPickerOpen(true)
@@ -1056,19 +1064,20 @@ function App() {
                 className="publication-metadata-trigger"
                 type="button"
                 title="Publication metadata"
+                disabled={!isActiveMystSource}
                 onClick={() => setPublicationMetadataOpen(true)}
               >
                 <Tags size={16} />
                 <span>Metadata</span>
               </button>
               <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
+              <button className="icon-button" type="button" title="Bold" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
               </button>
-              <button className="icon-button" type="button" title="Italic" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('*')}>
+              <button className="icon-button" type="button" title="Italic" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
                 <Italic size={17} />
               </button>
-              <button className="icon-button" type="button" title="Inline code" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('`')}>
+              <button className="icon-button" type="button" title="Inline code" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
                 <Code2 size={17} />
               </button>
               <span className="toolbar-divider" />
@@ -1092,10 +1101,10 @@ function App() {
               <button className={view === 'source' ? 'active' : ''} type="button" title="Source only" onClick={() => setView('source')}>
                 <Code2 size={15} /><span>Source</span>
               </button>
-              <button className={view === 'split' ? 'active' : ''} type="button" title="Split view" onClick={() => setView('split')}>
+              <button className={view === 'split' ? 'active' : ''} type="button" title="Split view" disabled={!isActiveMystSource} onClick={() => setView('split')}>
                 <SplitSquareHorizontal size={15} /><span>Split</span>
               </button>
-              <button className={view === 'preview' ? 'active' : ''} type="button" title="Visual editor" onClick={() => setView('preview')}>
+              <button className={view === 'preview' ? 'active' : ''} type="button" title="Visual editor" disabled={!isActiveMystSource} onClick={() => setView('preview')}>
                 <Eye size={15} /><span>Visual</span>
               </button>
             </div>
@@ -1109,7 +1118,7 @@ function App() {
           </div>
 
           <div className={`document-panes view-${view} ${commentsOpen ? 'comments-open' : ''}`}>
-            <section className="source-pane" aria-label="MyST source editor">
+            <section className="source-pane" aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}>
               {activeSharedText && collaboration.provider ? (
                 <CollaborativeEditor
                   key={activeFilePath}
@@ -1143,7 +1152,9 @@ function App() {
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
                   content={activeContent}
-                  editable={!isReadOnly && collaboration.isSynced}
+                  editable={!isReadOnly && collaboration.isSynced && isActiveMystSource}
+                  projectFiles={collaboration.projectFiles}
+                  sourcePath={activeFilePath}
                   onBeginEdit={(block) => collaboration.beginTextEdit(
                     block.from,
                     block.to,

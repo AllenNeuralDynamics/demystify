@@ -31,6 +31,8 @@ interface MystPreviewProps {
   bibliography?: string
   content: string
   editable?: boolean
+  projectFiles?: Record<string, string>
+  sourcePath?: string
   onBeginEdit?: (block: MystEditableBlock) => CollaborativeTextEditAnchor | null
   onCommitEdit?: (
     anchor: CollaborativeTextEditAnchor,
@@ -54,6 +56,8 @@ export const MystPreview = memo(({
   bibliography = '',
   content,
   editable = false,
+  projectFiles,
+  sourcePath,
   onBeginEdit,
   onCommitEdit,
   onEditError,
@@ -64,8 +68,13 @@ export const MystPreview = memo(({
   const [previewContent, setPreviewContent] = useState(deferredContent)
   const [activeEdit, setActiveEdit] = useState<ActiveVisualEdit | null>(null)
   const preview = useMemo(
-    () => renderMyst(previewContent, { assetBaseUrl, bibliography }),
-    [assetBaseUrl, bibliography, previewContent],
+    () => renderMyst(previewContent, {
+      assetBaseUrl,
+      bibliography,
+      projectFiles,
+      sourcePath,
+    }),
+    [assetBaseUrl, bibliography, previewContent, projectFiles, sourcePath],
   )
   const editableBlocks = useMemo(
     () => new Map(preview.editableBlocks.map((block) => [block.id, block])),

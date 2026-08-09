@@ -376,8 +376,8 @@ try {
   const received = waitForText(secondText, expectedText)
   const receivedComment = waitForComment(secondComments, expectedCommentId)
   const receivedReply = waitForComment(secondCommentMessages, expectedReply.id)
-  const projectPath = 'paper/methods.md'
-  const projectContent = '# Shared methods\n'
+  const projectPath = 'paper/authors.yml'
+  const projectContent = 'project:\n  contributors:\n    - name: Shared author\n'
   const receivedProjectFile = waitForProjectFile(
     secondProjectFiles,
     projectPath,
@@ -386,9 +386,9 @@ try {
 
   firstDocument.transact(() => {
     firstText.insert(0, expectedText)
-    const methods = new Y.Text()
-    firstProjectFiles.set(projectPath, methods)
-    methods.insert(0, projectContent)
+    const authors = new Y.Text()
+    firstProjectFiles.set(projectPath, authors)
+    authors.insert(0, projectContent)
   })
   const expectedComment = {
     id: expectedCommentId,

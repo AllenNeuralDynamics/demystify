@@ -60,7 +60,7 @@ const closeServer = (server: ReturnType<typeof createServer>) =>
   )
 
 describe('room publication routes', () => {
-  it('rejects project file paths that collide with the bound manuscript', async () => {
+  it('rejects project file paths that collide with managed publication files', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
     temporaryDirectories.push(directory)
     const store = new RoomStore(join(directory, 'rooms.json'))
@@ -110,6 +110,22 @@ describe('room publication routes', () => {
       expect(response.status).toBe(400)
       await expect(response.text()).resolves.toContain(
         'Project file path &quot;paper.md&quot; is duplicated.',
+      )
+      const yamlResponse = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: '# Primary\n',
+            mystConfig: { path: 'myst.yml', content: 'version: 1\n' },
+            projectFiles: [{ path: 'myst.yml', content: 'project: {}\n' }],
+          }),
+        },
+      )
+      expect(yamlResponse.status).toBe(400)
+      await expect(yamlResponse.text()).resolves.toContain(
+        'Project file path &quot;myst.yml&quot; is duplicated.',
       )
     } finally {
       await closeServer(server)

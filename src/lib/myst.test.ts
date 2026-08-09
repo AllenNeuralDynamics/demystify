@@ -171,6 +171,27 @@ Editable *caption*.
         value: 'Editable *caption*.',
       }),
     ])
+    expect(result.html).toContain(
+      '<figcaption data-myst-edit-id="myst-editable-1">Editable <em>caption</em>.</figcaption>',
+    )
+  })
+
+  it('wraps multiple figure caption paragraphs in one semantic caption', () => {
+    const result = renderMyst(`:::{figure} ./figure.svg
+
+First caption paragraph.
+
+Second **caption** paragraph.
+:::
+`)
+    const document = new DOMParser().parseFromString(result.html, 'text/html')
+    const captions = document.querySelectorAll('figure > figcaption')
+
+    expect(result.error).toBeNull()
+    expect(captions).toHaveLength(1)
+    expect(captions[0].querySelectorAll('[data-myst-edit-id]')).toHaveLength(2)
+    expect(captions[0].textContent).toContain('First caption paragraph.')
+    expect(captions[0].textContent).toContain('Second caption paragraph.')
   })
 
   it('renders raw HTML tables used by scientific manuscripts', () => {
@@ -255,6 +276,32 @@ An interactive result.
     expect(result.html).not.toContain('interactive/result.html')
   })
 
+  it('maps sandboxed iframe body captions to editable static preview text', () => {
+    const source = `:::{iframe} ./interactive/result.html
+:label: fig-result
+:title: Interactive result
+:placeholder: ./images/result.svg
+
+Editable **interactive caption**.
+:::
+`
+    const result = renderMyst(source)
+
+    expect(result.error).toBeNull()
+    expect(result.editableBlocks).toContainEqual(expect.objectContaining({
+      kind: 'paragraph',
+      value: 'Editable **interactive caption**.',
+    }))
+    expect(result.html).toContain('data-myst-edit-id="myst-editable-0"')
+    expect(result.html).toContain('Editable <strong>interactive caption</strong>.')
+    expect(result.html).not.toContain('interactive/result.html')
+    const document = new DOMParser().parseFromString(result.html, 'text/html')
+    expect(document.querySelectorAll('figure > figcaption')).toHaveLength(1)
+    expect(document.querySelector('figcaption [data-myst-edit-id]')).not.toBeNull()
+    expect(document.querySelector('figcaption img')).toBeNull()
+    expect(document.querySelector('figure > .iframe-preview img')).not.toBeNull()
+  })
+
   it('omits page frontmatter and summarizes repository-only plugins', () => {
     const source = `---
 title: A scientific manuscript
@@ -287,6 +334,52 @@ title: A scientific manuscript
       to: source.indexOf('Abstract') + 'Abstract'.length,
       value: 'Abstract',
     }))
+  })
+
+  it('renders repository-relative AuthorshipExtractor data without executing the plugin', () => {
+    const source = `:::{authorship-explorer}
+:authors: ./authors.yml
+:authors-alt: ../review/authors.yml
+:alt-label: Review roster
+:height: 800px
+:::
+`
+    const result = renderMyst(source, {
+      sourcePath: 'paper/index.md',
+      projectFiles: {
+        'paper/authors.yml': `version: 1
+project:
+  contributors:
+    - id: ada
+      name: Ada Example
+      corresponding: true
+      roles: [Conceptualization, Software, Validation, Visualization]
+      affiliations: [institute]
+    - id: grace
+      first_name: Grace
+      last_name: Example
+      roles: [Data curation]
+  affiliations:
+    - id: institute
+      name: Example Institute
+`,
+        'review/authors.yml': `contributors:
+  - name: Reviewer Example
+`,
+      },
+    })
+
+    expect(result.error).toBeNull()
+    expect(result.html).toContain('class="authorship-preview"')
+    expect(result.html).toContain('2 contributors | 5 CRediT roles | 1 affiliation')
+    expect(result.html).toContain('Ada Example (corresponding)')
+    expect(result.html).toContain('Conceptualization, Software, Validation +1 roles')
+    expect(result.html).toContain('Example Institute')
+    expect(result.html).toContain('Grace Example')
+    expect(result.html).toContain('Review roster: 1 contributor')
+    expect(result.html).toContain('Source: paper/authors.yml')
+    expect(result.html).not.toContain('authorship-explorer')
+    expect(result.html).not.toContain(':authors:')
   })
 
   it('flattens tab sets into readable sections', () => {

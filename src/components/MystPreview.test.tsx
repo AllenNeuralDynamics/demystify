@@ -30,6 +30,30 @@ const replaceEditableText = async (field: HTMLElement, value: string) => {
 }
 
 describe('MystPreview', () => {
+  it('renders collaborative AuthorshipExtractor data relative to the active source', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={`:::{authorship-explorer}\n:authors: ./authors.yml\n:::\n`}
+          projectFiles={{
+            'paper/authors.yml': `project:\n  contributors:\n    - name: Ada Collaborator\n`,
+          }}
+          sourcePath="paper/index.md"
+        />,
+      )
+    })
+
+    expect(container.querySelector('.authorship-preview')).not.toBeNull()
+    expect(container.textContent).toContain('1 contributor')
+    expect(container.textContent).toContain('Ada Collaborator')
+    expect(container.textContent).toContain('Source: paper/authors.yml')
+
+    await act(async () => root.unmount())
+  })
+
   it('edits plain blocks and preserves supported formatting in rich blocks', async () => {
     const content = '# Draft\n\nFirst paragraph.\n\nA *formatted* paragraph.'
     const yDocument = new Y.Doc()
@@ -124,7 +148,8 @@ ${figure}`
     expect(listParagraph?.classList).toContain('myst-editable-block')
     expect(paragraphWithText('Quoted result.')?.classList).toContain('myst-editable-block')
     expect(paragraphWithText('Note body.')?.classList).toContain('myst-editable-block')
-    expect(paragraphWithText('A static result.')?.classList).toContain('myst-editable-block')
+    expect(container.querySelector('figcaption')?.textContent).toBe('A static result.')
+    expect(container.querySelector('figcaption')?.classList).toContain('myst-editable-block')
 
     await act(async () => listParagraph?.click())
     const field = container.querySelector<HTMLElement>('[aria-label="Edit paragraph"]')
@@ -137,6 +162,17 @@ ${figure}`
     expect(onCommitEdit).toHaveBeenCalledWith(
       expect.objectContaining({ expectedText: 'Listed **result**.' }),
       'Revised list result.',
+    )
+
+    await act(async () => container.querySelector('figcaption')?.click())
+    expect(container.querySelector('[aria-label="Edit paragraph"]')?.textContent)
+      .toBe('A static result.')
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
+    })
+    expect(onCommitEdit).toHaveBeenLastCalledWith(
+      expect.objectContaining({ expectedText: 'A static result.' }),
+      'A static result.',
     )
 
     await act(async () => root.unmount())
