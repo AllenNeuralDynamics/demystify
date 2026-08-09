@@ -1,5 +1,6 @@
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import morphdom from 'morphdom'
 import {
   memo,
   startTransition,
@@ -37,8 +38,15 @@ export const MystPreview = memo(({ assetBaseUrl, content }: MystPreviewProps) =>
   }, [deferredContent, previewContent])
 
   useLayoutEffect(() => {
-    previewRef.current
-      ?.querySelectorAll<HTMLElement>('.math-display, .math-inline')
+    const previewElement = previewRef.current
+    if (!previewElement) return
+
+    const nextPreview = previewElement.cloneNode(false) as HTMLElement
+    nextPreview.innerHTML = preview.html
+    morphdom(previewElement, nextPreview, { childrenOnly: true })
+
+    previewElement
+      .querySelectorAll<HTMLElement>('.math-display, .math-inline')
       .forEach((element) => {
         katex.render(element.textContent ?? '', element, {
           displayMode: element.classList.contains('math-display'),
@@ -62,7 +70,6 @@ export const MystPreview = memo(({ assetBaseUrl, content }: MystPreviewProps) =>
       ref={previewRef}
       className="myst-preview"
       aria-label="Rendered MyST preview"
-      dangerouslySetInnerHTML={{ __html: preview.html }}
     />
   )
 })

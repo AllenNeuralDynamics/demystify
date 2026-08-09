@@ -29,7 +29,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import {
   CollaborativeEditor,
@@ -89,6 +89,14 @@ const consumeGitHubResult = () => {
 
 const shouldInitializeRevision = () =>
   new URL(window.location.href).searchParams.get('revision') === '1'
+
+const formatRepositoryName = (name: string) =>
+  name.split(/([/_-])/).map((part, index) => (
+    <Fragment key={`${index}-${part}`}>
+      {part}
+      {/^[/_-]$/.test(part) && <wbr />}
+    </Fragment>
+  ))
 
 const formatRelativeTime = (isoDate: string) => {
   const elapsedMinutes = Math.floor((Date.now() - Date.parse(isoDate)) / 60_000)
@@ -659,10 +667,16 @@ function App() {
               <FilePlus2 size={16} />
             </button>
           </div>
-          <button className="repository-picker" type="button" disabled={isReadOnly} onClick={() => setGitHubDialogOpen(true)}>
+          <button
+            className="repository-picker"
+            type="button"
+            title={repositoryBinding?.fullName ?? 'Local draft'}
+            disabled={isReadOnly}
+            onClick={() => setGitHubDialogOpen(true)}
+          >
             <span className="repository-icon"><GitFork size={15} /></span>
             <span>
-              <strong>{repositoryBinding?.fullName ?? 'Local draft'}</strong>
+              <strong>{formatRepositoryName(repositoryBinding?.fullName ?? 'Local draft')}</strong>
               <small>{repositoryBinding?.path ?? 'Not connected'}</small>
             </span>
             <ChevronDown size={14} />

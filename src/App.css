@@ -198,7 +198,7 @@
 .workspace {
   height: calc(100% - 62px);
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
 }
 
 .workspace.sidebar-collapsed {
@@ -229,9 +229,9 @@
 
 .repository-picker {
   width: calc(100% - 20px);
-  min-width: 190px;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 28px 1fr auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   margin: 0 10px 16px;
@@ -242,10 +242,23 @@
   text-align: left;
 }
 
+.repository-picker > span:nth-child(2) {
+  min-width: 0;
+}
+
 .repository-picker strong {
   display: block;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+
+.repository-picker small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .repository-picker:disabled {
@@ -264,7 +277,7 @@
 }
 
 .file-tree {
-  min-width: 190px;
+  min-width: 0;
   padding: 0 8px;
 }
 
@@ -291,6 +304,13 @@
   text-align: left;
 }
 
+.file-row > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-row.active {
   background: #e5eee9;
   color: #105748;
@@ -305,7 +325,7 @@
 }
 
 .sidebar-footer {
-  min-width: 190px;
+  min-width: 0;
   height: 39px;
   display: flex;
   align-items: center;
@@ -317,9 +337,13 @@
 }
 
 .branch-name {
+  min-width: 0;
+  overflow: hidden;
   margin-left: auto;
   font-family: 'IBM Plex Mono', monospace;
   color: var(--green-dark);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-link {
@@ -1726,7 +1750,7 @@
     bottom: 0;
     left: 0;
     z-index: 15;
-    width: 220px;
+    width: min(280px, calc(100vw - 32px));
     transform: translateX(-100%);
     box-shadow: 12px 0 30px rgba(28, 38, 32, 0.13);
   }
