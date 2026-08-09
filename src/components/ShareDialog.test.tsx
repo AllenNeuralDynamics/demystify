@@ -25,7 +25,7 @@ const room: CollaborationRoom = {
 }
 
 describe('ShareDialog', () => {
-  it('presents maintainer, guest editor, and viewer as distinct roles', async () => {
+  it('presents maintainer, suggestion, and viewer modes with safe links', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
 
@@ -45,12 +45,13 @@ describe('ShareDialog', () => {
 
     const roleNames = Array.from(container.querySelectorAll('.share-access-copy > strong'))
       .map((element) => element.textContent)
-    expect(roleNames).toEqual(['Maintainer', 'Guest editor', 'Viewer'])
-    expect(container.textContent).toContain('mirrors queued comments to GitHub')
-    expect(container.textContent).toContain('No repository or publishing access')
+    expect(roleNames).toEqual(['Maintainer', 'Suggestion mode', 'Viewer'])
+    expect(container.textContent).toContain('The link grants no authority by itself')
+    expect(container.textContent).toContain('changes stay here until a maintainer accepts and publishes them')
     expect(container.textContent).toContain('Editing and publishing are disabled')
-    expect(container.querySelector('[aria-label="Guest editor expiration"]')).not.toBeNull()
-    expect(container.textContent).toContain('Create guest editor link')
+    expect(container.querySelector('[aria-label="Maintainer link"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Suggestion link expiration"]')).not.toBeNull()
+    expect(container.textContent).toContain('Create suggestion link')
 
     await act(async () => root.unmount())
   })

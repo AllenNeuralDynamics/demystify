@@ -30,6 +30,7 @@ interface GitHubDialogProps {
   documentTitle: string
   session: GitHubSession | null
   sessionLoading: boolean
+  canManageRepository: boolean
   binding: RepositoryBinding | null
   review: RoomReview | null
   onClose: () => void
@@ -49,6 +50,7 @@ export const GitHubDialog = ({
   documentTitle,
   session,
   sessionLoading,
+  canManageRepository,
   binding,
   review,
   onClose,
@@ -73,7 +75,7 @@ export const GitHubDialog = ({
   const isLoadingDirectory = entries === null
 
   useEffect(() => {
-    if (!open || !session?.user) return
+    if (!open || !session?.user || !canManageRepository) return
     let active = true
     listRepositories()
       .then((nextRepositories) => {
@@ -93,7 +95,7 @@ export const GitHubDialog = ({
     return () => {
       active = false
     }
-  }, [open, session?.user])
+  }, [canManageRepository, open, session?.user])
 
   useEffect(() => {
     if (!open || !selectedRepository) return
@@ -208,6 +210,20 @@ export const GitHubDialog = ({
   const connectUrl = `/api/auth/github?returnTo=${encodeURIComponent(
     `${window.location.pathname}${window.location.search}`,
   )}`
+  const accountBar = session?.user ? (
+    <div className="github-account-bar">
+      <span className="github-user">
+        <img src={session.user.avatarUrl} alt="" />
+        <span><strong>{session.user.name ?? session.user.login}</strong><small>@{session.user.login}</small></span>
+      </span>
+      <span className="account-actions">
+        {canManageRepository && session.installationUrl && (
+          <a href={session.installationUrl} target="_blank" rel="noreferrer">Manage access <ExternalLink size={12} /></a>
+        )}
+        <button type="button" onClick={() => void disconnect()}><LogOut size={13} /> Disconnect</button>
+      </span>
+    </div>
+  ) : null
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -222,8 +238,14 @@ export const GitHubDialog = ({
           <div className="dialog-title-group">
             <span className="dialog-icon"><GitFork size={20} /></span>
             <div>
-              <h2 id="github-dialog-title">GitHub repository</h2>
-              <p>Open a MyST file or publish this live draft to a review branch.</p>
+              <h2 id="github-dialog-title">
+                {canManageRepository ? 'GitHub repository' : 'GitHub identity'}
+              </h2>
+              <p>
+                {canManageRepository
+                  ? 'Open a MyST file or publish this live draft to a review branch.'
+                  : 'Use a verified name and avatar without granting repository access.'}
+              </p>
             </div>
           </div>
           <button className="icon-button" type="button" title="Close GitHub dialog" onClick={onClose}>
@@ -255,29 +277,35 @@ export const GitHubDialog = ({
         ) : !session.user ? (
           <div className="github-connect-state">
             <GitFork size={28} />
-            <h3>Connect your GitHub account</h3>
-            <p>Access is limited to repositories where this GitHub App is installed.</p>
+            <h3>Connect your GitHub identity</h3>
+            <p>
+              {canManageRepository
+                ? 'Repository actions remain limited to projects where you have write permission.'
+                : 'Your GitHub name and handle will identify new comments and live suggestions. Signing in does not grant repository or publishing access.'}
+            </p>
             <a className="button primary-button" href={connectUrl}>Continue with GitHub</a>
-            {session.installationUrl && (
+            {canManageRepository && session.installationUrl && (
               <a className="text-link" href={session.installationUrl} target="_blank" rel="noreferrer">
                 Install the app on repositories <ExternalLink size={13} />
               </a>
             )}
           </div>
+        ) : !canManageRepository ? (
+          <div className="github-identity-state">
+            {accountBar}
+            <div className="github-identity-message">
+              <span><Check size={18} /></span>
+              <div>
+                <strong>Identity connected</strong>
+                <p>
+                  New comments and live presence use this verified GitHub identity. Your room mode is unchanged; only a verified repository writer can publish to GitHub.
+                </p>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="github-dialog-body">
-            <div className="github-account-bar">
-              <span className="github-user">
-                <img src={session.user.avatarUrl} alt="" />
-                <span><strong>{session.user.name ?? session.user.login}</strong><small>@{session.user.login}</small></span>
-              </span>
-              <span className="account-actions">
-                {session.installationUrl && (
-                  <a href={session.installationUrl} target="_blank" rel="noreferrer">Manage access <ExternalLink size={12} /></a>
-                )}
-                <button type="button" onClick={() => void disconnect()}><LogOut size={13} /> Disconnect</button>
-              </span>
-            </div>
+            {accountBar}
 
             <div className="repository-controls">
               <label>

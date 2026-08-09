@@ -162,6 +162,18 @@
   color: #175ea8;
 }
 
+.suggestion-button {
+  border: 1px solid #afd0bd;
+  background: #edf7f0;
+  color: var(--green-dark);
+}
+
+.github-identity-button img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
 .icon-button {
   position: relative;
   width: 32px;
@@ -2797,6 +2809,44 @@
   font-size: 12px;
 }
 
+.github-identity-state {
+  min-height: 250px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.github-identity-message {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  padding: 52px 40px;
+}
+
+.github-identity-message > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.github-identity-message strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.github-identity-message p {
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .github-connect-state h3,
 .github-setup h3 {
   color: var(--ink);
@@ -3149,7 +3199,9 @@
   }
 
   .secondary-button span,
-  .github-button span {
+  .github-button span,
+  .viewer-button span,
+  .suggestion-button span {
     display: none;
   }
 }

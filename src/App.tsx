@@ -176,15 +176,15 @@ function App() {
     ? getRepositoryGitHubUrl(repositoryBinding)
     : null
   const roomRole = roomAccess.room?.access ?? shareSession.role
-  const anonymousRole = roomRole === 'editor'
+  const sharedAccessRole = roomRole === 'editor'
     ? null
     : roomRole
   const isMaintainer = roomRole === 'editor'
-  const isViewer = anonymousRole === 'viewer'
-  const isGuestEditor = anonymousRole === 'collaborator'
+  const isViewer = sharedAccessRole === 'viewer'
+  const isSuggestionMode = sharedAccessRole === 'collaborator'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isGuestEditor)
+  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isSuggestionMode)
   const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
@@ -194,7 +194,9 @@ function App() {
     ? {
         ...profile,
         id: `github:${github.session.user.id}`,
-        name: github.session.user.name ?? github.session.user.login,
+        name: github.session.user.name
+          ? `${github.session.user.name} (@${github.session.user.login})`
+          : `@${github.session.user.login}`,
       }
     : profile
   const collaboration = useCollaboration(
@@ -742,14 +744,14 @@ function App() {
 
         <div className="document-identity">
           <span className="document-title">{title}</span>
-          <span className={`sync-status ${isArchived ? 'archived' : anonymousRole ? 'viewer' : collaboration.status}`}>
+          <span className={`sync-status ${isArchived ? 'archived' : sharedAccessRole ? 'viewer' : collaboration.status}`}>
             <span className="status-dot" />
             {isArchived
               ? 'Archived'
               : isViewer
                 ? 'Viewing'
-                : isGuestEditor
-                  ? 'Guest editing'
+                : isSuggestionMode
+                  ? 'Suggesting'
                   : collaboration.status === 'connected'
                     ? 'Live'
                     : collaboration.status}
@@ -787,30 +789,25 @@ function App() {
             ))}
           </div>
           {isMaintainer && !isArchived && (
-            <button className="button secondary-button" type="button" onClick={shareDocument}>
+            <button className="button secondary-button" type="button" title="Share access" onClick={shareDocument}>
               <Share2 size={16} />
               <span>Share</span>
             </button>
           )}
-          {isViewer ? (
-            <button className="button viewer-button" type="button" disabled>
-              <Eye size={16} />
-              <span>View only</span>
-            </button>
-          ) : isGuestEditor && !isArchived ? (
-            <button className="button viewer-button" type="button" disabled>
-              <UserRound size={16} />
-              <span>Guest editor</span>
-            </button>
-          ) : (
+          {isMaintainer ? (
             <button
               className="button github-button"
               type="button"
               disabled={isSaving}
+              title={isArchived
+                ? 'Open pull request'
+                : repositoryBinding
+                  ? 'Save snapshot to GitHub'
+                  : 'Connect GitHub repository'}
               onClick={() => {
                 if (isArchived && roomAccess.review) {
                   window.open(roomAccess.review.htmlUrl, '_blank', 'noopener,noreferrer')
-                } else if (github.session?.user && repositoryBinding) void saveToGitHub()
+                } else if (repositoryBinding) void saveToGitHub()
                 else setGitHubDialogOpen(true)
               }}
             >
@@ -822,11 +819,40 @@ function App() {
               <span>
                 {isArchived
                   ? 'Open PR'
-                  : github.session?.user && repositoryBinding
+                  : repositoryBinding
                     ? 'Save to GitHub'
                     : 'Connect GitHub'}
               </span>
             </button>
+          ) : (
+            <>
+              {isViewer && (
+                <button className="button viewer-button" type="button" title="Viewer mode" disabled>
+                  <Eye size={16} />
+                  <span>View only</span>
+                </button>
+              )}
+              {isSuggestionMode && !isArchived && (
+                <button className="button suggestion-button" type="button" title="Suggestion mode" disabled>
+                  <UserRound size={16} />
+                  <span>Suggestion mode</span>
+                </button>
+              )}
+              <button
+                className={`button ${github.session?.user ? 'secondary-button github-identity-button' : 'github-button'}`}
+                type="button"
+                disabled={github.isLoading}
+                title={github.session?.user ? 'GitHub identity' : 'Connect GitHub identity'}
+                onClick={() => setGitHubDialogOpen(true)}
+              >
+                {github.session?.user ? (
+                  <img src={github.session.user.avatarUrl} alt="" />
+                ) : (
+                  <GitFork size={16} />
+                )}
+                <span>{github.session?.user ? `@${github.session.user.login}` : 'Connect GitHub'}</span>
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -953,24 +979,7 @@ function App() {
         </aside>
 
         <section className={`manuscript-workspace ${isReadOnly ? 'archived' : ''}`}>
-          {anonymousRole ? (
-            <div className="archive-banner viewer-banner" role="status">
-              <Eye size={18} />
-              <div>
-                <strong>{isViewer ? 'Viewer access' : 'Guest editor access'}</strong>
-                <span>
-                  {isViewer
-                    ? 'Live manuscript updates and review history are available; editing is disabled.'
-                    : 'You can edit the live manuscript and DeMystify comments. A maintainer publishes snapshots and mirrors queued comments to GitHub.'}
-                </span>
-              </div>
-              {roomAccess.review && (
-                <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
-                  PR #{roomAccess.review.number}
-                </a>
-              )}
-            </div>
-          ) : isArchived && roomAccess.review ? (
+          {isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />
               <div>
@@ -980,17 +989,38 @@ function App() {
               <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
                 PR #{roomAccess.review.number}
               </a>
-              <button
-                className="button primary-button"
-                type="button"
-                disabled={isStartingRevision}
-                onClick={() => void startNextRevision()}
-              >
-                {isStartingRevision
-                  ? <LoaderCircle className="spin" size={15} />
-                  : <GitBranchPlus size={15} />}
-                Start next revision
-              </button>
+              {isMaintainer && (
+                <button
+                  className="button primary-button"
+                  type="button"
+                  disabled={isStartingRevision}
+                  onClick={() => void startNextRevision()}
+                >
+                  {isStartingRevision
+                    ? <LoaderCircle className="spin" size={15} />
+                    : <GitBranchPlus size={15} />}
+                  Start next revision
+                </button>
+              )}
+            </div>
+          ) : sharedAccessRole ? (
+            <div className="archive-banner viewer-banner" role="status">
+              <Eye size={18} />
+              <div>
+                <strong>{isViewer ? 'Viewer access' : 'Suggestion mode'}</strong>
+                <span>
+                  {isViewer
+                    ? 'Live manuscript updates and review history are available; editing is disabled.'
+                    : github.session?.user
+                      ? 'Your GitHub identity labels new comments and live suggestions. A maintainer publishes accepted changes and mirrors queued comments to GitHub.'
+                      : 'Edits stay in DeMystify until a maintainer publishes them. Connect GitHub to identify new comments and live suggestions.'}
+                </span>
+              </div>
+              {roomAccess.review && (
+                <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
+                  PR #{roomAccess.review.number}
+                </a>
+              )}
             </div>
           ) : null}
           <div className="editor-toolbar">
@@ -1242,7 +1272,7 @@ function App() {
                                 </button>
                               ) : !message.github ? (
                                 <span className="comment-sync-label">
-                                  {isGuestEditor
+                                  {isSuggestionMode
                                     ? 'Queued for maintainer'
                                     : comment.github
                                       ? 'Syncing to GitHub'
@@ -1305,7 +1335,7 @@ function App() {
                             </button>
                           ) : comment.github?.resolved !== comment.resolved ? (
                             <span>
-                              {isGuestEditor
+                              {isSuggestionMode
                                 ? 'Queued for maintainer'
                                 : roomAccess.review
                                   ? 'Syncing to PR'
@@ -1369,7 +1399,7 @@ function App() {
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setEditingProfile(false)}>
           <section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="dialog-icon"><UserRound size={20} /></div>
-            <h2 id="profile-title">Your collaborator name</h2>
+            <h2 id="profile-title">Your display name</h2>
             <p>This name appears beside your cursor and comments.</p>
             <input autoFocus value={profileName} onChange={(event) => setProfileName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') updateProfile() }} />
             <div className="dialog-actions">
@@ -1392,12 +1422,13 @@ function App() {
         />
       )}
 
-      {isMaintainer && <GitHubDialog
+      <GitHubDialog
         open={githubDialogOpen}
         roomName={roomName}
         documentTitle={title}
         session={github.session}
         sessionLoading={github.isLoading}
+        canManageRepository={canManageRepository}
         binding={repositoryBinding}
         review={roomAccess.review}
         onClose={() => setGitHubDialogOpen(false)}
@@ -1409,7 +1440,7 @@ function App() {
           showNotice('GitHub disconnected')
         }}
         onNotice={showNotice}
-      />}
+      />
 
       {notice && <div className="toast" role="status">{notice}</div>}
     </div>

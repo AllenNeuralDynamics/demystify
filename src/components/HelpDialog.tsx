@@ -72,7 +72,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
 
         <div className="help-comment-note">
           <MessageSquareText size={17} />
-          <p>Select text, or place the cursor in a paragraph, before opening a comment. Its anchor follows nearby edits. Guest comments queue in the room and a maintainer mirrors them to the pull request with the guest name preserved.</p>
+          <p>Select text, or place the cursor in a paragraph, before opening a comment. Its anchor follows nearby edits. Suggestion-mode comments queue in the room and a maintainer mirrors them to the pull request with the contributor identity preserved.</p>
         </div>
       </section>
     </div>

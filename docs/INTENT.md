@@ -11,7 +11,7 @@ DeMystify provides a Google-Docs-like editing surface while keeping valid MyST M
 The intended workflow is:
 
 1. A repository owner installs the DeMystify GitHub App on selected repositories.
-2. Maintainers authenticate with GitHub; invited guest editors and viewers use room-scoped, expiring links.
+2. Maintainers authenticate with GitHub and pass a repository write check. Invited contributors use an expiring Suggestion link and may also authenticate for verified attribution without gaining publish access; viewers use an independent read-only link.
 3. DeMystify loads a manuscript file into a shared Yjs document.
 4. Authors edit together with presence, comments, and immediate preview.
 5. The first deliberate snapshot creates a working branch and draft pull request; later snapshots update that same review.

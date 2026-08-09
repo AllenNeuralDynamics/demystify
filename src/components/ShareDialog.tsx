@@ -28,7 +28,7 @@ interface ShareDialogProps {
   onNotice: (message: string) => void
 }
 
-const collaboratorUrl = (roomName: string) => {
+const roomUrl = (roomName: string) => {
   const url = new URL(window.location.href)
   url.searchParams.set('doc', roomName)
   url.searchParams.delete('revision')
@@ -41,7 +41,7 @@ const anonymousUrl = (
   token: string,
   role: AnonymousShareRole,
 ) => {
-  const url = new URL(collaboratorUrl(roomName))
+  const url = new URL(roomUrl(roomName))
   url.hash = new URLSearchParams({
     [role === 'viewer' ? 'view' : 'collaborate']: token,
   }).toString()
@@ -60,7 +60,7 @@ const formatExpiry = (expiresAt: string | null) => {
 }
 
 const shareRoleLabel = (role: AnonymousShareRole) =>
-  role === 'viewer' ? 'Viewer' : 'Guest editor'
+  role === 'viewer' ? 'Viewer' : 'Suggestion mode'
 
 export const ShareDialog = ({
   open,
@@ -77,7 +77,7 @@ export const ShareDialog = ({
   })
   const [generatedUrls, setGeneratedUrls] = useState<Partial<Record<AnonymousShareRole, string>>>({})
   const [workingRole, setWorkingRole] = useState<AnonymousShareRole | null>(null)
-  const [copied, setCopied] = useState<'collaborator' | 'viewer' | null>(null)
+  const [copied, setCopied] = useState<'maintainer' | 'collaborator' | 'viewer' | null>(null)
 
   if (!open) return null
 
@@ -87,7 +87,7 @@ export const ShareDialog = ({
     onClose()
   }
 
-  const copy = async (kind: 'collaborator' | 'viewer', value: string) => {
+  const copy = async (kind: 'maintainer' | 'collaborator' | 'viewer', value: string) => {
     try {
       await copyText(value)
       setCopied(kind)
@@ -156,20 +156,26 @@ export const ShareDialog = ({
             <div className="share-access-icon maintainer"><ShieldCheck size={16} /></div>
             <div className="share-access-copy">
               <strong>Maintainer</strong>
-              <span>Repository writer. Edits the room, manages publishing and sharing, and mirrors queued comments to GitHub.</span>
+              <span>Share this room URL with repository writers. The link grants no authority by itself; GitHub sign-in and write permission are required to publish or manage sharing.</span>
+              <div className="share-link-control maintainer-link-control">
+                <input aria-label="Maintainer link" readOnly value={roomUrl(roomName)} />
+                <button type="button" title="Copy maintainer link" onClick={() => void copy('maintainer', roomUrl(roomName))}>
+                  {copied === 'maintainer' ? <Check size={15} /> : <Copy size={15} />}
+                </button>
+              </div>
             </div>
           </section>
 
           <section className="share-access-row">
             <div className="share-access-icon"><PencilLine size={16} /></div>
             <div className="share-access-copy">
-              <strong>Guest editor</strong>
-              <span>Anyone with the link can edit the live manuscript and DeMystify comments. No repository or publishing access; comments queue for a maintainer to mirror to GitHub.</span>
+              <strong>Suggestion mode</strong>
+              <span>Anyone with the link can edit the DeMystify draft and comments, but cannot publish. GitHub sign-in identifies their suggestions; changes stay here until a maintainer accepts and publishes them.</span>
 
               {generatedUrls.collaborator && (
                 <div className="share-link-control generated-collaborator-link">
-                  <input aria-label="Guest editor link" readOnly value={generatedUrls.collaborator} />
-                  <button type="button" title="Copy guest editor link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
+                  <input aria-label="Suggestion link" readOnly value={generatedUrls.collaborator} />
+                  <button type="button" title="Copy suggestion link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
                     {copied === 'collaborator' ? <Check size={15} /> : <Copy size={15} />}
                   </button>
                 </div>
@@ -188,7 +194,7 @@ export const ShareDialog = ({
                   <label>
                     Expiration
                     <select
-                      aria-label="Guest editor expiration"
+                      aria-label="Suggestion link expiration"
                       value={expirations.collaborator === null ? 'never' : String(expirations.collaborator)}
                       onChange={(event) => setExpirations((current) => ({
                         ...current,
@@ -207,7 +213,7 @@ export const ShareDialog = ({
                       : room.collaboratorLink
                         ? <RotateCw size={14} />
                         : <Link2 size={14} />}
-                    {room.collaboratorLink ? 'Replace link' : 'Create guest editor link'}
+                    {room.collaboratorLink ? 'Replace link' : 'Create suggestion link'}
                   </button>
                   {room.collaboratorLink && (
                     <button className="button danger-button" type="button" disabled={workingRole !== null} onClick={() => void revoke('collaborator')}>

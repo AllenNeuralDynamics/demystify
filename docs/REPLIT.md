@@ -212,11 +212,11 @@ The August 8, 2026 deployment passed these production checks:
 - `/`, `/api/health`, and `/api/config` returned HTTP `200`.
 - GitHub OAuth completed through Allen Institute SSO using the stable callback.
 - `/collaboration/<room>` reached the DeMystify WebSocket authorization gate.
-- Guest-editor and viewer sockets connected successfully.
-- Guest edits and guest-authored comments converged; viewer writes were rejected.
+- Suggestion-mode and viewer sockets connected successfully.
+- Suggestion edits and contributor-authored comments converged; viewer writes were rejected.
 - Both link roles received HTTP `403` for snapshot and GitHub comment mutations.
-- Revoking the viewer link closed only viewer sockets; revoking the guest-editor
-   link then closed guest sockets.
+- Revoking the viewer link closed only viewer sockets; revoking the Suggestion
+   link then closed Suggestion sockets.
 - Both temporary links were revoked, and no test branch or pull request remained.
 - Replit reported the final Autoscale build as `success` with no build in
    progress.

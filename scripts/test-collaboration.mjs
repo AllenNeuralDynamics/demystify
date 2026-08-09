@@ -532,7 +532,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; maintainers and guest editors converged; viewers stayed read-only.')
+  console.log('Unauthorized users rejected; maintainers and suggestion-mode editors converged; viewers stayed read-only.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()

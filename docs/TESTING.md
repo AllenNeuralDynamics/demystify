@@ -37,13 +37,21 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 5. Rotate the link. Confirm the old URL and existing viewer session stop working.
 6. Revoke the new link. Confirm active viewer sockets disconnect immediately and cannot reconnect.
 
-## Guest Editor Link Test
+## Maintainer Link Test
 
-1. Open a guest editor link in a private browser. Verify the token disappears from the address bar and manuscript, Visual, metadata, references, and DeMystify comment editing are available without GitHub.
-2. Add manuscript text and a comment. Verify both converge to a maintainer and viewer, while a viewer write still does not reach either editor.
-3. Verify the guest cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
-4. With no maintainer connected, verify the guest comment remains queued. Reconnect a maintainer and verify the comment mirrors to the pull request with the guest display name in its DeMystify attribution line.
-5. Rotate or revoke the guest editor link. Confirm guest sockets disconnect while active viewer and maintainer sockets remain connected.
+1. Copy the Maintainer link from **Share** and verify it is the plain room URL with no capability fragment.
+2. Open it without a GitHub session and verify DeMystify prompts for GitHub authentication rather than opening the room.
+3. Authenticate as a user without repository write permission and verify the plain link still grants no room access.
+4. Authenticate as a repository writer and verify the room opens in Maintainer mode with publishing and sharing controls.
+
+## Suggestion Link Test
+
+1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar and manuscript, Visual, metadata, references, and DeMystify comment editing are available without GitHub.
+2. Connect a GitHub account that lacks repository write permission. Verify the room remains in Suggestion mode and the account name plus handle label new presence and comments.
+3. Add manuscript text and a comment. Verify both converge to a maintainer and viewer, while a viewer write still does not reach either editor.
+4. Verify the contributor cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
+5. With no maintainer connected, verify the comment remains queued. Reconnect a maintainer and verify the comment mirrors to the pull request with the contributor identity in its DeMystify attribution line.
+6. Rotate or revoke the Suggestion link. Confirm Suggestion sockets disconnect while active viewer and maintainer sockets remain connected.
 
 ## Required Checks
 
