@@ -51,6 +51,15 @@ export const getRepositoryAssetBaseUrl = (binding: RepositoryBinding) => {
   return `https://raw.githubusercontent.com/${encodeURIComponent(binding.owner)}/${encodeURIComponent(binding.repository)}/refs/heads/${encodeRepositoryPath(binding.baseBranch)}/${suffix}`
 }
 
+export const getRepositoryGitHubUrl = (binding: RepositoryBinding) =>
+  `https://github.com/${encodeURIComponent(binding.owner)}/${encodeURIComponent(binding.repository)}`
+
+export const getRepositoryFileGitHubUrl = (
+  binding: RepositoryBinding,
+  reference: string,
+) =>
+  `${getRepositoryGitHubUrl(binding)}/blob/${encodeRepositoryPath(reference)}/${encodeRepositoryPath(binding.path)}`
+
 export interface RoomReview {
   number: number
   htmlUrl: string

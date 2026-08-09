@@ -45,6 +45,8 @@ import { useShareSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
   getRepositoryAssetBaseUrl,
+  getRepositoryFileGitHubUrl,
+  getRepositoryGitHubUrl,
   loadRepositoryFile,
   mirrorRoomComment,
   mirrorRoomCommentReply,
@@ -152,6 +154,18 @@ function App() {
   const repositoryAssetBaseUrl = repositoryBinding
     ? getRepositoryAssetBaseUrl(repositoryBinding)
     : undefined
+  const repositoryGitHubUrl = repositoryBinding
+    ? getRepositoryGitHubUrl(repositoryBinding)
+    : null
+  const repositoryFileGitHubUrl = repositoryBinding
+    ? getRepositoryFileGitHubUrl(
+        repositoryBinding,
+        roomAccess.review ? repositoryBinding.branchName : repositoryBinding.baseBranch,
+      )
+    : null
+  const repositoryFileReference = repositoryBinding
+    ? roomAccess.review ? repositoryBinding.branchName : repositoryBinding.baseBranch
+    : null
   const anonymousRole = roomAccess.room?.access === 'editor'
     ? null
     : roomAccess.room?.access ?? shareSession.role
@@ -667,27 +681,70 @@ function App() {
               <FilePlus2 size={16} />
             </button>
           </div>
-          <button
-            className="repository-picker"
-            type="button"
-            title={repositoryBinding?.fullName ?? 'Local draft'}
-            disabled={isReadOnly}
-            onClick={() => setGitHubDialogOpen(true)}
-          >
-            <span className="repository-icon"><GitFork size={15} /></span>
-            <span>
-              <strong>{formatRepositoryName(repositoryBinding?.fullName ?? 'Local draft')}</strong>
-              <small>{repositoryBinding?.path ?? 'Not connected'}</small>
-            </span>
-            <ChevronDown size={14} />
-          </button>
+          {repositoryBinding && repositoryGitHubUrl ? (
+            <div className={`repository-picker bound ${isReadOnly ? '' : 'changeable'}`}>
+              <a
+                className="repository-github-link"
+                href={repositoryGitHubUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open ${repositoryBinding.fullName} on GitHub`}
+              >
+                <span className="repository-icon"><GitFork size={15} /></span>
+                <span>
+                  <strong>{formatRepositoryName(repositoryBinding.fullName)}</strong>
+                  <small>GitHub repository</small>
+                </span>
+                <ExternalLink size={14} />
+              </a>
+              {!isReadOnly && (
+                <button
+                  className="repository-change-button"
+                  type="button"
+                  title="Change repository or file"
+                  onClick={() => setGitHubDialogOpen(true)}
+                >
+                  <ChevronDown size={14} />
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              className="repository-picker"
+              type="button"
+              title="Connect a GitHub repository"
+              disabled={isReadOnly}
+              onClick={() => setGitHubDialogOpen(true)}
+            >
+              <span className="repository-icon"><GitFork size={15} /></span>
+              <span>
+                <strong>Local draft</strong>
+                <small>Not connected</small>
+              </span>
+              <ChevronDown size={14} />
+            </button>
+          )}
           <nav className="file-tree" aria-label="Manuscript files">
             <span className="tree-label">Files</span>
-            <button className="file-row active" type="button">
-              <FileText size={16} />
-              <span>{activeFileName}</span>
-              <span className="live-file-dot" title="Live document" />
-            </button>
+            {repositoryFileGitHubUrl && repositoryBinding ? (
+              <a
+                className="file-row active"
+                href={repositoryFileGitHubUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open ${repositoryBinding.path} on GitHub at ${repositoryFileReference}`}
+              >
+                <FileText size={16} />
+                <span>{repositoryBinding.path}</span>
+                <ExternalLink size={13} />
+              </a>
+            ) : (
+              <span className="file-row active">
+                <FileText size={16} />
+                <span>{activeFileName}</span>
+                <span className="live-file-dot" title="Live document" />
+              </span>
+            )}
           </nav>
           <div
             className="sidebar-footer"
