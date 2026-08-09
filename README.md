@@ -186,6 +186,7 @@ npm start                   # Serve dist and WebSockets in production mode
 - PostgreSQL stores server sessions, immutable room bindings, and Yjs updates. Local LevelDB and JSON storage remain development fallbacks.
 - Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
 - Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
+- Hidden browser tabs disconnect their collaboration WebSocket and pause GitHub polling, then reconnect when visible. This prevents abandoned tabs from holding an Autoscale instance and production database active indefinitely.
 - Paper search uses the public Crossref REST API through the server. Set the optional `CROSSREF_MAILTO` environment variable to identify production requests to Crossref's polite pool.
 - Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
 - Viewer-link rotation and revocation invalidate anonymous sessions and disconnect active viewer sockets immediately.
@@ -203,4 +204,5 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - Suggestion/tracked-change mode is not implemented yet.
 - Each bound room owns one manuscript path, working branch, and pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
+- A continuously visible collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Starter-tier cloud credits are suitable only for short pilot sessions; sustained external collaboration needs an explicit cloud budget and monitoring.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

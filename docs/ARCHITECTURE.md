@@ -11,7 +11,7 @@ flowchart LR
   G <-->|Contents, pull requests, and comments| R[GitHub repository]
 ```
 
-The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs.
+The browser binds CodeMirror directly to a shared `Y.Text`. The same Yjs document stores comments, while awareness carries transient cursors and GitHub identities. The Express server handles both API requests and WebSocket upgrades. It parses the HTTP-only GitHub session during every upgrade and verifies repository write access before handing the connection to Yjs. Hidden tabs disconnect their provider and pause GitHub polling, then reconnect when visible, so abandoned tabs do not keep request-based compute and PostgreSQL continuously active.
 
 Anonymous sharing links are capability-based and role-specific. Independent 256-bit collaborator and viewer secrets live only in URL fragments and are exchanged for versioned HTTP-only room grants; PostgreSQL or the local room registry stores only SHA-256 hashes, creation times, and optional expirations. Both anonymous roles are read-only at the HTTP and WebSocket layers. A collaborator grant may become an editor only after GitHub OAuth and repository write authorization; a viewer grant remains view-only even if that browser later signs in. Rotating, revoking, or expiring one capability closes only sockets using that role without affecting editors or the other anonymous role.
 

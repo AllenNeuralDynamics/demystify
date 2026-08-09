@@ -400,6 +400,7 @@ function App() {
     if (!roomReviewNumber) return
     let active = true
     const refresh = () => {
+      if (document.visibilityState === 'hidden') return
       void refreshRoom().catch((error: unknown) => {
         if (!active) return
         showNotice(error instanceof Error ? error.message : 'Room status refresh failed')
@@ -407,10 +408,12 @@ function App() {
     }
     const interval = window.setInterval(refresh, 15_000)
     window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
     return () => {
       active = false
       window.clearInterval(interval)
       window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
     }
   }, [refreshRoom, roomReviewNumber])
 
@@ -469,6 +472,7 @@ function App() {
     if (!roomAccess.review?.number || isReadOnly) return
     let active = true
     const sync = () => {
+      if (document.visibilityState === 'hidden') return
       void syncRoomComments(roomName)
         .then((result) => {
           if (!active) return
@@ -485,10 +489,12 @@ function App() {
     sync()
     const interval = window.setInterval(sync, 15_000)
     window.addEventListener('focus', sync)
+    document.addEventListener('visibilitychange', sync)
     return () => {
       active = false
       window.clearInterval(interval)
       window.removeEventListener('focus', sync)
+      document.removeEventListener('visibilitychange', sync)
     }
   }, [applyGitHubCommentSync, isReadOnly, roomAccess.review?.number, roomName])
 

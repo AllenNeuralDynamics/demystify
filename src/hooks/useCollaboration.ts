@@ -239,11 +239,20 @@ export const useCollaboration = (
     metadata.observe(updateMetadata)
     commentMap.observe(updateComments)
     commentMessageMap.observe(updateCommentMessages)
-    const connectionTimer = window.setTimeout(() => provider.connect(), 0)
+    const updateConnectionForVisibility = () => {
+      if (window.document.visibilityState === 'hidden') {
+        provider.disconnect()
+        return
+      }
+      provider.connect()
+    }
+    window.document.addEventListener('visibilitychange', updateConnectionForVisibility)
+    const connectionTimer = window.setTimeout(updateConnectionForVisibility, 0)
 
     return () => {
       window.clearTimeout(connectionTimer)
       window.clearTimeout(initializationTimer)
+      window.document.removeEventListener('visibilitychange', updateConnectionForVisibility)
       text.unobserve(updateContent)
       bibliographyText.unobserve(updateBibliography)
       mystConfigText.unobserve(updateMystConfig)
