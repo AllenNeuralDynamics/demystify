@@ -1,0 +1,57 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { describe, expect, it, vi } from 'vitest'
+import type { CollaborationRoom } from '../lib/github'
+import { ShareDialog } from './ShareDialog'
+
+const reactTestGlobal = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT: boolean
+}
+reactTestGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+const room: CollaborationRoom = {
+  roomName: 'share-role-test',
+  ownerId: 42,
+  ownerLogin: 'maintainer',
+  binding: null,
+  review: null,
+  nextRoomName: null,
+  access: 'editor',
+  viewerLink: null,
+  collaboratorLink: null,
+  createdAt: '2026-08-09T00:00:00.000Z',
+  updatedAt: '2026-08-09T00:00:00.000Z',
+}
+
+describe('ShareDialog', () => {
+  it('presents maintainer, guest editor, and viewer as distinct roles', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <ShareDialog
+          open
+          roomName={room.roomName}
+          room={room}
+          canManageLinks
+          onClose={vi.fn()}
+          onRoomRefresh={vi.fn(async () => room)}
+          onNotice={vi.fn()}
+        />,
+      )
+    })
+
+    const roleNames = Array.from(container.querySelectorAll('.share-access-copy > strong'))
+      .map((element) => element.textContent)
+    expect(roleNames).toEqual(['Maintainer', 'Guest editor', 'Viewer'])
+    expect(container.textContent).toContain('mirrors queued comments to GitHub')
+    expect(container.textContent).toContain('No repository or publishing access')
+    expect(container.textContent).toContain('Editing and publishing are disabled')
+    expect(container.querySelector('[aria-label="Guest editor expiration"]')).not.toBeNull()
+    expect(container.textContent).toContain('Create guest editor link')
+
+    await act(async () => root.unmount())
+  })
+})

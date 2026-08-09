@@ -16,7 +16,6 @@ import {
   GitPullRequest,
   Italic,
   LoaderCircle,
-  LogIn,
   MessageSquare,
   PanelLeftClose,
   Redo2,
@@ -150,7 +149,6 @@ function App() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
   const [initializeRevision] = useState(shouldInitializeRevision)
   const [revisionInitialContent, setRevisionInitialContent] = useState<string | null>(
@@ -174,20 +172,22 @@ function App() {
     !github.isLoading && !shareSession.isLoading,
   )
   const repositoryBinding = roomAccess.binding
-  const repositoryInvitationUrl = repositoryBinding
-    ? `https://github.com/${repositoryBinding.fullName}/invitations`
-    : null
   const repositoryGitHubUrl = repositoryBinding
     ? getRepositoryGitHubUrl(repositoryBinding)
     : null
-  const anonymousRole = roomAccess.room?.access === 'editor'
+  const roomRole = roomAccess.room?.access ?? shareSession.role
+  const anonymousRole = roomRole === 'editor'
     ? null
-    : roomAccess.room?.access ?? shareSession.role
+    : roomRole
+  const isMaintainer = roomRole === 'editor'
   const isViewer = anonymousRole === 'viewer'
-  const isGuestCollaborator = anonymousRole === 'collaborator'
+  const isGuestEditor = anonymousRole === 'collaborator'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const isReadOnly = Boolean(anonymousRole) || isArchived
+  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isGuestEditor)
+  const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
+  const canMirrorGitHub = canManageRepository
+  const isReadOnly = !canEditRoom
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
@@ -291,29 +291,6 @@ function App() {
     setNotice(message)
   }
 
-  const signInToEdit = () => {
-    const returnTo = `${window.location.pathname}${window.location.search}`
-    window.location.assign(
-      `/api/auth/github?returnTo=${encodeURIComponent(returnTo)}`,
-    )
-  }
-
-  const recheckEditAccess = async () => {
-    setIsCheckingEditAccess(true)
-    try {
-      const refreshedRoom = await refreshRoom()
-      showNotice(
-        refreshedRoom?.access === 'editor'
-          ? 'Repository write access confirmed'
-          : 'GitHub still reports no write access. Accept any pending repository invitation, then try again.',
-      )
-    } catch (error) {
-      showNotice(error instanceof Error ? error.message : 'Could not recheck repository access')
-    } finally {
-      setIsCheckingEditAccess(false)
-    }
-  }
-
   useEffect(() => {
     if (!notice) return
     const timeout = window.setTimeout(() => setNotice(null), 2_400)
@@ -352,7 +329,7 @@ function App() {
         areProjectFilesInitialized &&
         currentProjectManifestVersion >= projectManifestVersion
       ) ||
-      isReadOnly
+      !canManageRepository
     ) return
     let active = true
     void (async () => {
@@ -390,9 +367,9 @@ function App() {
     initializeMystConfig,
     initializeProjectFiles,
     isBibliographyInitialized,
+    canManageRepository,
     isCollaborationSynced,
     isMystConfigInitialized,
-    isReadOnly,
     repositoryBinding,
   ])
 
@@ -419,7 +396,7 @@ function App() {
 
   useEffect(() => {
     const reviewNumber = roomAccess.review?.number
-    if (!reviewNumber || isReadOnly) return
+    if (!reviewNumber || !canMirrorGitHub) return
 
     for (const comment of sharedComments) {
       if (comment.github?.resolved === comment.resolved) continue
@@ -460,16 +437,16 @@ function App() {
     }
   }, [
     applyCommentMirror,
+    canMirrorGitHub,
     commentSyncRevision,
     roomAccess.review?.number,
-    isReadOnly,
     resolveCommentAnchor,
     roomName,
     sharedComments,
   ])
 
   useEffect(() => {
-    if (!roomAccess.review?.number || isReadOnly) return
+    if (!roomAccess.review?.number || !canMirrorGitHub) return
     let active = true
     const sync = () => {
       if (document.visibilityState === 'hidden') return
@@ -496,11 +473,11 @@ function App() {
       window.removeEventListener('focus', sync)
       document.removeEventListener('visibilitychange', sync)
     }
-  }, [applyGitHubCommentSync, isReadOnly, roomAccess.review?.number, roomName])
+  }, [applyGitHubCommentSync, canMirrorGitHub, roomAccess.review?.number, roomName])
 
   useEffect(() => {
     const reviewNumber = roomAccess.review?.number
-    if (!reviewNumber || isReadOnly) return
+    if (!reviewNumber || !canMirrorGitHub) return
 
     for (const message of sharedCommentMessages) {
       if (message.github) continue
@@ -538,9 +515,9 @@ function App() {
     }
   }, [
     applyCommentMessageMirror,
+    canMirrorGitHub,
     commentSyncRevision,
     roomAccess.review?.number,
-    isReadOnly,
     roomName,
     sharedCommentMessages,
     sharedComments,
@@ -558,7 +535,7 @@ function App() {
   }
 
   const startNextRevision = async () => {
-    if (!isReadOnly) return
+    if (!isMaintainer || !isArchived) return
     setIsStartingRevision(true)
     try {
       const nextRoom = await startRoomRevision(roomName)
@@ -622,8 +599,8 @@ function App() {
   }
 
   const saveToGitHub = async () => {
-    if (isReadOnly) {
-      showNotice('This room is archived. Start the next revision to continue editing.')
+    if (!canManageRepository) {
+      showNotice('Maintainer access is required to publish this room to GitHub.')
       return false
     }
     if (!github.session?.user || !repositoryBinding) {
@@ -702,7 +679,7 @@ function App() {
   }
 
   const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
-    if (isReadOnly) return
+    if (!canManageRepository) return
     const projectManifest = await loadRepositoryProjectFiles(binding)
     const bibliographyFile = await loadRepositoryBibliography(
       binding,
@@ -724,7 +701,7 @@ function App() {
   }
 
   const bindRepositoryDraft = async (binding: RepositoryBinding) => {
-    if (isReadOnly) return
+    if (!canManageRepository) return
     const projectManifest = await loadRepositoryProjectFiles(binding)
     const bibliographyFile = await loadRepositoryBibliography(
       binding,
@@ -771,8 +748,8 @@ function App() {
               ? 'Archived'
               : isViewer
                 ? 'Viewing'
-                : isGuestCollaborator
-                  ? 'Read access'
+                : isGuestEditor
+                  ? 'Guest editing'
                   : collaboration.status === 'connected'
                     ? 'Live'
                     : collaboration.status}
@@ -809,7 +786,7 @@ function App() {
               </button>
             ))}
           </div>
-          {!anonymousRole && (
+          {isMaintainer && !isArchived && (
             <button className="button secondary-button" type="button" onClick={shareDocument}>
               <Share2 size={16} />
               <span>Share</span>
@@ -820,25 +797,11 @@ function App() {
               <Eye size={16} />
               <span>View only</span>
             </button>
-          ) : isGuestCollaborator && !isArchived ? (
-            github.session?.user ? (
-              <button
-                className="button github-button"
-                type="button"
-                disabled={isCheckingEditAccess}
-                onClick={() => void recheckEditAccess()}
-              >
-                {isCheckingEditAccess
-                  ? <LoaderCircle className="spin" size={16} />
-                  : <RefreshCw size={16} />}
-                <span>{isCheckingEditAccess ? 'Checking access' : 'Recheck access'}</span>
-              </button>
-            ) : (
-              <button className="button github-button" type="button" onClick={signInToEdit}>
-                <LogIn size={16} />
-                <span>Sign in to edit</span>
-              </button>
-            )
+          ) : isGuestEditor && !isArchived ? (
+            <button className="button viewer-button" type="button" disabled>
+              <UserRound size={16} />
+              <span>Guest editor</span>
+            </button>
           ) : (
             <button
               className="button github-button"
@@ -877,7 +840,7 @@ function App() {
             </button>
           </div>
           {repositoryBinding && repositoryGitHubUrl ? (
-            <div className={`repository-picker bound ${isReadOnly ? '' : 'changeable'}`}>
+            <div className={`repository-picker bound ${canManageRepository ? 'changeable' : ''}`}>
               <a
                 className="repository-github-link"
                 href={repositoryGitHubUrl}
@@ -892,7 +855,7 @@ function App() {
                 </span>
                 <ExternalLink size={14} />
               </a>
-              {!isReadOnly && (
+              {canManageRepository && (
                 <button
                   className="repository-change-button"
                   type="button"
@@ -908,7 +871,7 @@ function App() {
               className="repository-picker"
               type="button"
               title="Connect a GitHub repository"
-              disabled={isReadOnly}
+              disabled={!canManageRepository}
               onClick={() => setGitHubDialogOpen(true)}
             >
               <span className="repository-icon"><GitFork size={15} /></span>
@@ -994,25 +957,11 @@ function App() {
             <div className="archive-banner viewer-banner" role="status">
               <Eye size={18} />
               <div>
-                <strong>{isViewer ? 'View-only access' : 'Collaborator link'}</strong>
+                <strong>{isViewer ? 'Viewer access' : 'Guest editor access'}</strong>
                 <span>
                   {isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
-                    : github.session?.user
-                      ? (
-                          <>
-                            GitHub still reports no repository write access.{' '}
-                            {repositoryInvitationUrl ? (
-                              <>
-                                <a href={repositoryInvitationUrl} target="_blank" rel="noreferrer">
-                                  Accept any pending invitation
-                                </a>
-                                , then select Recheck access.
-                              </>
-                            ) : 'Ask the owner for repository write access, then select Recheck access.'}
-                          </>
-                        )
-                      : 'You can read now. Sign in with GitHub and accepted repository write access to edit.'}
+                    : 'You can edit the live manuscript and DeMystify comments. A maintainer publishes snapshots and mirrors queued comments to GitHub.'}
                 </span>
               </div>
               {roomAccess.review && (
@@ -1133,7 +1082,7 @@ function App() {
 
             <div className="document-stats">
               <span>{wordCount.toLocaleString()} words</span>
-              <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving || isReadOnly} onClick={() => void saveToGitHub()}>
+              <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving || !canManageRepository} onClick={() => void saveToGitHub()}>
                 {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
               </button>
             </div>
@@ -1286,14 +1235,18 @@ function App() {
                                 <button
                                   type="button"
                                   title={commentSyncErrors[message.id]}
-                                  disabled={isReadOnly}
+                                  disabled={!canMirrorGitHub}
                                   onClick={() => retryMessageSync(message.id)}
                                 >
                                   <RefreshCw size={12} /> Retry sync
                                 </button>
                               ) : !message.github ? (
                                 <span className="comment-sync-label">
-                                  {comment.github ? 'Syncing to GitHub' : 'Queued for PR'}
+                                  {isGuestEditor
+                                    ? 'Queued for maintainer'
+                                    : comment.github
+                                      ? 'Syncing to GitHub'
+                                      : 'Queued for PR'}
                                 </span>
                               ) : null}
                             </div>
@@ -1345,13 +1298,19 @@ function App() {
                             <button
                               type="button"
                               title={commentSyncErrors[comment.id]}
-                              disabled={isReadOnly}
+                              disabled={!canMirrorGitHub}
                               onClick={() => retryCommentSync(comment)}
                             >
                               <RefreshCw size={13} /> Retry sync
                             </button>
                           ) : comment.github?.resolved !== comment.resolved ? (
-                            <span>{roomAccess.review ? 'Syncing to PR' : 'Queued for PR'}</span>
+                            <span>
+                              {isGuestEditor
+                                ? 'Queued for maintainer'
+                                : roomAccess.review
+                                  ? 'Syncing to PR'
+                                  : 'Queued for PR'}
+                            </span>
                           ) : null}
                         </div>
                       </div>
@@ -1421,7 +1380,7 @@ function App() {
         </div>
       )}
 
-      {!anonymousRole && roomAccess.room && (
+      {isMaintainer && roomAccess.room && (
         <ShareDialog
           open={shareDialogOpen}
           roomName={roomName}
@@ -1433,7 +1392,7 @@ function App() {
         />
       )}
 
-      {!anonymousRole && <GitHubDialog
+      {isMaintainer && <GitHubDialog
         open={githubDialogOpen}
         roomName={roomName}
         documentTitle={title}

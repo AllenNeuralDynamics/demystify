@@ -929,7 +929,7 @@ export const authorizeRoomRequest = async (
 ) => {
   const access = await authorizeRoomAccess(request, roomStore, roomName, options)
   if (access.role !== 'editor') {
-    throw new ApiError(403, 'Viewer access is read-only.')
+    throw new ApiError(403, 'Maintainer access is required for this action.')
   }
   return access.room
 }
@@ -1004,6 +1004,7 @@ export const createRoomRouter = (
 
   router.put('/rooms/:roomName/binding', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
+    await authorizeRoomRequest(request, roomStore, roomName, options)
     const user = requireUser(request)
     const owner = validateRepositoryPart(request.body.owner, 'owner')
     const repository = validateRepositoryPart(request.body.repository, 'repository')
@@ -1088,9 +1089,11 @@ export const createRoomRouter = (
 
   router.get('/rooms/:roomName/citations/search', async (request, response) => {
     const roomName = readRoomNameParameter(request)
-    requireWritableRoom(
-      await authorizeRoomRequest(request, roomStore, roomName, options),
-    )
+    const access = await authorizeRoomAccess(request, roomStore, roomName, options)
+    if (access.role === 'viewer') {
+      throw new ApiError(403, 'Editing access is required to search for citations.')
+    }
+    requireWritableRoom(access.room)
     const query = typeof request.query.q === 'string' ? request.query.q : ''
     response.json({ results: await searchCrossrefWorks(query) })
   })

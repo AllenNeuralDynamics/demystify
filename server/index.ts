@@ -73,7 +73,7 @@ const roomStore = databasePool
 await roomStore.initialize()
 const readOnlyRooms = new Set<string>()
 const testReadOnlyRooms = new Set<string>()
-const guestSockets = new WeakSet<WebSocket>()
+const readOnlyGuestSockets = new WeakSet<WebSocket>()
 const guestConnectionsByCapability = new Map<string, Set<WebSocket>>()
 const viewerExpiryTimers = new WeakMap<WebSocket, NodeJS.Timeout>()
 
@@ -242,7 +242,7 @@ webSocketServer.on('connection', (socket, request) => {
   setupReadOnlyAwareWebSocket(
     socket,
     () =>
-      guestSockets.has(socket) ||
+      readOnlyGuestSockets.has(socket) ||
       readOnlyRooms.has(roomName) ||
       testReadOnlyRooms.has(roomName),
     (guardedSocket) => setupWSConnection(guardedSocket, request, { docName: roomName }),
@@ -325,7 +325,7 @@ server.on('upgrade', (request, socket, head) => {
       if (socket.destroyed || !access) return
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
         if (access.role !== 'editor') {
-          guestSockets.add(webSocket)
+          if (access.role === 'viewer') readOnlyGuestSockets.add(webSocket)
           const key = capabilityKey(roomName, access.role)
           const connections = guestConnectionsByCapability.get(key) ?? new Set()
           connections.add(webSocket)

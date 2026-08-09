@@ -2609,6 +2609,11 @@
   color: #175ea8;
 }
 
+.share-access-icon.maintainer {
+  background: #f9ece8;
+  color: #8a4337;
+}
+
 .share-access-copy {
   min-width: 0;
 }

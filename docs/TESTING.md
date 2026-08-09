@@ -37,13 +37,13 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 5. Rotate the link. Confirm the old URL and existing viewer session stop working.
 6. Revoke the new link. Confirm active viewer sockets disconnect immediately and cannot reconnect.
 
-## Collaborator Link Test
+## Guest Editor Link Test
 
-1. Open a collaborator link in a private browser. Verify the manuscript loads without GitHub and the only modification affordance is **Sign in to edit**.
-2. Sign in with a GitHub account that lacks repository write access. Verify the room stays read-only and reports no edit access.
-3. Sign in with an authorized account. Verify the same room upgrades to an editor without requiring a different link.
-4. Open a viewer link and sign in separately. Verify it remains view-only and never offers the collaborator upgrade action.
-5. Rotate or revoke the collaborator link. Confirm collaborator sessions disconnect while active viewer sessions and editors remain connected.
+1. Open a guest editor link in a private browser. Verify the token disappears from the address bar and manuscript, Visual, metadata, references, and DeMystify comment editing are available without GitHub.
+2. Add manuscript text and a comment. Verify both converge to a maintainer and viewer, while a viewer write still does not reach either editor.
+3. Verify the guest cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
+4. With no maintainer connected, verify the guest comment remains queued. Reconnect a maintainer and verify the comment mirrors to the pull request with the guest display name in its DeMystify attribution line.
+5. Rotate or revoke the guest editor link. Confirm guest sockets disconnect while active viewer and maintainer sockets remain connected.
 
 ## Required Checks
 

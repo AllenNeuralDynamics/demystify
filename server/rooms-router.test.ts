@@ -787,6 +787,19 @@ describe('room publication routes', () => {
         },
       )
       expect(collaboratorSnapshot.status).toBe(403)
+      const collaboratorCommentMirror = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/comments/guest-comment`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            authorName: 'Guest scientist',
+            body: 'Queue this for a maintainer.',
+            resolved: false,
+          }),
+        },
+      )
+      expect(collaboratorCommentMirror.status).toBe(403)
 
       session.github = {
         accessToken: 'test-token',

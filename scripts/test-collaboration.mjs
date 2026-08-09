@@ -458,9 +458,24 @@ try {
   await waitForSync(collaboratorProvider)
   let collaboratorText = collaboratorDocument.getText('content')
   await waitForText(collaboratorText, expectedText)
-  collaboratorText.insert(collaboratorText.length, ' collaborator-blocked')
-  await new Promise((resolve) => setTimeout(resolve, 300))
-  assert.equal(secondText.toString(), expectedText)
+  const guestExpectedText = `${expectedText} guest-edited`
+  const guestEditReceived = waitForText(secondText, guestExpectedText)
+  const guestEditVisibleToViewer = waitForText(viewerText, guestExpectedText)
+  const guestCommentId = crypto.randomUUID()
+  const guestComment = {
+    id: guestCommentId,
+    authorId: 'guest:integration-test',
+    authorName: 'Guest scientist',
+    authorColor: '#8a4337',
+    body: 'Please clarify this result.',
+    createdAt: new Date().toISOString(),
+    resolved: false,
+  }
+  const guestCommentReceived = waitForComment(firstComments, guestCommentId)
+  collaboratorText.insert(collaboratorText.length, ' guest-edited')
+  collaboratorDocument.getMap('comments').set(guestCommentId, guestComment)
+  await Promise.all([guestEditReceived, guestEditVisibleToViewer, guestCommentReceived])
+  assert.deepEqual(firstComments.get(guestCommentId), guestComment)
   collaboratorProvider.destroy()
   collaboratorDocument.destroy()
   collaboratorDocument = new Y.Doc()
@@ -470,8 +485,8 @@ try {
   })
   await waitForSync(collaboratorProvider)
   collaboratorText = collaboratorDocument.getText('content')
-  await waitForText(collaboratorText, expectedText)
-  const editorExpectedText = `${expectedText} editor-accepted`
+  await waitForText(collaboratorText, guestExpectedText)
+  const editorExpectedText = `${guestExpectedText} editor-accepted`
   const editorReceived = waitForText(secondText, editorExpectedText)
   const viewerReceived = waitForText(viewerText, editorExpectedText)
   const collaboratorReceived = waitForText(collaboratorText, editorExpectedText)
@@ -517,7 +532,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; editors, collaborator guests, and viewers converged; anonymous writes blocked.')
+  console.log('Unauthorized users rejected; maintainers and guest editors converged; viewers stayed read-only.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()

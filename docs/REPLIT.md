@@ -18,30 +18,28 @@ The validated fresh pilot deployment is:
 
 | Setting | Value |
 | --- | --- |
-| Replit project | `Jlecoq/Demystify-Deploy` |
-| Public URL | <https://demystify-deploy--jlecoq.replit.app/> |
+| Replit project | `jeromelecoq/demystify` |
+| Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Visibility | Public |
 | Database | Fresh Replit production PostgreSQL database |
 | GitHub App | `demystify-replit-pilot-jl` |
-| OAuth callback | `https://demystify-deploy--jlecoq.replit.app/api/auth/github/callback` |
-| Free publication expiry | September 7, 2026 |
+| OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
+| Free publication expiry | September 8, 2026 |
 
-The Replit project is overlaid from `origin/main` while retaining its generated
-artifact manifests. The August 8 republish preserved the existing production
-rooms, sessions, and Yjs updates and deployed the collaborator access-recheck
-flow. Do not copy the development database over this production database.
+The current Replit project was imported directly from `origin/main`, uses the
+repository's root `.replit` configuration, and has no generated split artifacts.
+It intentionally started with a clean production database.
 
 ## Project Setup
 
-The validated Starter path was to create one minimal **Website** artifact with
-Lite Agent, then overlay the public repository from Shell:
+The validated Starter path is to import the public GitHub repository directly,
+decline Agent changes, and verify the imported tree from Shell:
 
 ```bash
-git remote add demystify-origin https://github.com/AllenNeuralDynamics/demystify.git
-git fetch --depth=1 demystify-origin main
-git checkout demystify-origin/main -- .
+git fetch origin main
+git diff --quiet origin/main HEAD
 npm ci --include=dev
 npm run build
 ```
@@ -214,18 +212,16 @@ The August 8, 2026 deployment passed these production checks:
 - `/`, `/api/health`, and `/api/config` returned HTTP `200`.
 - GitHub OAuth completed through Allen Institute SSO using the stable callback.
 - `/collaboration/<room>` reached the DeMystify WebSocket authorization gate.
-- Anonymous collaborator and viewer sockets connected successfully.
-- Both anonymous roles received HTTP `403` for snapshot mutations.
-- A signed-in viewer remained `viewer`; a signed-in collaborator with repository
-   write access upgraded to `editor`.
-- Revoking the viewer link closed only viewer sockets; revoking the collaborator
-   link then closed collaborator sockets.
+- Guest-editor and viewer sockets connected successfully.
+- Guest edits and guest-authored comments converged; viewer writes were rejected.
+- Both link roles received HTTP `403` for snapshot and GitHub comment mutations.
+- Revoking the viewer link closed only viewer sockets; revoking the guest-editor
+   link then closed guest sockets.
 - Both temporary links were revoked, and no test branch or pull request remained.
 - Replit reported the final Autoscale build as `success` with no build in
    progress.
-- A later republish retained the existing room, session, and Yjs rows without a
-   generated migration, and the production bundle contained the collaborator
-   **Recheck access** and pending-invitation guidance.
+- Production uses one maximum Autoscale instance. Hidden tabs disconnect Yjs and
+   pause polling so abandoned browser tabs do not hold compute active.
 
 For ongoing pilot validation:
 

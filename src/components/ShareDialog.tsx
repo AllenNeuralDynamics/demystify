@@ -4,7 +4,9 @@ import {
   Eye,
   Link2,
   LoaderCircle,
+  PencilLine,
   RotateCw,
+  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react'
@@ -57,6 +59,9 @@ const formatExpiry = (expiresAt: string | null) => {
   }).format(new Date(expiresAt))}`
 }
 
+const shareRoleLabel = (role: AnonymousShareRole) =>
+  role === 'viewer' ? 'Viewer' : 'Guest editor'
+
 export const ShareDialog = ({
   open,
   roomName,
@@ -102,7 +107,7 @@ export const ShareDialog = ({
       }))
       await onRoomRefresh()
       const existing = role === 'viewer' ? room.viewerLink : room.collaboratorLink
-      onNotice(`${role === 'viewer' ? 'Viewer' : 'Collaborator'} link ${existing ? 'replaced' : 'created'}`)
+      onNotice(`${shareRoleLabel(role)} link ${existing ? 'replaced' : 'created'}`)
     } catch (error) {
       onNotice(error instanceof Error ? error.message : `Could not create ${role} link`)
     } finally {
@@ -116,7 +121,7 @@ export const ShareDialog = ({
       await revokeShareLink(roomName, role)
       setGeneratedUrls((current) => ({ ...current, [role]: undefined }))
       await onRoomRefresh()
-      onNotice(`${role === 'viewer' ? 'Viewer' : 'Collaborator'} access revoked`)
+      onNotice(`${shareRoleLabel(role)} access revoked`)
     } catch (error) {
       onNotice(error instanceof Error ? error.message : `Could not revoke ${role} link`)
     } finally {
@@ -138,7 +143,7 @@ export const ShareDialog = ({
             <Link2 size={18} />
             <div>
               <h2 id="share-dialog-title">Share manuscript</h2>
-              <p>Choose editing access or a revocable view-only link.</p>
+              <p>Choose a clear role for each person who joins this room.</p>
             </div>
           </div>
           <button className="icon-button" type="button" title="Close share dialog" onClick={close}>
@@ -147,16 +152,24 @@ export const ShareDialog = ({
         </header>
 
         <div className="share-dialog-body">
-          <section className="share-access-row">
-            <div className="share-access-icon"><Link2 size={16} /></div>
+          <section className="share-access-row maintainer-access-row">
+            <div className="share-access-icon maintainer"><ShieldCheck size={16} /></div>
             <div className="share-access-copy">
-              <strong>Collaborator link</strong>
-              <span>Anyone with the link can read; GitHub sign-in and accepted repository write access unlock editing.</span>
+              <strong>Maintainer</strong>
+              <span>Repository writer. Edits the room, manages publishing and sharing, and mirrors queued comments to GitHub.</span>
+            </div>
+          </section>
+
+          <section className="share-access-row">
+            <div className="share-access-icon"><PencilLine size={16} /></div>
+            <div className="share-access-copy">
+              <strong>Guest editor</strong>
+              <span>Anyone with the link can edit the live manuscript and DeMystify comments. No repository or publishing access; comments queue for a maintainer to mirror to GitHub.</span>
 
               {generatedUrls.collaborator && (
                 <div className="share-link-control generated-collaborator-link">
-                  <input aria-label="Collaborator link" readOnly value={generatedUrls.collaborator} />
-                  <button type="button" title="Copy collaborator link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
+                  <input aria-label="Guest editor link" readOnly value={generatedUrls.collaborator} />
+                  <button type="button" title="Copy guest editor link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
                     {copied === 'collaborator' ? <Check size={15} /> : <Copy size={15} />}
                   </button>
                 </div>
@@ -175,7 +188,7 @@ export const ShareDialog = ({
                   <label>
                     Expiration
                     <select
-                      aria-label="Collaborator expiration"
+                      aria-label="Guest editor expiration"
                       value={expirations.collaborator === null ? 'never' : String(expirations.collaborator)}
                       onChange={(event) => setExpirations((current) => ({
                         ...current,
@@ -194,7 +207,7 @@ export const ShareDialog = ({
                       : room.collaboratorLink
                         ? <RotateCw size={14} />
                         : <Link2 size={14} />}
-                    {room.collaboratorLink ? 'Replace link' : 'Create collaborator link'}
+                    {room.collaboratorLink ? 'Replace link' : 'Create guest editor link'}
                   </button>
                   {room.collaboratorLink && (
                     <button className="button danger-button" type="button" disabled={workingRole !== null} onClick={() => void revoke('collaborator')}>
@@ -211,8 +224,8 @@ export const ShareDialog = ({
           <section className="share-access-row viewer-access-row">
             <div className="share-access-icon viewer"><Eye size={16} /></div>
             <div className="share-access-copy">
-              <strong>Viewer link</strong>
-              <span>Anyone with the link can read live text, preview, and comments.</span>
+              <strong>Viewer</strong>
+              <span>Anyone with the link can read live text, preview, and comments. Editing and publishing are disabled.</span>
 
               {generatedUrls.viewer && (
                 <div className="share-link-control generated-viewer-link">
