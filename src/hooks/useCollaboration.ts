@@ -112,6 +112,7 @@ export const useCollaboration = (
   const [mystConfig, setMystConfig] = useState('')
   const [mystConfigPath, setMystConfigPath] = useState('myst.yml')
   const [projectFiles, setProjectFiles] = useState<Record<string, string>>({})
+  const [projectManifestVersion, setProjectManifestVersion] = useState(0)
   const [isBibliographyInitialized, setIsBibliographyInitialized] = useState(false)
   const [isMystConfigInitialized, setIsMystConfigInitialized] = useState(false)
   const [areProjectFilesInitialized, setAreProjectFilesInitialized] = useState(false)
@@ -168,6 +169,12 @@ export const useCollaboration = (
       )
       setIsMystConfigInitialized(metadata.get('mystConfigInitialized') === true)
       setAreProjectFilesInitialized(metadata.get('projectFilesInitialized') === true)
+      const manifestVersion = metadata.get('projectManifestVersion')
+      setProjectManifestVersion(
+        typeof manifestVersion === 'number' && Number.isSafeInteger(manifestVersion)
+          ? manifestVersion
+          : 0,
+      )
       const path = metadata.get('mystConfigPath')
       setMystConfigPath(typeof path === 'string' && path ? path : 'myst.yml')
     }
@@ -257,6 +264,7 @@ export const useCollaboration = (
       setMystConfig('')
       setMystConfigPath('myst.yml')
       setProjectFiles({})
+      setProjectManifestVersion(0)
       setIsBibliographyInitialized(false)
       setIsMystConfigInitialized(false)
       setAreProjectFilesInitialized(false)
@@ -418,6 +426,7 @@ export const useCollaboration = (
     files: Array<{ path: string; content: string }>,
     primaryPath: string,
     replace: boolean,
+    manifestVersion: number,
   ) => {
     if (!session || readOnly) return false
     session.document.transact(() => {
@@ -430,6 +439,7 @@ export const useCollaboration = (
         if (normalized.content) fileText.insert(0, normalized.content)
       })
       session.metadata.set('projectFilesInitialized', true)
+      session.metadata.set('projectManifestVersion', manifestVersion)
     })
     return true
   }, [readOnly, session])
@@ -437,15 +447,28 @@ export const useCollaboration = (
   const initializeProjectFiles = useCallback((
     files: Array<{ path: string; content: string }>,
     primaryPath: string,
+    manifestVersion: number,
   ) => {
-    if (!session || readOnly || session.metadata.get('projectFilesInitialized')) return false
-    return setProjectFileMap(files, primaryPath, false)
+    if (!session || readOnly) return false
+    const currentVersion = session.metadata.get('projectManifestVersion')
+    if (
+      session.metadata.get('projectFilesInitialized') === true &&
+      typeof currentVersion === 'number' &&
+      currentVersion >= manifestVersion
+    ) return false
+    return setProjectFileMap(files, primaryPath, false, manifestVersion)
   }, [readOnly, session, setProjectFileMap])
 
   const replaceProjectFiles = useCallback((
     files: Array<{ path: string; content: string }>,
     primaryPath: string,
-  ) => setProjectFileMap(files, primaryPath, true), [setProjectFileMap])
+    manifestVersion: number,
+  ) => setProjectFileMap(
+    files,
+    primaryPath,
+    true,
+    manifestVersion,
+  ), [setProjectFileMap])
 
   const getSharedText = useCallback((path: string, primaryPath: string) => {
     if (!session) return null
@@ -602,6 +625,7 @@ export const useCollaboration = (
     mystConfig,
     mystConfigPath,
     projectFiles,
+    projectManifestVersion,
     comments,
     commentMessages,
     collaborators,

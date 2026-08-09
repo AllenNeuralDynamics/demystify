@@ -73,6 +73,7 @@ import { sampleManuscript } from './lib/sampleManuscript'
 type WorkspaceView = 'source' | 'split' | 'preview'
 
 const isMystSourcePath = (path: string) => /\.(?:md|myst)$/i.test(path)
+const projectManifestVersion = 1
 
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
@@ -241,6 +242,7 @@ function App() {
   const isBibliographyInitialized = collaboration.isBibliographyInitialized
   const isMystConfigInitialized = collaboration.isMystConfigInitialized
   const areProjectFilesInitialized = collaboration.areProjectFilesInitialized
+  const currentProjectManifestVersion = collaboration.projectManifestVersion
   const isCollaborationSynced = collaboration.isSynced
   const applyCommentMirror = collaboration.applyCommentMirror
   const applyCommentMessageMirror = collaboration.applyCommentMessageMirror
@@ -347,7 +349,8 @@ function App() {
       (
         isBibliographyInitialized &&
         isMystConfigInitialized &&
-        areProjectFilesInitialized
+        areProjectFilesInitialized &&
+        currentProjectManifestVersion >= projectManifestVersion
       ) ||
       isReadOnly
     ) return
@@ -364,7 +367,11 @@ function App() {
           initializeBibliography(bibliographyFile.content, bibliographyFile.path)
         }
         initializeMystConfig(manifest.config.content, manifest.config.path)
-        initializeProjectFiles(manifest.files, repositoryBinding.path)
+        initializeProjectFiles(
+          manifest.files,
+          repositoryBinding.path,
+          projectManifestVersion,
+        )
         if (manifest.missing.length) {
           showNotice(`Missing project files: ${manifest.missing.join(', ')}`)
         }
@@ -378,6 +385,7 @@ function App() {
     }
   }, [
     areProjectFilesInitialized,
+    currentProjectManifestVersion,
     initializeBibliography,
     initializeMystConfig,
     initializeProjectFiles,
@@ -701,7 +709,11 @@ function App() {
       projectManifest.config.content,
       projectManifest.config.path,
     )
-    collaboration.replaceProjectFiles(projectManifest.files, binding.path)
+    collaboration.replaceProjectFiles(
+      projectManifest.files,
+      binding.path,
+      projectManifestVersion,
+    )
     setActiveProjectPath(null)
   }
 
@@ -718,7 +730,11 @@ function App() {
       projectManifest.config.content,
       projectManifest.config.path,
     )
-    collaboration.replaceProjectFiles(projectManifest.files, binding.path)
+    collaboration.replaceProjectFiles(
+      projectManifest.files,
+      binding.path,
+      projectManifestVersion,
+    )
     setActiveProjectPath(null)
   }
 
