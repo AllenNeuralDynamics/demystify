@@ -3,6 +3,7 @@ import {
   Bold,
   Check,
   ChevronDown,
+  CircleHelp,
   Code2,
   Eye,
   ExternalLink,
@@ -28,13 +29,14 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import {
   CollaborativeEditor,
   type CollaborativeEditorHandle,
 } from './components/CollaborativeEditor'
 import { GitHubDialog } from './components/GitHubDialog'
+import { HelpDialog } from './components/HelpDialog'
 import { ShareDialog } from './components/ShareDialog'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
@@ -42,6 +44,7 @@ import { useRoomAccess } from './hooks/useRoomAccess'
 import { useShareSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
+  getRepositoryAssetBaseUrl,
   loadRepositoryFile,
   mirrorRoomComment,
   mirrorRoomCommentReply,
@@ -109,6 +112,7 @@ function App() {
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
@@ -137,6 +141,9 @@ function App() {
   const repositoryInvitationUrl = repositoryBinding
     ? `https://github.com/${repositoryBinding.fullName}/invitations`
     : null
+  const repositoryAssetBaseUrl = repositoryBinding
+    ? getRepositoryAssetBaseUrl(repositoryBinding)
+    : undefined
   const anonymousRole = roomAccess.room?.access === 'editor'
     ? null
     : roomAccess.room?.access ?? shareSession.role
@@ -167,28 +174,44 @@ function App() {
   const applyGitHubCommentSync = collaboration.applyGitHubCommentSync
   const sharedCommentMessages = collaboration.commentMessages
   const resolveCommentAnchor = collaboration.resolveAnchor
-  const commentLocations = new Map(sharedComments.map((comment) => [
-    comment.id,
-    resolveCommentAnchor(comment),
-  ]))
-  const commentHighlights = sharedComments.flatMap((comment) => {
-    const location = commentLocations.get(comment.id)
-    return location && !location.orphaned
-      ? [{
-          id: comment.id,
-          from: location.from,
-          to: location.to,
-          resolved: comment.resolved,
-          active: activeCommentId === comment.id,
-        }]
-      : []
-  })
+  const commentLocations = useMemo(
+    () => new Map(sharedComments.map((comment) => [
+      comment.id,
+      resolveCommentAnchor(comment),
+    ])),
+    [resolveCommentAnchor, sharedComments],
+  )
+  const commentHighlights = useMemo(
+    () => sharedComments.flatMap((comment) => {
+      const location = commentLocations.get(comment.id)
+      return location && !location.orphaned
+        ? [{
+            id: comment.id,
+            from: location.from,
+            to: location.to,
+            resolved: comment.resolved,
+            active: activeCommentId === comment.id,
+          }]
+        : []
+    }),
+    [activeCommentId, commentLocations, sharedComments],
+  )
 
-  const title = getDocumentTitle(collaboration.content)
+  const title = useMemo(
+    () => getDocumentTitle(collaboration.content),
+    [collaboration.content],
+  )
   const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
-  const wordCount = collaboration.content.trim()
-    ? collaboration.content.trim().split(/\s+/).length
-    : 0
+  const wordCount = useMemo(
+    () => collaboration.content.trim()
+      ? collaboration.content.trim().split(/\s+/).length
+      : 0,
+    [collaboration.content],
+  )
+  const openCommentCount = useMemo(
+    () => sharedComments.filter((comment) => !comment.resolved).length,
+    [sharedComments],
+  )
 
   const showNotice = (message: string) => {
     setNotice(message)
@@ -540,6 +563,14 @@ function App() {
         </div>
 
         <div className="topbar-actions">
+          <button
+            className="icon-button"
+            type="button"
+            title="How DeMystify works"
+            onClick={() => setHelpOpen(true)}
+          >
+            <CircleHelp size={18} />
+          </button>
           <div className="collaborator-stack" aria-label="Current collaborators">
             {collaboration.collaborators.slice(0, 4).map((collaborator) => (
               <button
@@ -746,9 +777,9 @@ function App() {
               <span className="toolbar-divider" />
               <button className="icon-button" type="button" title="Open comments" onClick={() => setCommentsOpen((open) => !open)}>
                 <MessageSquare size={17} />
-                {collaboration.comments.filter((comment) => !comment.resolved).length > 0 && (
+                {openCommentCount > 0 && (
                   <span className="comment-count">
-                    {collaboration.comments.filter((comment) => !comment.resolved).length}
+                    {openCommentCount}
                   </span>
                 )}
               </button>
@@ -801,10 +832,13 @@ function App() {
             <section className="preview-pane" aria-label="Browser preview">
               <div className="preview-label">
                 <span>Browser preview</span>
-                <span>{collaboration.isSynced ? 'MyST 1.0' : 'Preparing'}</span>
+                <span>{collaboration.isSynced ? 'Live draft' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
-                <MystPreview content={collaboration.content} />
+                <MystPreview
+                  assetBaseUrl={repositoryAssetBaseUrl}
+                  content={collaboration.content}
+                />
               </Suspense>
             </section>
 
@@ -814,7 +848,7 @@ function App() {
                   <div>
                     <strong>Comments</strong>
                     <span title={commentPollError ?? undefined}>
-                      {collaboration.comments.filter((comment) => !comment.resolved).length} open
+                      {openCommentCount} open
                       {commentPollError ? ' | GitHub sync retrying' : ''}
                     </span>
                   </div>
@@ -972,6 +1006,8 @@ function App() {
           </div>
         </section>
       </main>
+
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {editingProfile && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setEditingProfile(false)}>

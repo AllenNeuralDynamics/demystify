@@ -42,6 +42,15 @@ export interface RepositoryBinding {
   branchName: string
 }
 
+const encodeRepositoryPath = (value: string) =>
+  value.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+
+export const getRepositoryAssetBaseUrl = (binding: RepositoryBinding) => {
+  const directory = binding.path.split('/').slice(0, -1).join('/')
+  const suffix = directory ? `${encodeRepositoryPath(directory)}/` : ''
+  return `https://raw.githubusercontent.com/${encodeURIComponent(binding.owner)}/${encodeURIComponent(binding.repository)}/refs/heads/${encodeRepositoryPath(binding.baseBranch)}/${suffix}`
+}
+
 export interface RoomReview {
   number: number
   htmlUrl: string

@@ -10,7 +10,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 - Simultaneous conflict-free editing with Yjs and WebSockets
 - Live collaborator cursors, presence, and shared comments
-- Official JavaScript MyST parsing with directives, figures, tables, and KaTeX math
+- Debounced JavaScript MyST preview with safe HTML, repository figures, static iframe placeholders, tables, and KaTeX math
 - LevelDB-backed local persistence and PostgreSQL-backed production persistence
 - GitHub App OAuth with HTTP-only server sessions
 - Repository browsing and MyST file loading
@@ -134,6 +134,7 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 
 ## Current MVP Boundaries
 
+- The browser preview is a fast reading aid, not an authoritative publication build. It renders the open file after a short pause, resolves committed public-repository figures, and substitutes static iframe placeholders. Repository plugins, bibliography, custom site styles, generated assets, and interactive figures remain the responsibility of repository CI and the full MyST build.
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
 - Suggestion/tracked-change mode is not implemented yet.

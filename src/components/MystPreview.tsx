@@ -1,16 +1,40 @@
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { useDeferredValue, useLayoutEffect, useRef } from 'react'
+import {
+  memo,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { renderMyst } from '../lib/myst'
 
 interface MystPreviewProps {
+  assetBaseUrl?: string
   content: string
 }
 
-export const MystPreview = ({ content }: MystPreviewProps) => {
+const previewDelayMs = 400
+
+export const MystPreview = memo(({ assetBaseUrl, content }: MystPreviewProps) => {
   const previewRef = useRef<HTMLElement>(null)
   const deferredContent = useDeferredValue(content)
-  const preview = renderMyst(deferredContent)
+  const [previewContent, setPreviewContent] = useState(deferredContent)
+  const preview = useMemo(
+    () => renderMyst(previewContent, { assetBaseUrl }),
+    [assetBaseUrl, previewContent],
+  )
+
+  useEffect(() => {
+    if (deferredContent === previewContent) return
+    const timeout = window.setTimeout(() => {
+      startTransition(() => setPreviewContent(deferredContent))
+    }, previewDelayMs)
+    return () => window.clearTimeout(timeout)
+  }, [deferredContent, previewContent])
 
   useLayoutEffect(() => {
     previewRef.current
@@ -41,4 +65,4 @@ export const MystPreview = ({ content }: MystPreviewProps) => {
       dangerouslySetInnerHTML={{ __html: preview.html }}
     />
   )
-}
+})
