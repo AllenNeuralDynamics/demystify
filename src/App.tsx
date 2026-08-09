@@ -26,6 +26,7 @@ import {
   Share2,
   SplitSquareHorizontal,
   TextQuote,
+  Tags,
   Undo2,
   UserRound,
   X,
@@ -50,10 +51,10 @@ import { useShareSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
   getRepositoryAssetBaseUrl,
-  getRepositoryFileGitHubUrl,
   getRepositoryGitHubUrl,
   loadRepositoryFile,
   loadRepositoryBibliography,
+  loadRepositoryProjectFiles,
   mirrorRoomComment,
   mirrorRoomCommentReply,
   startRoomRevision,
@@ -61,6 +62,7 @@ import {
   type RepositoryBinding,
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
+import { getMystOutline } from './lib/mystOutline'
 import {
   formatCitation,
   type CitationDetails,
@@ -73,6 +75,11 @@ type WorkspaceView = 'source' | 'split' | 'preview'
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
   return { default: module.MystPreview }
+})
+
+const PublicationMetadata = lazy(async () => {
+  const module = await import('./components/PublicationMetadata')
+  return { default: module.PublicationMetadata }
 })
 
 const getRoomName = () => {
@@ -136,6 +143,8 @@ function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
   const [referenceManagerOpen, setReferenceManagerOpen] = useState(false)
+  const [publicationMetadataOpen, setPublicationMetadataOpen] = useState(false)
+  const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
@@ -165,20 +174,8 @@ function App() {
   const repositoryInvitationUrl = repositoryBinding
     ? `https://github.com/${repositoryBinding.fullName}/invitations`
     : null
-  const repositoryAssetBaseUrl = repositoryBinding
-    ? getRepositoryAssetBaseUrl(repositoryBinding)
-    : undefined
   const repositoryGitHubUrl = repositoryBinding
     ? getRepositoryGitHubUrl(repositoryBinding)
-    : null
-  const repositoryFileGitHubUrl = repositoryBinding
-    ? getRepositoryFileGitHubUrl(
-        repositoryBinding,
-        roomAccess.review ? repositoryBinding.branchName : repositoryBinding.baseBranch,
-      )
-    : null
-  const repositoryFileReference = repositoryBinding
-    ? roomAccess.review ? repositoryBinding.branchName : repositoryBinding.baseBranch
     : null
   const anonymousRole = roomAccess.room?.access === 'editor'
     ? null
@@ -204,9 +201,39 @@ function App() {
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
   )
+  const primaryFilePath = repositoryBinding?.path ?? 'manuscript.md'
+  const projectFilePaths = useMemo(() => Array.from(new Set([
+    primaryFilePath,
+    ...Object.keys(collaboration.projectFiles),
+  ])).sort((first, second) => {
+    if (first === primaryFilePath) return -1
+    if (second === primaryFilePath) return 1
+    return first.localeCompare(second)
+  }), [collaboration.projectFiles, primaryFilePath])
+  const activeFilePath = activeProjectPath && projectFilePaths.includes(activeProjectPath)
+    ? activeProjectPath
+    : primaryFilePath
+  const isPrimaryFile = activeFilePath === primaryFilePath
+  const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
+    ?? collaboration.sharedText
+  const activeContent = isPrimaryFile
+    ? collaboration.content
+    : collaboration.projectFiles[activeFilePath] ?? ''
+  const activeAssetBaseUrl = repositoryBinding
+    ? getRepositoryAssetBaseUrl({ ...repositoryBinding, path: activeFilePath })
+    : undefined
+  const projectManuscriptContent = useMemo(() => [
+    collaboration.content,
+    ...Object.values(collaboration.projectFiles),
+  ].join('\n'), [collaboration.content, collaboration.projectFiles])
+  const activeOutline = useMemo(() => getMystOutline(activeContent), [activeContent])
   const sharedComments = collaboration.comments
   const initializeBibliography = collaboration.initializeBibliography
+  const initializeMystConfig = collaboration.initializeMystConfig
+  const initializeProjectFiles = collaboration.initializeProjectFiles
   const isBibliographyInitialized = collaboration.isBibliographyInitialized
+  const isMystConfigInitialized = collaboration.isMystConfigInitialized
+  const areProjectFilesInitialized = collaboration.areProjectFilesInitialized
   const isCollaborationSynced = collaboration.isSynced
   const applyCommentMirror = collaboration.applyCommentMirror
   const applyCommentMessageMirror = collaboration.applyCommentMessageMirror
@@ -221,7 +248,7 @@ function App() {
     [resolveCommentAnchor, sharedComments],
   )
   const commentHighlights = useMemo(
-    () => sharedComments.flatMap((comment) => {
+    () => isPrimaryFile ? sharedComments.flatMap((comment) => {
       const location = commentLocations.get(comment.id)
       return location && !location.orphaned
         ? [{
@@ -232,20 +259,19 @@ function App() {
             active: activeCommentId === comment.id,
           }]
         : []
-    }),
-    [activeCommentId, commentLocations, sharedComments],
+    }) : [],
+    [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
   )
 
   const title = useMemo(
-    () => getDocumentTitle(collaboration.content),
-    [collaboration.content],
+    () => getDocumentTitle(activeContent),
+    [activeContent],
   )
-  const activeFileName = repositoryBinding?.path.split('/').at(-1) ?? 'manuscript.md'
   const wordCount = useMemo(
-    () => collaboration.content.trim()
-      ? collaboration.content.trim().split(/\s+/).length
+    () => activeContent.trim()
+      ? activeContent.trim().split(/\s+/).length
       : 0,
-    [collaboration.content],
+    [activeContent],
   )
   const openCommentCount = useMemo(
     () => sharedComments.filter((comment) => !comment.resolved).length,
@@ -311,25 +337,46 @@ function App() {
     if (
       !repositoryBinding ||
       !isCollaborationSynced ||
-      isBibliographyInitialized ||
+      (
+        isBibliographyInitialized &&
+        isMystConfigInitialized &&
+        areProjectFilesInitialized
+      ) ||
       isReadOnly
     ) return
     let active = true
-    loadRepositoryBibliography(repositoryBinding)
-      .then((file) => {
-        if (active) initializeBibliography(file.content)
-      })
-      .catch((error: unknown) => {
+    void (async () => {
+      try {
+        const manifest = await loadRepositoryProjectFiles(repositoryBinding)
+        const bibliographyPath = manifest.bibliographyPaths[0]
+        const bibliographyFile = isBibliographyInitialized
+          ? null
+          : await loadRepositoryBibliography(repositoryBinding, bibliographyPath)
         if (!active) return
-        showNotice(error instanceof Error ? error.message : 'Could not load references.bib')
-      })
+        if (bibliographyFile) {
+          initializeBibliography(bibliographyFile.content, bibliographyFile.path)
+        }
+        initializeMystConfig(manifest.config.content, manifest.config.path)
+        initializeProjectFiles(manifest.files, repositoryBinding.path)
+        if (manifest.missing.length) {
+          showNotice(`Missing project files: ${manifest.missing.join(', ')}`)
+        }
+      } catch (error) {
+        if (!active) return
+        showNotice(error instanceof Error ? error.message : 'Could not load MyST project files')
+      }
+    })()
     return () => {
       active = false
     }
   }, [
+    areProjectFilesInitialized,
     initializeBibliography,
+    initializeMystConfig,
+    initializeProjectFiles,
     isBibliographyInitialized,
     isCollaborationSynced,
+    isMystConfigInitialized,
     isReadOnly,
     repositoryBinding,
   ])
@@ -505,6 +552,10 @@ function App() {
   }
 
   const submitComment = () => {
+    if (!isPrimaryFile) {
+      showNotice('Review comments on secondary project files are not available yet.')
+      return
+    }
     const commentId = collaboration.addComment(
       commentDraft,
       editorRef.current?.getCommentSelection() ?? undefined,
@@ -565,8 +616,18 @@ function App() {
         roomName,
         collaboration.getSnapshotContent(),
         collaboration.bibliography.trim()
-          ? collaboration.getSnapshotBibliography()
+          ? {
+              path: collaboration.bibliographyPath,
+              content: collaboration.getSnapshotBibliography(),
+            }
           : undefined,
+        collaboration.mystConfig.trim()
+          ? {
+              path: collaboration.mystConfigPath,
+              content: collaboration.mystConfig,
+            }
+          : undefined,
+        collaboration.getSnapshotProjectFiles(),
       )
       roomAccess.applyReview(snapshot.review)
       showNotice(
@@ -621,17 +682,37 @@ function App() {
 
   const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
     if (isReadOnly) return
-    const bibliographyFile = await loadRepositoryBibliography(binding)
+    const projectManifest = await loadRepositoryProjectFiles(binding)
+    const bibliographyFile = await loadRepositoryBibliography(
+      binding,
+      projectManifest.bibliographyPaths[0],
+    )
     await roomAccess.bind(binding)
     collaboration.replaceContent(content)
-    collaboration.replaceBibliography(bibliographyFile.content)
+    collaboration.replaceBibliography(bibliographyFile.content, bibliographyFile.path)
+    collaboration.replaceMystConfig(
+      projectManifest.config.content,
+      projectManifest.config.path,
+    )
+    collaboration.replaceProjectFiles(projectManifest.files, binding.path)
+    setActiveProjectPath(null)
   }
 
   const bindRepositoryDraft = async (binding: RepositoryBinding) => {
     if (isReadOnly) return
-    const bibliographyFile = await loadRepositoryBibliography(binding)
+    const projectManifest = await loadRepositoryProjectFiles(binding)
+    const bibliographyFile = await loadRepositoryBibliography(
+      binding,
+      projectManifest.bibliographyPaths[0],
+    )
     await roomAccess.bind(binding)
-    collaboration.replaceBibliography(bibliographyFile.content)
+    collaboration.replaceBibliography(bibliographyFile.content, bibliographyFile.path)
+    collaboration.replaceMystConfig(
+      projectManifest.config.content,
+      projectManifest.config.path,
+    )
+    collaboration.replaceProjectFiles(projectManifest.files, binding.path)
+    setActiveProjectPath(null)
   }
 
   return (
@@ -809,28 +890,52 @@ function App() {
               <ChevronDown size={14} />
             </button>
           )}
-          <nav className="file-tree" aria-label="Manuscript files">
-            <span className="tree-label">Files</span>
-            {repositoryFileGitHubUrl && repositoryBinding ? (
-              <a
-                className="file-row active"
-                href={repositoryFileGitHubUrl}
-                target="_blank"
-                rel="noreferrer"
-                title={`Open ${repositoryBinding.path} on GitHub at ${repositoryFileReference}`}
-              >
-                <FileText size={16} />
-                <span>{repositoryBinding.path}</span>
-                <ExternalLink size={13} />
-              </a>
-            ) : (
-              <span className="file-row active">
-                <FileText size={16} />
-                <span>{activeFileName}</span>
-                <span className="live-file-dot" title="Live document" />
-              </span>
+          <div className="sidebar-navigation">
+            <nav className="file-tree" aria-label="Manuscript files">
+              <span className="tree-label">Files</span>
+              {projectFilePaths.map((path) => (
+                <button
+                  className={`file-row ${path === activeFilePath ? 'active' : ''}`}
+                  key={path}
+                  type="button"
+                  title={path}
+                  onClick={() => {
+                    setActiveProjectPath(path)
+                    setCommentsOpen(false)
+                    if (window.innerWidth <= 820) setSidebarOpen(false)
+                  }}
+                >
+                  <FileText size={16} />
+                  <span>{path}</span>
+                  {path === activeFilePath && <span className="live-file-dot" title="Live document" />}
+                </button>
+              ))}
+            </nav>
+            {activeOutline.length > 0 && (
+              <nav className="document-outline" aria-label="Document outline">
+                <span className="tree-label">Outline</span>
+                {activeOutline.map((entry) => (
+                  <button
+                    className="outline-row"
+                    key={entry.id}
+                    type="button"
+                    title={entry.title}
+                    style={{ paddingLeft: `${8 + Math.max(0, entry.depth - 1) * 11}px` }}
+                    onClick={() => {
+                      if (view === 'preview') setView('split')
+                      if (window.innerWidth <= 820) setSidebarOpen(false)
+                      window.requestAnimationFrame(() => {
+                        editorRef.current?.revealRange(entry.from, entry.to)
+                      })
+                    }}
+                  >
+                    <span>H{entry.depth}</span>
+                    <strong>{entry.title}</strong>
+                  </button>
+                ))}
+              </nav>
             )}
-          </nav>
+          </div>
           <div
             className="sidebar-footer"
             title={repositoryBinding?.branchName ?? 'main'}
@@ -947,6 +1052,15 @@ function App() {
                 <BookOpenText size={16} />
                 <span>References</span>
               </button>
+              <button
+                className="publication-metadata-trigger"
+                type="button"
+                title="Publication metadata"
+                onClick={() => setPublicationMetadataOpen(true)}
+              >
+                <Tags size={16} />
+                <span>Metadata</span>
+              </button>
               <span className="toolbar-divider" />
               <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
@@ -958,7 +1072,13 @@ function App() {
                 <Code2 size={17} />
               </button>
               <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Open comments" onClick={() => setCommentsOpen((open) => !open)}>
+              <button
+                className="icon-button"
+                type="button"
+                title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
+                disabled={!isPrimaryFile}
+                onClick={() => setCommentsOpen((open) => !open)}
+              >
                 <MessageSquare size={17} />
                 {openCommentCount > 0 && (
                   <span className="comment-count">
@@ -990,10 +1110,11 @@ function App() {
 
           <div className={`document-panes view-${view} ${commentsOpen ? 'comments-open' : ''}`}>
             <section className="source-pane" aria-label="MyST source editor">
-              {collaboration.sharedText && collaboration.provider ? (
+              {activeSharedText && collaboration.provider ? (
                 <CollaborativeEditor
+                  key={activeFilePath}
                   ref={editorRef}
-                  sharedText={collaboration.sharedText}
+                  sharedText={activeSharedText}
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
@@ -1019,16 +1140,23 @@ function App() {
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
-                  assetBaseUrl={repositoryAssetBaseUrl}
+                  assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
-                  content={collaboration.content}
+                  content={activeContent}
                   editable={!isReadOnly && collaboration.isSynced}
                   onBeginEdit={(block) => collaboration.beginTextEdit(
                     block.from,
                     block.to,
                     block.value,
+                    activeFilePath,
+                    primaryFilePath,
                   )}
-                  onCommitEdit={collaboration.commitTextEdit}
+                  onCommitEdit={(anchor, replacement) => collaboration.commitTextEdit(
+                    anchor,
+                    replacement,
+                    activeFilePath,
+                    primaryFilePath,
+                  )}
                   onEditError={showNotice}
                   onRequestCitation={(insert) => {
                     setVisualCitationInserter(() => insert)
@@ -1215,11 +1343,32 @@ function App() {
       {referenceManagerOpen && (
         <ReferenceManager
           bibliography={collaboration.bibliography}
-          manuscript={collaboration.content}
+          manuscript={projectManuscriptContent}
           readOnly={isReadOnly}
           onApply={collaboration.commitBibliographyEdit}
           onClose={() => setReferenceManagerOpen(false)}
         />
+      )}
+
+      {publicationMetadataOpen && (
+        <Suspense fallback={(
+          <div className="publication-metadata-backdrop">
+            <div className="pane-loading">Loading publication metadata...</div>
+          </div>
+        )}>
+          <PublicationMetadata
+            pageSource={activeContent}
+            projectSource={collaboration.mystConfig}
+            projectPath={collaboration.mystConfigPath}
+            readOnly={isReadOnly}
+            onApply={(input) => collaboration.commitPublicationMetadata({
+              ...input,
+              pagePath: activeFilePath,
+              primaryPath: primaryFilePath,
+            })}
+            onClose={() => setPublicationMetadataOpen(false)}
+          />
+        </Suspense>
       )}
 
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />

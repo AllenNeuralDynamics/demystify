@@ -42,4 +42,4 @@ The intended workflow is:
 
 ## Current Status
 
-The repository contains a tested MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. The next project-level slices are a source-preserving editor for canonical MyST metadata and authorship, followed by multi-file project binding that honors MyST bibliography paths, article/export lists, and includes. Before broad deployment it also needs repository-aware asset resolution, server-rendered previews using each repository's actual MyST configuration, horizontal WebSocket fan-out, and operational controls.
+The repository contains a tested MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. It includes a source-preserving editor for canonical MyST metadata and authorship plus multi-file project collaboration discovered from MyST exports, TOCs, and includes. Before broad deployment it still needs authoritative server-rendered previews using each repository's pinned MyST environment, secondary-file GitHub review threads, horizontal WebSocket fan-out, and operational controls.

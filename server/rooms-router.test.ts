@@ -60,6 +60,62 @@ const closeServer = (server: ReturnType<typeof createServer>) =>
   )
 
 describe('room publication routes', () => {
+  it('rejects project file paths that collide with the bound manuscript', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'project-path-collision'
+    const user = { id: 42, login: 'researcher' }
+    await store.claim(roomName, user)
+    await store.setBinding(roomName, user, {
+      owner: 'researcher',
+      repository: 'paper',
+      fullName: 'researcher/paper',
+      isFork: false,
+      parentFullName: null,
+      path: 'paper.md',
+      baseBranch: 'main',
+      branchName: 'demystify/path-collision',
+    })
+    const originalFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input, init)
+      if (url.endsWith('/repos/researcher/paper')) {
+        return jsonResponse({
+          name: 'paper',
+          full_name: 'researcher/paper',
+          fork: false,
+          default_branch: 'main',
+          owner: { login: 'researcher' },
+          permissions: { push: true },
+        })
+      }
+      throw new Error(`Unexpected GitHub request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    const { server, baseUrl } = await startRoomServer(store)
+    try {
+      const response = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: '# Primary\n',
+            projectFiles: [{ path: 'paper.md', content: '# Overwrite\n' }],
+          }),
+        },
+      )
+      expect(response.status).toBe(400)
+      await expect(response.text()).resolves.toContain(
+        'Project file path &quot;paper.md&quot; is duplicated.',
+      )
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('creates one draft PR on the first snapshot and reuses it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
     temporaryDirectories.push(directory)

@@ -107,9 +107,34 @@ directive settings, marked multiline blocks, and unsupported inline MyST remain
 rendered but read-only, so source syntax is never silently flattened.
 
 When a bibliography is present, **Save to GitHub** creates the manuscript blob,
-the `references.bib` blob, one Git tree, and one commit before advancing the room
+the managed `.bib` blob, one Git tree, and one commit before advancing the room
 branch. A pull request therefore cannot contain a citation without its matching
 bibliography entry.
+
+## Publication Projects And Metadata
+
+Select **Metadata** to edit canonical MyST page frontmatter or project-wide
+metadata under `project` in the nearest `myst.yml` or `myst.yaml`. Page values
+show inherited project defaults and may override them. The form supports title,
+subtitle, description, date, keywords, content license, authors, affiliations,
+ORCID, corresponding/equal-contributor flags, ROR, and the standard CRediT
+roles. YAML comments, ordering, custom fields, site configuration, exports, and
+advanced untouched author fields remain in place.
+
+For repository-backed rooms, DeMystify discovers project source files from MyST
+export `article`/`articles`, project and export TOCs, JATS `sub_articles`, and
+recursive `{include}` directives. Repository-local `.md` and `.myst` sources
+appear in the Files panel, each has a live heading outline, and each secondary
+file is a shared Yjs text. Relative preview assets resolve from the active file.
+The first local path in `project.bibliography` is the managed reference library;
+when none is configured, DeMystify falls back to a sibling `references.bib`.
+
+Saving creates one Git tree and commit for all changed manuscript files, the
+managed bibliography, and project configuration. GitHub review comments remain
+limited to the primary bound manuscript for now; secondary-file comments are
+disabled rather than attached to an incorrect path. The browser preview still
+uses the lightweight MyST parser and does not execute project plugins, templates,
+or build-time code.
 
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 

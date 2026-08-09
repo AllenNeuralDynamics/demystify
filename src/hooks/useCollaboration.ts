@@ -68,6 +68,8 @@ interface CollaborationSession {
   provider: WebsocketProvider
   text: Y.Text
   bibliography: Y.Text
+  mystConfig: Y.Text
+  projectFiles: Y.Map<Y.Text>
   generatedReferences: Y.Map<GeneratedReferenceEntry>
   comments: Y.Map<SharedComment>
   commentMessages: Y.Map<SharedCommentMessage>
@@ -106,7 +108,13 @@ export const useCollaboration = (
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
   const [bibliography, setBibliography] = useState('')
+  const [bibliographyPath, setBibliographyPath] = useState('references.bib')
+  const [mystConfig, setMystConfig] = useState('')
+  const [mystConfigPath, setMystConfigPath] = useState('myst.yml')
+  const [projectFiles, setProjectFiles] = useState<Record<string, string>>({})
   const [isBibliographyInitialized, setIsBibliographyInitialized] = useState(false)
+  const [isMystConfigInitialized, setIsMystConfigInitialized] = useState(false)
+  const [areProjectFilesInitialized, setAreProjectFilesInitialized] = useState(false)
   const [comments, setComments] = useState<SharedComment[]>([])
   const [commentMessages, setCommentMessages] = useState<SharedCommentMessage[]>([])
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
@@ -121,6 +129,8 @@ export const useCollaboration = (
     })
     const text = document.getText('content')
     const bibliographyText = document.getText('bibliography')
+    const mystConfigText = document.getText('mystConfig')
+    const projectFileMap = document.getMap<Y.Text>('projectFiles')
     const generatedReferences = document.getMap<GeneratedReferenceEntry>('references')
     const commentMap = document.getMap<SharedComment>('comments')
     const commentMessageMap = document.getMap<SharedCommentMessage>('commentMessages')
@@ -130,6 +140,8 @@ export const useCollaboration = (
       provider,
       text,
       bibliography: bibliographyText,
+      mystConfig: mystConfigText,
+      projectFiles: projectFileMap,
       generatedReferences,
       comments: commentMap,
       commentMessages: commentMessageMap,
@@ -142,8 +154,22 @@ export const useCollaboration = (
       bibliographyText.toString(),
       generatedReferences.values(),
     ))
+    const updateMystConfig = () => setMystConfig(mystConfigText.toString())
+    const updateProjectFiles = () => setProjectFiles(Object.fromEntries(
+      Array.from(projectFileMap.entries(), ([path, fileText]) => [path, fileText.toString()]),
+    ))
     const updateMetadata = () => {
       setIsBibliographyInitialized(metadata.get('bibliographyInitialized') === true)
+      const bibliographySourcePath = metadata.get('bibliographyPath')
+      setBibliographyPath(
+        typeof bibliographySourcePath === 'string' && bibliographySourcePath
+          ? bibliographySourcePath
+          : 'references.bib',
+      )
+      setIsMystConfigInitialized(metadata.get('mystConfigInitialized') === true)
+      setAreProjectFilesInitialized(metadata.get('projectFilesInitialized') === true)
+      const path = metadata.get('mystConfigPath')
+      setMystConfigPath(typeof path === 'string' && path ? path : 'myst.yml')
     }
     const updateComments = () => {
       setComments(
@@ -200,6 +226,8 @@ export const useCollaboration = (
     provider.awareness.on('change', updateCollaborators)
     text.observe(updateContent)
     bibliographyText.observe(updateBibliography)
+    mystConfigText.observe(updateMystConfig)
+    projectFileMap.observeDeep(updateProjectFiles)
     generatedReferences.observe(updateBibliography)
     metadata.observe(updateMetadata)
     commentMap.observe(updateComments)
@@ -211,6 +239,8 @@ export const useCollaboration = (
       window.clearTimeout(initializationTimer)
       text.unobserve(updateContent)
       bibliographyText.unobserve(updateBibliography)
+      mystConfigText.unobserve(updateMystConfig)
+      projectFileMap.unobserveDeep(updateProjectFiles)
       generatedReferences.unobserve(updateBibliography)
       metadata.unobserve(updateMetadata)
       commentMap.unobserve(updateComments)
@@ -223,7 +253,13 @@ export const useCollaboration = (
       setSession(null)
       setIsSynced(false)
       setBibliography('')
+      setBibliographyPath('references.bib')
+      setMystConfig('')
+      setMystConfigPath('myst.yml')
+      setProjectFiles({})
       setIsBibliographyInitialized(false)
+      setIsMystConfigInitialized(false)
+      setAreProjectFilesInitialized(false)
     }
   }, [enabled, initialContent, readOnly, roomName])
 
@@ -335,24 +371,119 @@ export const useCollaboration = (
     })
   }
 
-  const initializeBibliography = useCallback((source: string) => {
+  const initializeBibliography = useCallback((source: string, path = 'references.bib') => {
     if (!session || readOnly || session.metadata.get('bibliographyInitialized')) return false
     session.document.transact(() => {
       session.bibliography.delete(0, session.bibliography.length)
       if (source) session.bibliography.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.metadata.set('bibliographyPath', path)
       session.metadata.set('bibliographyInitialized', true)
     })
     return true
   }, [readOnly, session])
 
-  const replaceBibliography = useCallback((source: string) => {
+  const replaceBibliography = useCallback((source: string, path = 'references.bib') => {
     if (!session || readOnly) return
     session.document.transact(() => {
       session.bibliography.delete(0, session.bibliography.length)
       if (source) session.bibliography.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.metadata.set('bibliographyPath', path)
       session.generatedReferences.clear()
       session.metadata.set('bibliographyInitialized', true)
     })
+  }, [readOnly, session])
+
+  const initializeMystConfig = useCallback((source: string, path: string) => {
+    if (!session || readOnly || session.metadata.get('mystConfigInitialized')) return false
+    session.document.transact(() => {
+      session.mystConfig.delete(0, session.mystConfig.length)
+      if (source) session.mystConfig.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.metadata.set('mystConfigPath', path)
+      session.metadata.set('mystConfigInitialized', true)
+    })
+    return true
+  }, [readOnly, session])
+
+  const replaceMystConfig = useCallback((source: string, path: string) => {
+    if (!session || readOnly) return
+    session.document.transact(() => {
+      session.mystConfig.delete(0, session.mystConfig.length)
+      if (source) session.mystConfig.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.metadata.set('mystConfigPath', path)
+      session.metadata.set('mystConfigInitialized', true)
+    })
+  }, [readOnly, session])
+
+  const setProjectFileMap = useCallback((
+    files: Array<{ path: string; content: string }>,
+    primaryPath: string,
+    replace: boolean,
+  ) => {
+    if (!session || readOnly) return false
+    session.document.transact(() => {
+      if (replace) session.projectFiles.clear()
+      files.forEach((file) => {
+        if (file.path === primaryPath || session.projectFiles.has(file.path)) return
+        const fileText = new Y.Text()
+        session.projectFiles.set(file.path, fileText)
+        const normalized = normalizeSourceText(file.content)
+        if (normalized.content) fileText.insert(0, normalized.content)
+      })
+      session.metadata.set('projectFilesInitialized', true)
+    })
+    return true
+  }, [readOnly, session])
+
+  const initializeProjectFiles = useCallback((
+    files: Array<{ path: string; content: string }>,
+    primaryPath: string,
+  ) => {
+    if (!session || readOnly || session.metadata.get('projectFilesInitialized')) return false
+    return setProjectFileMap(files, primaryPath, false)
+  }, [readOnly, session, setProjectFileMap])
+
+  const replaceProjectFiles = useCallback((
+    files: Array<{ path: string; content: string }>,
+    primaryPath: string,
+  ) => setProjectFileMap(files, primaryPath, true), [setProjectFileMap])
+
+  const getSharedText = useCallback((path: string, primaryPath: string) => {
+    if (!session) return null
+    return path === primaryPath ? session.text : session.projectFiles.get(path) ?? null
+  }, [session])
+
+  const commitPublicationMetadata = useCallback((input: {
+    pagePath: string
+    primaryPath: string
+    expectedPage: string
+    expectedProject: string
+    replacementPage: string
+    replacementProject: string
+  }): BibliographyEditResult => {
+    if (!session || readOnly) return 'unavailable'
+    const pageText = input.pagePath === input.primaryPath
+      ? session.text
+      : session.projectFiles.get(input.pagePath)
+    if (!pageText) return 'unavailable'
+    if (
+      pageText.toString() !== input.expectedPage ||
+      session.mystConfig.toString() !== input.expectedProject
+    ) return 'conflict'
+    const normalizedPage = normalizeSourceText(input.replacementPage)
+    session.document.transact(() => {
+      pageText.delete(0, pageText.length)
+      pageText.insert(0, normalizedPage.content)
+      if (input.pagePath === input.primaryPath) {
+        session.metadata.set('lineEnding', normalizedPage.lineEnding)
+        session.metadata.set('initialized', true)
+      }
+      session.mystConfig.delete(0, session.mystConfig.length)
+      if (input.replacementProject) {
+        session.mystConfig.insert(0, input.replacementProject.replace(/\r\n?/g, '\n'))
+      }
+      session.metadata.set('mystConfigInitialized', true)
+    })
+    return 'applied'
   }, [readOnly, session])
 
   const addBibliographyReference = useCallback((paper: PaperSearchResult) => {
@@ -401,19 +532,32 @@ export const useCollaboration = (
     from: number,
     to: number,
     expectedText: string,
+    path?: string,
+    primaryPath?: string,
   ): CollaborativeTextEditAnchor | null => {
     if (!session || readOnly) return null
-    return createCollaborativeTextEditAnchor(session.text, from, to, expectedText)
+    const text = path && primaryPath && path !== primaryPath
+      ? session.projectFiles.get(path)
+      : session.text
+    return text
+      ? createCollaborativeTextEditAnchor(text, from, to, expectedText)
+      : null
   }, [readOnly, session])
 
   const commitTextEdit = useCallback((
     anchor: CollaborativeTextEditAnchor,
     replacement: string,
+    path?: string,
+    primaryPath?: string,
   ): CollaborativeTextEditResult => {
     if (!session || readOnly) return 'unavailable'
+    const text = path && primaryPath && path !== primaryPath
+      ? session.projectFiles.get(path)
+      : session.text
+    if (!text) return 'unavailable'
     return applyCollaborativeTextEdit(
       session.document,
-      session.text,
+      text,
       anchor,
       replacement.replace(/\r\n?/g, '\n'),
     )
@@ -435,18 +579,37 @@ export const useCollaboration = (
     )
   }
 
+  const getSnapshotProjectFiles = () => {
+    if (!session) {
+      return Object.entries(projectFiles).map(([path, fileContent]) => ({
+        path,
+        content: fileContent,
+      }))
+    }
+    return Array.from(session.projectFiles.entries(), ([path, fileText]) => ({
+      path,
+      content: fileText.toString(),
+    }))
+  }
+
   return {
     sharedText: session?.text ?? null,
     sharedBibliography: session?.bibliography ?? null,
     provider: session?.provider ?? null,
     content,
     bibliography,
+    bibliographyPath,
+    mystConfig,
+    mystConfigPath,
+    projectFiles,
     comments,
     commentMessages,
     collaborators,
     status: enabled ? status : 'disconnected',
     isSynced,
     isBibliographyInitialized,
+    isMystConfigInitialized,
+    areProjectFilesInitialized,
     addComment,
     addCommentReply,
     toggleComment,
@@ -459,9 +622,16 @@ export const useCollaboration = (
     replaceContent,
     initializeBibliography,
     replaceBibliography,
+    initializeMystConfig,
+    replaceMystConfig,
+    initializeProjectFiles,
+    replaceProjectFiles,
+    getSharedText,
+    commitPublicationMetadata,
     addBibliographyReference,
     commitBibliographyEdit,
     getSnapshotContent,
     getSnapshotBibliography,
+    getSnapshotProjectFiles,
   }
 }

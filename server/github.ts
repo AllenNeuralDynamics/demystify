@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto'
+import { posix } from 'node:path'
 import { Router, type Request } from 'express'
+import { parseDocument } from 'yaml'
 
 interface GitHubCredentials {
   clientId: string
@@ -353,6 +355,209 @@ const githubRequest = async <Result>(
   }
 
   return payload as Result
+}
+
+const decodeGitHubTextFile = (file: GitHubContentFile) => {
+  if (file.type !== 'file' || file.encoding !== 'base64' || !file.content) {
+    throw new ApiError(422, 'The selected path is not a readable text file.')
+  }
+  return {
+    path: file.path,
+    sha: file.sha,
+    content: Buffer.from(file.content.replace(/\n/g, ''), 'base64').toString('utf8'),
+    htmlUrl: file.html_url,
+  }
+}
+
+export const getMystConfigCandidatePaths = (manuscriptPath: string) => {
+  const directory = manuscriptPath.split('/').slice(0, -1)
+  const candidates: string[] = []
+  for (let length = directory.length; length >= 0; length -= 1) {
+    const prefix = directory.slice(0, length).join('/')
+    for (const name of ['myst.yml', 'myst.yaml']) {
+      candidates.push(prefix ? `${prefix}/${name}` : name)
+    }
+  }
+  return candidates
+}
+
+export const findRepositoryMystConfig = async (
+  request: Request,
+  owner: string,
+  repository: string,
+  manuscriptPath: string,
+  reference: string,
+) => {
+  for (const path of getMystConfigCandidatePaths(manuscriptPath)) {
+    try {
+      const file = await githubRequest<GitHubContentFile>(
+        request,
+        `/repos/${owner}/${repository}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(reference)}`,
+      )
+      return { ...decodeGitHubTextFile(file), exists: true }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) continue
+      throw error
+    }
+  }
+  return {
+    path: 'myst.yml',
+    sha: null,
+    content: '',
+    htmlUrl: null,
+    exists: false,
+  }
+}
+
+const projectFilePattern = /\.(?:md|myst)$/i
+
+const resolveRepositoryPath = (basePath: string, value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) return null
+  const withoutFragment = trimmed.split('#', 1)[0]
+  const baseDirectory = basePath.split('/').slice(0, -1).join('/')
+  const normalized = posix.normalize(
+    withoutFragment.startsWith('/')
+      ? withoutFragment.slice(1)
+      : posix.join(baseDirectory, withoutFragment),
+  ).replace(/^\.\//, '')
+  if (!normalized || normalized === '..' || normalized.startsWith('../')) return null
+  return normalized
+}
+
+const resolveProjectFilePath = (basePath: string, value: string) => {
+  const normalized = resolveRepositoryPath(basePath, value)
+  return normalized && projectFilePattern.test(normalized) ? normalized : null
+}
+
+const collectTocFiles = (value: unknown, output: string[]) => {
+  if (typeof value === 'string') {
+    output.push(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTocFiles(item, output))
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  if (typeof record.file === 'string') output.push(record.file)
+  for (const key of ['children', 'chapters', 'sections', 'parts']) {
+    if (record[key] !== undefined) collectTocFiles(record[key], output)
+  }
+}
+
+export const getMystProjectFilePaths = (
+  configContent: string,
+  configPath: string,
+  manuscriptPath: string,
+) => {
+  const output = new Set<string>([manuscriptPath])
+  if (!configContent.trim()) return [...output]
+  const document = parseDocument(configContent)
+  if (document.errors.length) return [...output]
+  const root = document.toJS() as Record<string, unknown> | null
+  const project = root?.project && typeof root.project === 'object'
+    ? root.project as Record<string, unknown>
+    : null
+  if (!project) return [...output]
+  const candidates: string[] = []
+  collectTocFiles(project.toc, candidates)
+  const exports = Array.isArray(project.exports) ? project.exports : []
+  exports.forEach((item) => {
+    if (typeof item === 'string' || !item || typeof item !== 'object') return
+    const exportRecord = item as Record<string, unknown>
+    if (typeof exportRecord.article === 'string') candidates.push(exportRecord.article)
+    collectTocFiles(exportRecord.articles, candidates)
+    collectTocFiles(exportRecord.toc, candidates)
+    collectTocFiles(exportRecord.sub_articles, candidates)
+  })
+  candidates.forEach((candidate) => {
+    const path = resolveProjectFilePath(configPath, candidate)
+    if (path) output.add(path)
+  })
+  return [...output]
+}
+
+export const getMystBibliographyPaths = (
+  configContent: string,
+  configPath: string,
+  manuscriptPath: string,
+) => {
+  if (configContent.trim()) {
+    const document = parseDocument(configContent)
+    const root = document.errors.length ? null : document.toJS() as Record<string, unknown> | null
+    const project = root?.project && typeof root.project === 'object'
+      ? root.project as Record<string, unknown>
+      : null
+    const configured = Array.isArray(project?.bibliography)
+      ? project.bibliography
+      : typeof project?.bibliography === 'string'
+        ? [project.bibliography]
+        : []
+    const paths = configured.flatMap((value) => {
+      if (typeof value !== 'string') return []
+      const path = resolveRepositoryPath(configPath, value)
+      return path && /\.bib$/i.test(path) ? [path] : []
+    })
+    if (paths.length) return Array.from(new Set(paths))
+  }
+  const segments = manuscriptPath.split('/')
+  segments[segments.length - 1] = 'references.bib'
+  return [segments.join('/')]
+}
+
+const includePaths = (source: string, sourcePath: string) => Array.from(source.matchAll(
+  /^\s*:{3,}\{include\}\s+([^\s]+)|^\s*\{include\}\s+([^\s]+)/gim,
+), (match) => resolveProjectFilePath(sourcePath, match[1] ?? match[2]))
+  .filter((path): path is string => Boolean(path))
+
+export const findRepositoryProjectFiles = async (
+  request: Request,
+  owner: string,
+  repository: string,
+  manuscriptPath: string,
+  reference: string,
+) => {
+  const config = await findRepositoryMystConfig(
+    request,
+    owner,
+    repository,
+    manuscriptPath,
+    reference,
+  )
+  const pending = getMystProjectFilePaths(config.content, config.path, manuscriptPath)
+  const bibliographyPaths = getMystBibliographyPaths(
+    config.content,
+    config.path,
+    manuscriptPath,
+  )
+  const seen = new Set<string>()
+  const missing: string[] = []
+  const files: Array<ReturnType<typeof decodeGitHubTextFile>> = []
+  while (pending.length && seen.size < 50) {
+    const path = pending.shift() as string
+    if (seen.has(path)) continue
+    seen.add(path)
+    try {
+      const file = await githubRequest<GitHubContentFile>(
+        request,
+        `/repos/${owner}/${repository}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(reference)}`,
+      )
+      const decoded = decodeGitHubTextFile(file)
+      files.push(decoded)
+      includePaths(decoded.content, decoded.path).forEach((includePath) => {
+        if (!seen.has(includePath)) pending.push(includePath)
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        missing.push(path)
+        continue
+      }
+      throw error
+    }
+  }
+  return { config, files, missing, bibliographyPaths }
 }
 
 export const requireRepositoryWriteAccess = async (
@@ -1269,16 +1474,35 @@ githubRouter.get('/github/file', async (request, response) => {
     `/repos/${owner}/${repository}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(reference)}`,
   )
 
-  if (file.type !== 'file' || file.encoding !== 'base64' || !file.content) {
-    throw new ApiError(422, 'The selected path is not a readable text file.')
-  }
+  response.json(decodeGitHubTextFile(file))
+})
 
-  response.json({
-    path: file.path,
-    sha: file.sha,
-    content: Buffer.from(file.content.replace(/\n/g, ''), 'base64').toString('utf8'),
-    htmlUrl: file.html_url,
-  })
+githubRouter.get('/github/myst-config', async (request, response) => {
+  const owner = validateRepositoryPart(readQueryString(request, 'owner'), 'owner')
+  const repository = validateRepositoryPart(readQueryString(request, 'repository'), 'repository')
+  const path = validatePath(readQueryString(request, 'path'))
+  const reference = validateBranch(readQueryString(request, 'ref'), 'ref')
+  response.json(await findRepositoryMystConfig(
+    request,
+    owner,
+    repository,
+    path,
+    reference,
+  ))
+})
+
+githubRouter.get('/github/project-files', async (request, response) => {
+  const owner = validateRepositoryPart(readQueryString(request, 'owner'), 'owner')
+  const repository = validateRepositoryPart(readQueryString(request, 'repository'), 'repository')
+  const path = validatePath(readQueryString(request, 'path'))
+  const reference = validateBranch(readQueryString(request, 'ref'), 'ref')
+  response.json(await findRepositoryProjectFiles(
+    request,
+    owner,
+    repository,
+    path,
+    reference,
+  ))
 })
 
 githubRouter.get('/github/contents', async (request, response) => {

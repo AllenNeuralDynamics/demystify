@@ -1102,23 +1102,77 @@ export const createRoomRouter = (
     )
     const binding = requireBinding(room)
     const content = readText(request.body.content, 'content')
-    const bibliography = typeof request.body.bibliography === 'string'
-      ? request.body.bibliography
-      : undefined
+    const bibliography = request.body.bibliography == null
+      ? undefined
+      : typeof request.body.bibliography === 'string'
+        ? {
+            path: getBibliographyPath(binding.path),
+            content: request.body.bibliography,
+          }
+        : {
+            path: validatePath(request.body.bibliography.path),
+            content: readText(request.body.bibliography.content, 'bibliography.content'),
+          }
+    if (bibliography && (!/\.bib$/i.test(bibliography.path) || bibliography.path === binding.path)) {
+      throw new ApiError(400, 'bibliography.path must point to a distinct .bib file.')
+    }
+    const mystConfig = request.body.mystConfig == null
+      ? undefined
+      : {
+          path: validatePath(request.body.mystConfig.path),
+          content: readText(request.body.mystConfig.content, 'mystConfig.content'),
+        }
+    if (mystConfig && (!/\.ya?ml$/i.test(mystConfig.path) || mystConfig.path === binding.path)) {
+      throw new ApiError(400, 'mystConfig.path must point to a distinct YAML file.')
+    }
+    if (mystConfig && bibliography && mystConfig.path === bibliography.path) {
+      throw new ApiError(400, 'Bibliography and MyST config paths must be distinct.')
+    }
+    const projectFilePaths = new Set<string>()
+    const projectFiles: Array<{ path: string; content: string }> = request.body.projectFiles == null
+      ? []
+      : Array.isArray(request.body.projectFiles) && request.body.projectFiles.length <= 50
+        ? request.body.projectFiles.map((file: unknown) => {
+            if (!file || typeof file !== 'object') {
+              throw new ApiError(400, 'projectFiles must contain repository files.')
+            }
+            const record = file as Record<string, unknown>
+            const path = validatePath(record.path)
+            if (!/\.(?:md|myst)$/i.test(path)) {
+              throw new ApiError(400, 'Project files must be .md or .myst source files.')
+            }
+            if (
+              path === binding.path ||
+              path === bibliography?.path ||
+              path === mystConfig?.path ||
+              projectFilePaths.has(path)
+            ) {
+              throw new ApiError(400, `Project file path "${path}" is duplicated.`)
+            }
+            projectFilePaths.add(path)
+            return { path, content: readText(record.content, `projectFiles.${path}`) }
+          })
+        : (() => {
+            throw new ApiError(400, 'projectFiles must contain at most 50 files.')
+          })()
     const commitMessage =
       typeof request.body.commitMessage === 'string'
         ? request.body.commitMessage
         : undefined
 
-    const snapshot = bibliography === undefined
+    const filesByPath = new Map<string, string>([[binding.path, content]])
+    if (bibliography !== undefined) {
+      filesByPath.set(bibliography.path, bibliography.content)
+    }
+    if (mystConfig !== undefined) filesByPath.set(mystConfig.path, mystConfig.content)
+    projectFiles.forEach((file) => filesByPath.set(file.path, file.content))
+    const files = Array.from(filesByPath, ([path, fileContent]) => ({
+      path,
+      content: fileContent,
+    }))
+    const snapshot = files.length === 1
       ? await createRepositorySnapshot(request, binding, content, commitMessage)
-      : await createRepositoryFilesSnapshot(request, binding, [{
-          path: binding.path,
-          content,
-        }, {
-          path: getBibliographyPath(binding.path),
-          content: bibliography,
-        }], commitMessage)
+      : await createRepositoryFilesSnapshot(request, binding, files, commitMessage)
     let review = room.review
     if (!binding.isFork) {
       const existingPullRequest =

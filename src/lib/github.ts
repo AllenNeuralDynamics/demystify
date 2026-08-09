@@ -33,6 +33,13 @@ export interface GitHubEntry {
   sha: string
 }
 
+export interface RepositoryProjectFile {
+  content: string
+  sha: string
+  path: string
+  htmlUrl: string
+}
+
 export interface RepositoryBinding {
   owner: string
   repository: string
@@ -102,6 +109,11 @@ export interface SnapshotResult {
   fileSha: string | null
   unchanged: boolean
   review: RoomReview | null
+}
+
+export interface ProjectConfigSnapshot {
+  path: string
+  content: string
 }
 
 export interface CollaborationRoom {
@@ -272,8 +284,10 @@ export const loadRepositoryFile = async (binding: RepositoryBinding) => {
   )
 }
 
-export const loadRepositoryBibliography = async (binding: RepositoryBinding) => {
-  const path = getBibliographyPath(binding.path)
+export const loadRepositoryBibliography = async (
+  binding: RepositoryBinding,
+  path = getBibliographyPath(binding.path),
+) => {
   try {
     const file = await loadRepositoryFile({ ...binding, path })
     return { ...file, exists: true }
@@ -285,16 +299,57 @@ export const loadRepositoryBibliography = async (binding: RepositoryBinding) => 
   }
 }
 
+export const loadRepositoryMystConfig = async (binding: RepositoryBinding) => {
+  const query = new URLSearchParams({
+    owner: binding.owner,
+    repository: binding.repository,
+    path: binding.path,
+    ref: binding.baseBranch,
+  })
+  return apiRequest<{
+    content: string
+    sha: string | null
+    path: string
+    htmlUrl: string | null
+    exists: boolean
+  }>(`/api/github/myst-config?${query}`)
+}
+
+export const loadRepositoryProjectFiles = async (binding: RepositoryBinding) => {
+  const query = new URLSearchParams({
+    owner: binding.owner,
+    repository: binding.repository,
+    path: binding.path,
+    ref: binding.baseBranch,
+  })
+  return apiRequest<{
+    config: {
+      content: string
+      sha: string | null
+      path: string
+      htmlUrl: string | null
+      exists: boolean
+    }
+    files: RepositoryProjectFile[]
+    missing: string[]
+    bibliographyPaths: string[]
+  }>(`/api/github/project-files?${query}`)
+}
+
 export const createSnapshot = (
   roomName: string,
   content: string,
-  bibliography?: string,
+  bibliography?: string | ProjectConfigSnapshot,
+  mystConfig?: ProjectConfigSnapshot,
+  projectFiles?: ProjectConfigSnapshot[],
 ) =>
   apiRequest<SnapshotResult>(`/api/rooms/${encodeURIComponent(roomName)}/snapshots`, {
     method: 'POST',
     body: JSON.stringify({
       content,
       ...(bibliography === undefined ? {} : { bibliography }),
+      ...(mystConfig === undefined ? {} : { mystConfig }),
+      ...(projectFiles?.length ? { projectFiles } : {}),
     }),
   })
 

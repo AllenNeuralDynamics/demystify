@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createRepositoryFilesSnapshot,
   createRepositoryPullRequest,
+  findRepositoryMystConfig,
+  findRepositoryProjectFiles,
+  getMystBibliographyPaths,
+  getMystConfigCandidatePaths,
+  getMystProjectFilePaths,
   getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
   upsertRepositoryPullRequestComment,
@@ -112,6 +117,136 @@ describe('createRepositoryFilesSnapshot', () => {
       method: 'PATCH',
       body: { sha: 'atomic-commit', force: false },
     })
+  })
+})
+
+describe('findRepositoryMystConfig', () => {
+  it('searches nearest directories first and supports myst.yaml', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/paper/sections/myst.yml?')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.includes('/paper/sections/myst.yaml?')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.includes('/paper/myst.yml?')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.includes('/paper/myst.yaml?')) return jsonResponse({
+        type: 'file',
+        path: 'paper/myst.yaml',
+        sha: 'config-sha',
+        encoding: 'base64',
+        content: Buffer.from('version: 1\n').toString('base64'),
+        html_url: 'https://github.com/researcher/paper/blob/main/paper/myst.yaml',
+      })
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(findRepositoryMystConfig(
+      request,
+      'researcher',
+      'paper',
+      'paper/sections/results.md',
+      'main',
+    )).resolves.toEqual({
+      path: 'paper/myst.yaml',
+      sha: 'config-sha',
+      content: 'version: 1\n',
+      htmlUrl: 'https://github.com/researcher/paper/blob/main/paper/myst.yaml',
+      exists: true,
+    })
+    expect(getMystConfigCandidatePaths('paper/sections/results.md')).toEqual([
+      'paper/sections/myst.yml',
+      'paper/sections/myst.yaml',
+      'paper/myst.yml',
+      'paper/myst.yaml',
+      'myst.yml',
+      'myst.yaml',
+    ])
+  })
+
+  it('targets root myst.yml when no project configuration exists', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(
+      () => Promise.resolve(jsonResponse({ message: 'Not Found' }, 404)),
+    ))
+    await expect(findRepositoryMystConfig(
+      request,
+      'researcher',
+      'paper',
+      'paper.md',
+      'main',
+    )).resolves.toEqual({
+      path: 'myst.yml',
+      sha: null,
+      content: '',
+      htmlUrl: null,
+      exists: false,
+    })
+  })
+})
+
+describe('findRepositoryProjectFiles', () => {
+  it('discovers configured articles, TOC files, and recursive includes', async () => {
+    const contentByPath: Record<string, string> = {
+      'paper/myst.yml': `version: 1
+project:
+  bibliography:
+    - refs/library.bib
+  exports:
+    - format: pdf
+      articles:
+        - file: index.md
+        - file: methods.md
+  toc:
+    - file: results.md
+`,
+      'paper/index.md': '# Index\n\n:::{include} sections/abstract.md\n:::\n',
+      'paper/methods.md': '# Methods\n',
+      'paper/results.md': '# Results\n',
+      'paper/sections/abstract.md': '# Abstract\n',
+    }
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      const encodedPath = Object.keys(contentByPath).find((path) =>
+        url.includes(`/contents/${path.split('/').map(encodeURIComponent).join('/')}?`))
+      if (!encodedPath) return jsonResponse({ message: 'Not Found' }, 404)
+      return jsonResponse({
+        type: 'file',
+        path: encodedPath,
+        sha: `${encodedPath}-sha`,
+        encoding: 'base64',
+        content: Buffer.from(contentByPath[encodedPath]).toString('base64'),
+        html_url: `https://github.com/researcher/paper/blob/main/${encodedPath}`,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await findRepositoryProjectFiles(
+      request,
+      'researcher',
+      'paper',
+      'paper/index.md',
+      'main',
+    )
+    expect(result.config.path).toBe('paper/myst.yml')
+    expect(result.bibliographyPaths).toEqual(['paper/refs/library.bib'])
+    expect(result.files.map((file) => file.path).sort()).toEqual([
+      'paper/index.md',
+      'paper/methods.md',
+      'paper/results.md',
+      'paper/sections/abstract.md',
+    ])
+    expect(result.missing).toEqual([])
+    expect(getMystProjectFilePaths(contentByPath['paper/myst.yml'], 'paper/myst.yml', 'paper/index.md'))
+      .toEqual(['paper/index.md', 'paper/results.md', 'paper/methods.md'])
+  })
+
+  it('falls back to sibling references.bib when the project does not configure one', () => {
+    expect(getMystBibliographyPaths('', 'myst.yml', 'paper/index.md'))
+      .toEqual(['paper/references.bib'])
+    expect(getMystBibliographyPaths(`version: 1
+project:
+  bibliography:
+    - refs/library.bib
+    - https://example.org/remote.bib
+`, 'paper/myst.yml', 'paper/index.md')).toEqual(['paper/refs/library.bib'])
   })
 })
 

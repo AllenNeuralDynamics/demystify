@@ -123,6 +123,19 @@ const waitForComment = (comments, expectedId) =>
     check()
   })
 
+const waitForProjectFile = (files, path, expected) =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for project file')), 5_000)
+    const check = () => {
+      if (files.get(path)?.toString() !== expected) return
+      clearTimeout(timeout)
+      files.unobserveDeep(check)
+      resolve()
+    }
+    files.observeDeep(check)
+    check()
+  })
+
 const expectSocketRejection = (expectedStatus, cookie) =>
   new Promise((resolve, reject) => {
     const socket = new WebSocket(`${serverUrl}/${roomName}`, {
@@ -358,11 +371,25 @@ try {
   const secondComments = secondDocument.getMap('comments')
   const firstCommentMessages = firstDocument.getMap('commentMessages')
   const secondCommentMessages = secondDocument.getMap('commentMessages')
+  const firstProjectFiles = firstDocument.getMap('projectFiles')
+  const secondProjectFiles = secondDocument.getMap('projectFiles')
   const received = waitForText(secondText, expectedText)
   const receivedComment = waitForComment(secondComments, expectedCommentId)
   const receivedReply = waitForComment(secondCommentMessages, expectedReply.id)
+  const projectPath = 'paper/methods.md'
+  const projectContent = '# Shared methods\n'
+  const receivedProjectFile = waitForProjectFile(
+    secondProjectFiles,
+    projectPath,
+    projectContent,
+  )
 
-  firstText.insert(0, expectedText)
+  firstDocument.transact(() => {
+    firstText.insert(0, expectedText)
+    const methods = new Y.Text()
+    firstProjectFiles.set(projectPath, methods)
+    methods.insert(0, projectContent)
+  })
   const expectedComment = {
     id: expectedCommentId,
     authorId: 'github:1',
@@ -384,11 +411,12 @@ try {
   }
   firstComments.set(expectedComment.id, expectedComment)
   firstCommentMessages.set(expectedReply.id, expectedReply)
-  await Promise.all([received, receivedComment, receivedReply])
+  await Promise.all([received, receivedComment, receivedReply, receivedProjectFile])
 
   assert.equal(secondText.toString(), expectedText)
   assert.deepEqual(secondComments.get(expectedComment.id), expectedComment)
   assert.deepEqual(secondCommentMessages.get(expectedReply.id), expectedReply)
+  assert.equal(secondProjectFiles.get(projectPath).toString(), projectContent)
   const receivedAnchor = secondComments.get(expectedComment.id).anchor
   const receivedStart = Y.createAbsolutePositionFromRelativePosition(
     Y.decodeRelativePosition(Buffer.from(receivedAnchor.start, 'base64')),
