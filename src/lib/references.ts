@@ -60,7 +60,31 @@ export interface AddReferenceResult {
   added: boolean
 }
 
+export interface BibliographySourceEntry {
+  key: string
+  type: string
+  raw: string
+  from: number
+  to: number
+  reference: PaperReference | null
+  doi: string | null
+}
+
+export interface BibliographyImportResult {
+  bibliography: string
+  importedKeys: string[]
+  skippedKeys: string[]
+  renamedKeys: Array<{ from: string; to: string }>
+}
+
+export type BibliographyEditResult = 'applied' | 'conflict' | 'unavailable'
+
 export type CitationStyle = 'parenthetical' | 'narrative'
+
+export interface CitationDetails {
+  prefix?: string
+  suffix?: string
+}
 
 export interface GeneratedReferenceEntry {
   id: string
@@ -78,6 +102,110 @@ const normalizeDoi = (value: string | null | undefined) => value
 const parseCitationData = (source: string): CitationData[] => source.trim()
   ? parseBibtexEntries(parseBibtexFile(source)) as CitationData[]
   : []
+
+interface BibtexSourceSpan {
+  key: string
+  type: string
+  from: number
+  to: number
+}
+
+const skipBibtexTrivia = (source: string, start: number) => {
+  let index = start
+  while (index < source.length) {
+    if (/\s/.test(source[index])) {
+      index += 1
+      continue
+    }
+    if (source[index] !== '%') break
+    const lineEnd = source.indexOf('\n', index)
+    index = lineEnd === -1 ? source.length : lineEnd + 1
+  }
+  return index
+}
+
+const scanBibtexSource = (source: string): BibtexSourceSpan[] => {
+  const spans: BibtexSourceSpan[] = []
+  let index = 0
+  while (index < source.length) {
+    if (source[index] === '%') {
+      index = skipBibtexTrivia(source, index)
+      continue
+    }
+    if (source[index] !== '@') {
+      index += 1
+      continue
+    }
+
+    const from = index
+    index = skipBibtexTrivia(source, index + 1)
+    const typeStart = index
+    while (/[A-Za-z0-9_:+-]/.test(source[index] ?? '')) index += 1
+    const type = source.slice(typeStart, index).toLowerCase()
+    index = skipBibtexTrivia(source, index)
+    const open = source[index]
+    if (open !== '{' && open !== '(') {
+      const lineEnd = source.indexOf('\n', index)
+      index = lineEnd === -1 ? source.length : lineEnd + 1
+      continue
+    }
+
+    const closers = [open === '{' ? '}' : ')']
+    index += 1
+    const keyStart = skipBibtexTrivia(source, index)
+    const comma = source.indexOf(',', keyStart)
+    const key = comma === -1 ? '' : source.slice(keyStart, comma).trim()
+    let inQuote = false
+    let quoteBraceDepth = 0
+    let escaped = false
+    let inComment = false
+    while (index < source.length && closers.length) {
+      const character = source[index]
+      if (escaped) {
+        escaped = false
+        index += 1
+        continue
+      }
+      if (character === '\\') {
+        escaped = true
+        index += 1
+        continue
+      }
+      if (inComment) {
+        if (character === '\n') inComment = false
+        index += 1
+        continue
+      }
+      if (character === '%' && !inQuote) {
+        inComment = true
+        index += 1
+        continue
+      }
+      if (inQuote) {
+        if (character === '{') quoteBraceDepth += 1
+        else if (character === '}' && quoteBraceDepth > 0) quoteBraceDepth -= 1
+        else if (character === '"' && quoteBraceDepth === 0) inQuote = false
+        index += 1
+        continue
+      }
+      if (character === '"') {
+        inQuote = true
+        index += 1
+        continue
+      }
+      if (character === '{') closers.push('}')
+      else if (character === '(') closers.push(')')
+      else if (character === closers.at(-1)) closers.pop()
+      index += 1
+    }
+    if (closers.length) throw new Error('The bibliography contains an unclosed entry.')
+    if (!['comment', 'preamble', 'string'].includes(type)) {
+      if (!key) throw new Error('A bibliography entry has no citation key.')
+      spans.push({ key, type, from, to: index })
+    }
+  }
+  return spans
+}
 
 const bibtexDictionary = {
   bibliographyContainer: ['', '\n'],
@@ -132,6 +260,158 @@ export const tryParseBibliography = (source: string) => {
       error: error instanceof Error ? error.message : 'The bibliography could not be parsed.',
     }
   }
+}
+
+const parseBibliographySourceData = (source: string) => {
+  const parsed = parseCitationData(source)
+  const spans = scanBibtexSource(source)
+  const byKey = new Map<string, CitationData[]>()
+  parsed.forEach((data) => {
+    const key = referenceKey(data).toLowerCase()
+    if (!key) return
+    const entries = byKey.get(key) ?? []
+    entries.push(data)
+    byKey.set(key, entries)
+  })
+  return spans.map((span) => {
+    const matches = byKey.get(span.key.toLowerCase()) ?? []
+    const data = matches.shift()
+    if (!data) throw new Error(`Could not locate bibliography entry "${span.key}".`)
+    return { span, data }
+  })
+}
+
+export const parseBibliographySourceEntries = (source: string): BibliographySourceEntry[] =>
+  parseBibliographySourceData(source).map(({ span, data }) => ({
+    ...span,
+    raw: source.slice(span.from, span.to),
+    reference: toReference(data),
+    doi: normalizeDoi(data.DOI),
+  }))
+
+const findSourceEntry = (source: string, key: string) => {
+  const normalizedKey = key.trim().toLowerCase()
+  const entry = parseBibliographySourceEntries(source)
+    .find((candidate) => candidate.key.toLowerCase() === normalizedKey)
+  if (!entry) throw new Error(`Reference "${key}" was not found.`)
+  return entry
+}
+
+export const replaceBibliographyEntry = (
+  source: string,
+  key: string,
+  replacement: string,
+) => {
+  const current = findSourceEntry(source, key)
+  const nextEntries = parseBibliographySourceEntries(replacement.trim())
+  if (nextEntries.length !== 1) throw new Error('Provide exactly one BibTeX entry.')
+  if (nextEntries[0].key.toLowerCase() !== current.key.toLowerCase()) {
+    throw new Error('Citation keys cannot be changed because existing citations use them.')
+  }
+  return `${source.slice(0, current.from)}${replacement.trim()}${source.slice(current.to)}`
+}
+
+const escapeRegularExpression = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+export const countCitationKeyUsages = (source: string, key: string) => {
+  const normalizedKey = key.trim().toLowerCase()
+  if (!normalizedKey) return 0
+  let count = 0
+  const rolePattern = /\{cite(?::[a-z]+)?\}`([^`]*)`/gi
+  for (const match of source.matchAll(rolePattern)) {
+    const keys = match[1].split(';').map((part) => part.trim()
+      .replace(/^\{[^}]*\}/, '')
+      .replace(/\{[^}]*\}$/, '')
+      .trim()
+      .toLowerCase())
+    count += keys.filter((candidate) => candidate === normalizedKey).length
+  }
+  const pandocPattern = new RegExp(
+    `(?:^|[\\s[(;])(-?)@(${escapeRegularExpression(key)})(?![\\w:.#$%&+?~/-])`,
+    'gim',
+  )
+  count += Array.from(source.matchAll(pandocPattern)).length
+  return count
+}
+
+export const deleteBibliographyEntry = (
+  source: string,
+  key: string,
+  manuscript: string,
+) => {
+  const usageCount = countCitationKeyUsages(manuscript, key)
+  if (usageCount) {
+    throw new Error(`Reference "${key}" is used by ${usageCount} citation${usageCount === 1 ? '' : 's'}.`)
+  }
+  const entry = findSourceEntry(source, key)
+  return `${source.slice(0, entry.from)}${source.slice(entry.to)}`
+}
+
+export const mergeDuplicateReferences = (
+  source: string,
+  targetKey: string,
+  manuscript: string,
+) => {
+  const entries = parseBibliographySourceEntries(source)
+  const target = entries.find((entry) => entry.key.toLowerCase() === targetKey.toLowerCase())
+  if (!target) throw new Error(`Reference "${targetKey}" was not found.`)
+  if (!target.doi) throw new Error('Only references sharing a DOI can be merged safely.')
+  const duplicates = entries.filter((entry) => entry.doi === target.doi)
+  if (duplicates.length < 2) throw new Error('No DOI duplicate was found for this reference.')
+  const removed = duplicates.filter((entry) => entry !== target)
+  const cited = removed.filter((entry) => countCitationKeyUsages(manuscript, entry.key) > 0)
+  if (cited.length) {
+    throw new Error(`Cannot merge cited key${cited.length === 1 ? '' : 's'}: ${cited.map((entry) => entry.key).join(', ')}.`)
+  }
+  return removed.sort((first, second) => second.from - first.from).reduce(
+    (bibliography, entry) => `${bibliography.slice(0, entry.from)}${bibliography.slice(entry.to)}`,
+    source,
+  )
+}
+
+export const importBibliography = (
+  source: string,
+  importedSource: string,
+): BibliographyImportResult => {
+  const existing = parseBibliographySourceData(source)
+  const imported = parseBibliographySourceData(importedSource)
+  if (!imported.length) throw new Error('The imported file contains no BibTeX entries.')
+  const usedKeys = new Set(existing.map(({ span }) => span.key.toLowerCase()))
+  const usedDois = new Set(existing
+    .map(({ data }) => normalizeDoi(data.DOI))
+    .filter((doi): doi is string => Boolean(doi)))
+  const existingByKey = new Map(existing.map(({ span, data }) => [span.key.toLowerCase(), data]))
+  const result: BibliographyImportResult = {
+    bibliography: source,
+    importedKeys: [],
+    skippedKeys: [],
+    renamedKeys: [],
+  }
+
+  imported.forEach(({ span, data }) => {
+    const doi = normalizeDoi(data.DOI)
+    const existingKeyData = existingByKey.get(span.key.toLowerCase())
+    if (
+      (doi && usedDois.has(doi)) ||
+      (existingKeyData && existingKeyData.title === data.title && referenceYear(existingKeyData) === referenceYear(data))
+    ) {
+      result.skippedKeys.push(span.key)
+      return
+    }
+
+    let key = span.key
+    if (usedKeys.has(key.toLowerCase())) {
+      key = uniqueCitationKey(key, usedKeys)
+      result.renamedKeys.push({ from: span.key, to: key })
+    }
+    const nextData = { ...data, id: key, 'citation-key': key }
+    result.bibliography = appendBibtexEntry(result.bibliography, formatCitationData([nextData]))
+    result.importedKeys.push(key)
+    usedKeys.add(key.toLowerCase())
+    if (doi) usedDois.add(doi)
+  })
+  return result
 }
 
 const asciiWords = (value: string): string[] => Array.from(value
@@ -272,8 +552,27 @@ export const getBibliographyPath = (manuscriptPath: string) => {
   return segments.join('/')
 }
 
-export const formatCitation = (keys: string[], style: CitationStyle) => {
+const normalizeCitationDetail = (value: string | undefined, label: string) => {
+  const normalized = value?.trim() ?? ''
+  if (/[{}`]/.test(normalized)) {
+    throw new Error(`${label} cannot contain braces or backticks.`)
+  }
+  return normalized
+}
+
+export const formatCitation = (
+  keys: string[],
+  style: CitationStyle,
+  details: CitationDetails = {},
+) => {
   const uniqueKeys = Array.from(new Set(keys.map((key) => key.trim()).filter(Boolean)))
   if (!uniqueKeys.length) throw new Error('Select at least one reference.')
-  return `{cite:${style === 'parenthetical' ? 'p' : 't'}}\`${uniqueKeys.join('; ')}\``
+  const prefix = normalizeCitationDetail(details.prefix, 'Citation prefix')
+  const suffix = normalizeCitationDetail(details.suffix, 'Citation locator or suffix')
+  const roleEntries = uniqueKeys.map((key, index) => [
+    index === 0 && prefix ? `{${prefix}}` : '',
+    key,
+    index === uniqueKeys.length - 1 && suffix ? `{${suffix}}` : '',
+  ].join(''))
+  return `{cite:${style === 'parenthetical' ? 'p' : 't'}}\`${roleEntries.join('; ')}\``
 }

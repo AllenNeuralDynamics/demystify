@@ -27,7 +27,13 @@ export type MystEditableInline =
   | { type: 'inlineCode'; value: string }
   | { type: 'link'; url: string; title?: string; children: MystEditableInline[] }
   | { type: 'break' }
-  | { type: 'citation'; keys: string[]; style: 'parenthetical' | 'narrative' }
+  | {
+      type: 'citation'
+      keys: string[]
+      style: 'parenthetical' | 'narrative'
+      prefix?: string
+      suffix?: string
+    }
 
 interface MystRenderOptions {
   assetBaseUrl?: string
@@ -377,23 +383,35 @@ const parseEditableInline = (
       const citation = children?.length === 1 && children[0].type === 'citation'
         ? children[0]
         : null
-      const keys = node.value?.split(';').map((key) => key.trim()).filter(Boolean) ?? []
+      const keys = node.value?.split(';').map((key) => key.trim()
+        .replace(/^\{[^}]*\}/, '')
+        .replace(/\{[^}]*\}$/, '')
+        .trim()).filter(Boolean) ?? []
       if (!citation || keys.length !== citation.keys.length) return null
       parsed.push({ ...citation, keys })
       continue
     }
-    if (node.type === 'cite' && !node.prefix && !node.suffix && !node.partial) {
+    if (node.type === 'cite' && !node.partial) {
       const key = node.identifier || node.label
       if (!key || (node.kind !== 'parenthetical' && node.kind !== 'narrative')) return null
-      parsed.push({ type: 'citation', keys: [key], style: node.kind })
+      parsed.push({
+        type: 'citation',
+        keys: [key],
+        style: node.kind,
+        ...(node.prefix ? { prefix: node.prefix } : {}),
+        ...(node.suffix ? { suffix: node.suffix } : {}),
+      })
       continue
     }
     if (
       node.type === 'citeGroup' &&
       (node.kind === 'parenthetical' || node.kind === 'narrative')
     ) {
-      const keys = (node.children ?? []).map((citation) =>
-        !citation.prefix && !citation.suffix && !citation.partial
+      const citations = node.children ?? []
+      const keys = citations.map((citation, index) =>
+        !citation.partial &&
+        (!citation.prefix || index === 0) &&
+        (!citation.suffix || index === citations.length - 1)
           ? citation.identifier || citation.label
           : undefined)
       if (!keys.length || keys.some((key) => !key)) return null
@@ -401,6 +419,8 @@ const parseEditableInline = (
         type: 'citation',
         keys: keys as string[],
         style: node.kind,
+        ...(citations[0]?.prefix ? { prefix: citations[0].prefix } : {}),
+        ...(citations.at(-1)?.suffix ? { suffix: citations.at(-1)?.suffix } : {}),
       })
       continue
     }

@@ -9,6 +9,7 @@ import {
 import { searchPapers } from '../lib/github'
 import {
   tryParseBibliography,
+  type CitationDetails,
   type CitationStyle,
   type PaperReference,
   type PaperSearchResult,
@@ -22,7 +23,11 @@ interface CitationPickerProps {
   bibliography: string
   roomName: string
   onClose: () => void
-  onInsert: (selection: CitationSelection[], style: CitationStyle) => void
+  onInsert: (
+    selection: CitationSelection[],
+    style: CitationStyle,
+    details: CitationDetails,
+  ) => void
 }
 
 interface CitationCandidate {
@@ -86,6 +91,8 @@ export const CitationPicker = ({
 }: CitationPickerProps) => {
   const [query, setQuery] = useState('')
   const [style, setStyle] = useState<CitationStyle>('parenthetical')
+  const [prefix, setPrefix] = useState('')
+  const [suffix, setSuffix] = useState('')
   const [remoteResults, setRemoteResults] = useState<PaperSearchResult[]>([])
   const [selected, setSelected] = useState<Map<string, CitationCandidate>>(new Map())
   const [isSearching, setIsSearching] = useState(false)
@@ -159,7 +166,10 @@ export const CitationPicker = ({
 
   const insertSelection = () => {
     if (!selected.size) return
-    onInsert(Array.from(selected.values(), (candidate) => candidate.selection), style)
+    onInsert(Array.from(selected.values(), (candidate) => candidate.selection), style, {
+      ...(prefix.trim() ? { prefix: prefix.trim() } : {}),
+      ...(suffix.trim() ? { suffix: suffix.trim() } : {}),
+    })
   }
 
   return (
@@ -204,6 +214,27 @@ export const CitationPicker = ({
           >
             Narrative
           </button>
+        </div>
+
+        <div className="citation-details">
+          <label>
+            <span>Prefix</span>
+            <input
+              aria-label="Citation prefix"
+              placeholder="e.g. see"
+              value={prefix}
+              onChange={(event) => setPrefix(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Locator or suffix</span>
+            <input
+              aria-label="Citation locator or suffix"
+              placeholder="e.g. p. 22"
+              value={suffix}
+              onChange={(event) => setSuffix(event.target.value)}
+            />
+          </label>
         </div>
 
         <div className="citation-results" aria-live="polite">

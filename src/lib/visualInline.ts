@@ -1,6 +1,12 @@
 import { Schema, type Mark, type Node as ProseMirrorNode } from 'prosemirror-model'
 import type { MystEditableInline } from './myst'
-import { tryParseBibliography, type CitationStyle, type PaperReference } from './references'
+import {
+  formatCitation,
+  tryParseBibliography,
+  type CitationDetails,
+  type CitationStyle,
+  type PaperReference,
+} from './references'
 
 export const visualInlineSchema = new Schema({
   nodes: {
@@ -20,6 +26,8 @@ export const visualInlineSchema = new Schema({
       attrs: {
         keys: { default: [] },
         style: { default: 'parenthetical' },
+        prefix: { default: '' },
+        suffix: { default: '' },
         label: { default: '' },
       },
       parseDOM: [{
@@ -29,6 +37,8 @@ export const visualInlineSchema = new Schema({
           return {
             keys: element.dataset.citationKeys?.split(';').filter(Boolean) ?? [],
             style: element.dataset.citationStyle ?? 'parenthetical',
+            prefix: element.dataset.citationPrefix ?? '',
+            suffix: element.dataset.citationSuffix ?? '',
             label: element.textContent ?? '',
           }
         },
@@ -38,6 +48,8 @@ export const visualInlineSchema = new Schema({
         'data-visual-citation': 'true',
         'data-citation-keys': (node.attrs.keys as string[]).join(';'),
         'data-citation-style': node.attrs.style,
+        'data-citation-prefix': node.attrs.prefix,
+        'data-citation-suffix': node.attrs.suffix,
         contenteditable: 'false',
         title: `Citation: ${(node.attrs.keys as string[]).join('; ')}`,
       }, node.attrs.label],
@@ -98,6 +110,7 @@ export const visualCitationLabel = (
   keys: string[],
   style: CitationStyle,
   bibliography: string,
+  details: CitationDetails = {},
 ) => {
   const references = new Map<string, PaperReference>(
     tryParseBibliography(bibliography).references
@@ -107,7 +120,13 @@ export const visualCitationLabel = (
     const reference = references.get(key.toLowerCase())
     return reference ? authorYear(reference, style) : key
   })
-  const joined = labels.join('; ')
+  let joined = labels.join('; ')
+  if (style === 'narrative' && details.suffix) {
+    joined = joined.replace(/\)$/, `, ${details.suffix})`)
+  } else if (details.suffix) {
+    joined = `${joined}, ${details.suffix}`
+  }
+  if (details.prefix) joined = `${details.prefix} ${joined}`
   return style === 'parenthetical' ? `(${joined})` : joined
 }
 
@@ -137,7 +156,12 @@ const toProseMirrorNodes = (
     return [visualInlineSchema.nodes.citation.create({
       keys: node.keys,
       style: node.style,
-      label: visualCitationLabel(node.keys, node.style, bibliography),
+      prefix: node.prefix ?? '',
+      suffix: node.suffix ?? '',
+      label: visualCitationLabel(node.keys, node.style, bibliography, {
+        prefix: node.prefix,
+        suffix: node.suffix,
+      }),
     })]
   }
   return []
@@ -213,8 +237,11 @@ export const serializeVisualInlineDocument = (document: ProseMirrorNode) => {
     } else if (node.type === visualInlineSchema.nodes.citation) {
       closeTo(0)
       const keys = node.attrs.keys as string[]
-      const style = node.attrs.style === 'narrative' ? 't' : 'p'
-      source += `{cite:${style}}\`${keys.join('; ')}\``
+      const style = node.attrs.style === 'narrative' ? 'narrative' : 'parenthetical'
+      source += formatCitation(keys, style, {
+        prefix: node.attrs.prefix || undefined,
+        suffix: node.attrs.suffix || undefined,
+      })
     }
   })
   closeTo(0)

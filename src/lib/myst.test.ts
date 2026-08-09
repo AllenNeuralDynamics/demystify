@@ -54,7 +54,7 @@ describe('renderMyst', () => {
   })
 
   it('maps simple citation roles to editable atomic citations', () => {
-    const source = 'Prior **work** {cite:p}`Stringer2019; Smith2024`.\n'
+    const source = 'Prior **work** {cite:p}`{see}Stringer2019; Smith2024{p. 22}`.\n'
     const result = renderMyst(source)
 
     expect(result.editableBlocks).toContainEqual(expect.objectContaining({
@@ -68,6 +68,8 @@ describe('renderMyst', () => {
           type: 'citation',
           keys: ['Stringer2019', 'Smith2024'],
           style: 'parenthetical',
+          prefix: 'see',
+          suffix: 'p. 22',
         },
         { type: 'text', value: '.' },
       ],

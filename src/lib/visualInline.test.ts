@@ -24,16 +24,22 @@ describe('visual inline document', () => {
       { type: 'text', value: ', ' },
       { type: 'link', url: 'https://example.org/a)', children: [{ type: 'text', value: 'a link' }] },
       { type: 'break' },
-      { type: 'citation', keys: ['smith2024'], style: 'parenthetical' },
+      {
+        type: 'citation',
+        keys: ['smith2024'],
+        style: 'parenthetical',
+        prefix: 'see',
+        suffix: 'p. 22',
+      },
     ]
     const document = createVisualInlineDocument(inline, bibliography)
 
     expect(serializeVisualInlineDocument(document)).toBe(
       'See **bold *and italic***, [a link](https://example.org/a%29)  \n' +
-      '{cite:p}`smith2024`',
+      '{cite:p}`{see}smith2024{p. 22}`',
     )
     expect(document.textBetween(0, document.content.size, '')).toContain('See bold and italic')
-    expect(document.lastChild?.attrs.label).toBe('(Smith et al., 2024)')
+    expect(document.lastChild?.attrs.label).toBe('(see Smith et al., 2024, p. 22)')
   })
 
   it('escapes literal MyST punctuation and chooses safe code fences', () => {

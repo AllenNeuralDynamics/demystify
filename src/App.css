@@ -519,7 +519,8 @@
   font-weight: 500;
 }
 
-.citation-trigger {
+.citation-trigger,
+.reference-library-trigger {
   height: 30px;
   display: inline-flex;
   align-items: center;
@@ -543,6 +544,12 @@
 .citation-trigger:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.reference-library-trigger:hover {
+  border-color: #b9d1c5;
+  background: #eff6f2;
+  color: var(--green-dark);
 }
 
 .myst-insert-trigger:hover,
@@ -1461,13 +1468,285 @@
   background: rgba(21, 28, 24, 0.4);
 }
 
+.reference-manager-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(21, 28, 24, 0.4);
+}
+
+.reference-manager {
+  width: min(880px, 100%);
+  height: min(760px, calc(100vh - 40px));
+  min-height: 440px;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 20px 55px rgba(20, 30, 24, 0.25);
+}
+
+.reference-manager-header {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.reference-manager-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--green-dark);
+}
+
+.reference-manager-heading > div {
+  min-width: 0;
+}
+
+.reference-manager-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: 'Fraunces', serif;
+  font-size: 18px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-manager-heading span {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-manager-tools {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  gap: 8px;
+  padding: 14px 16px 9px;
+}
+
+.reference-library-search {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #bac8bf;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.reference-library-search:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+
+.reference-library-search input {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.reference-manager-messages {
+  min-height: 24px;
+  padding: 0 18px 7px;
+  border-bottom: 1px solid var(--soft-line);
+  color: var(--green-dark);
+  font-size: 10px;
+}
+
+.reference-manager-messages .error,
+.reference-form-error {
+  color: #a43e32;
+}
+
+.reference-library-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 12px;
+  overscroll-behavior: contain;
+}
+
+.reference-library-row {
+  position: relative;
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 9px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.reference-library-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.reference-library-copy strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.reference-library-copy span,
+.reference-library-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-library-copy small {
+  color: #8b554d;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+}
+
+.reference-library-badges,
+.reference-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.reference-library-badges span {
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: #edf5f1;
+  color: var(--green-dark);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.reference-library-badges .duplicate {
+  background: #fff2e8;
+  color: #995236;
+}
+
+.reference-library-actions .danger,
+.reference-delete-confirmation .danger {
+  color: #a43e32;
+}
+
+.reference-delete-confirmation {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #f0d4ce;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.reference-delete-confirmation button {
+  padding: 0;
+  background: transparent;
+  color: var(--green-dark);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.reference-library-empty {
+  min-height: 260px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: #8a948e;
+  font-size: 11px;
+}
+
+.reference-manager-form {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+}
+
+.reference-manager-form > p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.reference-manager-form textarea {
+  min-height: 280px;
+  resize: none;
+  padding: 14px;
+  border: 1px solid #bac8bf;
+  border-radius: 6px;
+  outline: 0;
+  background: #fbfcfb;
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.reference-manager-form textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+
+.reference-manager-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reference-file-picker {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.reference-file-picker input {
+  display: none;
+}
+
+.reference-form-error {
+  font-size: 10px;
+}
+
 .citation-picker {
   width: min(720px, 100%);
   height: min(720px, calc(100vh - 40px));
   min-height: 420px;
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   border-radius: 8px;
   background: white;
   box-shadow: 0 20px 55px rgba(20, 30, 24, 0.25);
@@ -1554,6 +1833,38 @@
   border-color: #7ca795;
   background: var(--green-soft);
   color: var(--green-dark);
+}
+
+.citation-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 16px 10px;
+}
+
+.citation-details label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.citation-details input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  outline: 0;
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.citation-details input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
 }
 
 .citation-results {
@@ -2453,7 +2764,7 @@
     display: flex;
   }
 
-  .formatting-tools > :not(.myst-insert-menu):not(.citation-trigger) {
+  .formatting-tools > :not(.myst-insert-menu):not(.citation-trigger):not(.reference-library-trigger) {
     display: none;
   }
 
@@ -2508,6 +2819,68 @@
 }
 
 @media (max-width: 560px) {
+  .reference-manager-backdrop {
+    align-items: stretch;
+    padding: 8px;
+  }
+
+  .reference-manager {
+    width: 100%;
+    height: calc(100vh - 16px);
+    min-height: 0;
+  }
+
+  .reference-manager-header {
+    min-height: 58px;
+    padding-left: 13px;
+  }
+
+  .reference-manager-tools {
+    grid-template-columns: minmax(0, 1fr) 34px 34px;
+    padding: 10px 10px 7px;
+  }
+
+  .reference-manager-tools .button {
+    width: 34px;
+    justify-content: center;
+    padding: 0;
+    overflow: hidden;
+    color: var(--green-dark);
+    font-size: 0;
+    gap: 0;
+  }
+
+  .reference-manager-tools .button svg {
+    color: var(--green-dark);
+  }
+
+  .reference-library-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .reference-library-badges {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+
+  .reference-library-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .reference-library-copy span,
+  .reference-library-copy small {
+    white-space: normal;
+  }
+
+  .reference-manager-form {
+    padding: 13px;
+  }
+
+  .reference-manager-form textarea {
+    min-height: 220px;
+  }
+
   .citation-picker-backdrop {
     align-items: stretch;
     padding: 8px;
@@ -2532,6 +2905,10 @@
     padding: 0 10px 8px;
   }
 
+  .citation-details {
+    padding: 0 10px 8px;
+  }
+
   .citation-result-copy span,
   .citation-result-copy small {
     white-space: normal;
@@ -2544,6 +2921,16 @@
   }
 
   .citation-trigger span {
+    display: none;
+  }
+
+  .reference-library-trigger {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .reference-library-trigger span {
     display: none;
   }
 

@@ -1,6 +1,7 @@
 import {
   Archive,
   AtSign,
+  BookOpenText,
   Bold,
   Check,
   ChevronDown,
@@ -39,6 +40,7 @@ import { CitationPicker, type CitationSelection } from './components/CitationPic
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
+import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
@@ -59,7 +61,11 @@ import {
   type RepositoryBinding,
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
-import { formatCitation, type CitationStyle } from './lib/references'
+import {
+  formatCitation,
+  type CitationDetails,
+  type CitationStyle,
+} from './lib/references'
 import { sampleManuscript } from './lib/sampleManuscript'
 
 type WorkspaceView = 'source' | 'split' | 'preview'
@@ -129,6 +135,7 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
+  const [referenceManagerOpen, setReferenceManagerOpen] = useState(false)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
@@ -581,6 +588,7 @@ function App() {
   const insertCitation = (
     selections: CitationSelection[],
     style: CitationStyle,
+    details: CitationDetails,
   ) => {
     try {
       const keys = selections.map((selection) => {
@@ -590,9 +598,14 @@ function App() {
         return result.key
       })
       if (visualCitationInserter) {
-        visualCitationInserter(keys, style, collaboration.getSnapshotBibliography())
+        visualCitationInserter(
+          keys,
+          style,
+          details,
+          collaboration.getSnapshotBibliography(),
+        )
       }
-      else editorRef.current?.insertCitation(formatCitation(keys, style))
+      else editorRef.current?.insertCitation(formatCitation(keys, style, details))
       setCitationPickerOpen(false)
       setVisualCitationInserter(null)
       showNotice(`${keys.length} ${keys.length === 1 ? 'citation' : 'citations'} inserted`)
@@ -925,6 +938,15 @@ function App() {
                 <AtSign size={16} />
                 <span>Cite</span>
               </button>
+              <button
+                className="reference-library-trigger"
+                type="button"
+                title="Manage references"
+                onClick={() => setReferenceManagerOpen(true)}
+              >
+                <BookOpenText size={16} />
+                <span>References</span>
+              </button>
               <span className="toolbar-divider" />
               <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
@@ -1187,6 +1209,16 @@ function App() {
           roomName={roomName}
           onClose={closeCitationPicker}
           onInsert={insertCitation}
+        />
+      )}
+
+      {referenceManagerOpen && (
+        <ReferenceManager
+          bibliography={collaboration.bibliography}
+          manuscript={collaboration.content}
+          readOnly={isReadOnly}
+          onApply={collaboration.commitBibliographyEdit}
+          onClose={() => setReferenceManagerOpen(false)}
         />
       )}
 

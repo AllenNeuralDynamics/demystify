@@ -14,7 +14,7 @@ import { EditorState, type Command } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { useEffect, useRef, useState } from 'react'
 import type { MystEditableBlock } from '../lib/myst'
-import type { CitationStyle } from '../lib/references'
+import type { CitationDetails, CitationStyle } from '../lib/references'
 import {
   createVisualInlineDocument,
   serializeVisualInlineDocument,
@@ -25,6 +25,7 @@ import {
 export type VisualCitationInserter = (
   keys: string[],
   style: CitationStyle,
+  details?: CitationDetails,
   bibliography?: string,
 ) => void
 
@@ -173,7 +174,7 @@ export const VisualInlineEditor = ({
     const view = viewRef.current
     if (!view) return
     const bookmark = view.state.selection.getBookmark()
-    onRequestCitation((keys, style, updatedBibliography) => {
+    onRequestCitation((keys, style, details, updatedBibliography) => {
       const currentView = viewRef.current
       if (!currentView) return
       let transaction = currentView.state.tr
@@ -185,10 +186,13 @@ export const VisualInlineEditor = ({
       const citation = visualInlineSchema.nodes.citation.create({
         keys,
         style,
+        prefix: details?.prefix ?? '',
+        suffix: details?.suffix ?? '',
         label: visualCitationLabel(
           keys,
           style,
           updatedBibliography ?? bibliographyRef.current,
+          details,
         ),
       })
       currentView.dispatch(transaction.replaceSelectionWith(citation).scrollIntoView())

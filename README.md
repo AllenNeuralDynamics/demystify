@@ -85,11 +85,18 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 
 Select **Cite** in the authoring toolbar to search the manuscript's local
 reference library first, then Crossref by title, author, year, or DOI. Multiple
-papers can be inserted as one parenthetical or narrative MyST citation. New
-records are deduplicated by DOI and added to a collaborative `references.bib`
+papers can be inserted as one parenthetical or narrative MyST citation, with
+optional MyST prefix and locator/suffix text. New records are deduplicated by DOI and added to a collaborative `references.bib`
 beside the bound manuscript (for example, `paper/references.bib` for
 `paper/index.md`). Existing BibTeX citation keys and source formatting are
 preserved.
+
+Select **References** to search and inspect the whole library, import or export
+standard BibTeX, edit one raw entry, remove uncited entries, or merge unused DOI
+duplicates into an explicitly retained key. Destructive operations are blocked
+when they would leave an existing manuscript citation unresolved. Collaborative
+library edits use an expected-source check, so a stale form cannot overwrite a
+change received from another editor.
 
 The same picker is available while editing rendered prose. Visual editing
 supports headings and paragraphs with plain text, bold, italic, inline code,

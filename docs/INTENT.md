@@ -21,6 +21,7 @@ The intended workflow is:
 
 - **GitHub remains canonical.** Live collaboration complements branches and pull requests; it does not replace them.
 - **MyST remains source.** Directives, citations, equations, figures, and readable Markdown must survive editing without round-trip conversion.
+- **MyST configuration remains canonical.** Project and publication controls read and write standard page frontmatter or `project` fields in `myst.yml`. Authors use MyST `authors` and `affiliations`, including ORCID and CRediT `roles`; DeMystify does not maintain a parallel authorship schema.
 - **Least privilege.** Repository access comes from a narrowly scoped GitHub App, never shared personal access tokens.
 - **Repository rules still apply.** Generated assets, provenance, authorship, tests, and branch protection remain owned by each manuscript repository.
 - **Attribution is explicit.** GitHub identity should drive presence and audit history, while scientific authorship remains governed by the manuscript project.
@@ -41,4 +42,4 @@ The intended workflow is:
 
 ## Current Status
 
-The repository contains a tested MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. Before broad deployment it needs repository-aware asset resolution, server-rendered previews using each repository's actual MyST configuration, horizontal WebSocket fan-out, and operational controls.
+The repository contains a tested MVP with GitHub-gated WebSocket rooms and shared PostgreSQL persistence for Yjs state, room bindings, and sessions. The next project-level slices are a source-preserving editor for canonical MyST metadata and authorship, followed by multi-file project binding that honors MyST bibliography paths, article/export lists, and includes. Before broad deployment it also needs repository-aware asset resolution, server-rendered previews using each repository's actual MyST configuration, horizontal WebSocket fan-out, and operational controls.

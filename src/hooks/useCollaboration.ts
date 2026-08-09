@@ -28,6 +28,7 @@ import {
   createGeneratedReference,
   materializeBibliography,
   type GeneratedReferenceEntry,
+  type BibliographyEditResult,
   type PaperSearchResult,
 } from '../lib/references'
 
@@ -377,6 +378,25 @@ export const useCollaboration = (
     return { key: generated.key, added: true }
   }, [readOnly, session])
 
+  const commitBibliographyEdit = useCallback((
+    expected: string,
+    replacement: string,
+  ): BibliographyEditResult => {
+    if (!session || readOnly) return 'unavailable'
+    const current = materializeBibliography(
+      session.bibliography.toString(),
+      session.generatedReferences.values(),
+    )
+    if (current !== expected) return 'conflict'
+    session.document.transact(() => {
+      session.bibliography.delete(0, session.bibliography.length)
+      if (replacement) session.bibliography.insert(0, replacement.replace(/\r\n?/g, '\n'))
+      session.generatedReferences.clear()
+      session.metadata.set('bibliographyInitialized', true)
+    })
+    return 'applied'
+  }, [readOnly, session])
+
   const beginTextEdit = useCallback((
     from: number,
     to: number,
@@ -440,6 +460,7 @@ export const useCollaboration = (
     initializeBibliography,
     replaceBibliography,
     addBibliographyReference,
+    commitBibliographyEdit,
     getSnapshotContent,
     getSnapshotBibliography,
   }

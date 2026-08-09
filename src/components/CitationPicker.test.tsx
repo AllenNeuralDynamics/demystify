@@ -56,6 +56,14 @@ describe('CitationPicker', () => {
       Array.from(container.querySelectorAll<HTMLButtonElement>('.citation-style button'))
         .find((button) => button.textContent === 'Narrative')?.click()
     })
+    const prefix = container.querySelector<HTMLInputElement>('[aria-label="Citation prefix"]')
+    const suffix = container.querySelector<HTMLInputElement>(
+      '[aria-label="Citation locator or suffix"]',
+    )
+    await act(async () => {
+      if (prefix) setInputValue(prefix, 'see')
+      if (suffix) setInputValue(suffix, 'p. 22')
+    })
     await act(async () => {
       container.querySelector<HTMLButtonElement>('.citation-picker-footer .primary-button')?.click()
     })
@@ -63,6 +71,7 @@ describe('CitationPicker', () => {
     expect(onInsert).toHaveBeenCalledWith(
       [{ kind: 'existing', key: 'local2024' }],
       'narrative',
+      { prefix: 'see', suffix: 'p. 22' },
     )
     expect(searchPapers).not.toHaveBeenCalled()
 
@@ -116,7 +125,7 @@ describe('CitationPicker', () => {
         kind: 'paper',
         paper: expect.objectContaining({ doi: '10.1000/remote' }),
       }),
-    ], 'parenthetical')
+    ], 'parenthetical', {})
 
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))

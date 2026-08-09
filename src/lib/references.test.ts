@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import {
   addReference,
+  countCitationKeyUsages,
   createGeneratedReference,
+  deleteBibliographyEntry,
   formatCitation,
   getBibliographyPath,
+  importBibliography,
   materializeBibliography,
+  mergeDuplicateReferences,
   parseBibliography,
+  parseBibliographySourceEntries,
+  replaceBibliographyEntry,
   tryParseBibliography,
   type PaperSearchResult,
 } from './references'
@@ -141,6 +147,82 @@ describe('reference library', () => {
     expect(formatCitation(['smith2024', 'jones2023', 'smith2024'], 'parenthetical'))
       .toBe('{cite:p}`smith2024; jones2023`')
     expect(formatCitation(['smith2024'], 'narrative')).toBe('{cite:t}`smith2024`')
+    expect(formatCitation(['smith2024', 'jones2023'], 'parenthetical', {
+      prefix: 'see',
+      suffix: 'pp. 4-6',
+    })).toBe('{cite:p}`{see}smith2024; jones2023{pp. 4-6}`')
+    expect(() => formatCitation(['smith2024'], 'parenthetical', { suffix: 'p. {4}' }))
+      .toThrow('cannot contain braces')
     expect(() => formatCitation([], 'parenthetical')).toThrow('Select at least one')
+  })
+
+  it('locates raw entries with nested braces without rewriting surrounding text', () => {
+    const source = `% Library header
+@article{First,
+  title = {Keep {Nested} Formatting},
+  note = "A closing \\} in quotes"
+}
+
+@book(Second,
+  title = {Another work}
+)
+`
+    const entries = parseBibliographySourceEntries(source)
+    expect(entries.map((entry) => entry.key)).toEqual(['First', 'Second'])
+    expect(entries[0].raw).toContain('Keep {Nested} Formatting')
+
+    const replacement = entries[0].raw.replace('Nested', 'Exact')
+    const updated = replaceBibliographyEntry(source, 'First', replacement)
+    expect(updated).toContain('Keep {Exact} Formatting')
+    expect(updated.slice(updated.indexOf('@book'))).toBe(source.slice(source.indexOf('@book')))
+  })
+
+  it('blocks key changes and deletion of cited references', () => {
+    const source = '@article{Smith2024, title={Paper}, year={2024}}\n'
+    expect(() => replaceBibliographyEntry(
+      source,
+      'Smith2024',
+      '@article{Renamed, title={Paper}, year={2024}}',
+    )).toThrow('Citation keys cannot be changed')
+    const manuscript = 'Prior {cite:p}`Smith2024`. Also [@Smith2024].'
+    expect(countCitationKeyUsages(manuscript, 'Smith2024')).toBe(2)
+    expect(() => deleteBibliographyEntry(source, 'Smith2024', manuscript))
+      .toThrow('used by 2 citations')
+    expect(deleteBibliographyEntry(source, 'Smith2024', '')).not.toContain('@article')
+  })
+
+  it('merges only unused entries sharing the same DOI', () => {
+    const source = `@article{Keep, title={Paper}, doi={10.1000/example}}
+
+@article{Duplicate, title={Paper copy}, doi={https://doi.org/10.1000/EXAMPLE}}
+`
+    expect(mergeDuplicateReferences(source, 'Keep', '')).toContain('@article{Keep')
+    expect(mergeDuplicateReferences(source, 'Keep', '')).not.toContain('@article{Duplicate')
+    expect(() => mergeDuplicateReferences(source, 'Keep', '{cite:p}`Duplicate`'))
+      .toThrow('Cannot merge cited key')
+  })
+
+  it('imports standard BibTeX while skipping DOI duplicates and renaming key conflicts', () => {
+    const source = `@article{Existing,
+  title={Keep {My} Formatting},
+  doi={10.1000/existing}
+}
+`
+    const imported = `@article{Existing,
+  title={Different paper},
+  year={2022},
+  doi={10.1000/new}
+}
+
+@article{Skipped,
+  title={Existing DOI},
+  doi={10.1000/existing}
+}`
+    const result = importBibliography(source, imported)
+    expect(result.importedKeys).toEqual(['Existing2'])
+    expect(result.skippedKeys).toEqual(['Skipped'])
+    expect(result.renamedKeys).toEqual([{ from: 'Existing', to: 'Existing2' }])
+    expect(result.bibliography.startsWith(source)).toBe(true)
+    expect(result.bibliography).toContain('@article{Existing2')
   })
 })
