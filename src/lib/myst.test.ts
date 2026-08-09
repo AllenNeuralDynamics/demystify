@@ -115,6 +115,62 @@ describe('renderMyst', () => {
     )
   })
 
+  it('maps list items and blockquotes without including their structural markers', () => {
+    const source = `- A *listed* result.
+
+1. An ordered result.
+
+> A quoted **result**.
+`
+    const result = renderMyst(source)
+
+    expect(result.editableBlocks).toEqual([
+      expect.objectContaining({
+        kind: 'paragraph',
+        from: source.indexOf('A *listed* result.'),
+        to: source.indexOf('A *listed* result.') + 'A *listed* result.'.length,
+        value: 'A *listed* result.',
+      }),
+      expect.objectContaining({
+        kind: 'paragraph',
+        from: source.indexOf('An ordered result.'),
+        to: source.indexOf('An ordered result.') + 'An ordered result.'.length,
+        value: 'An ordered result.',
+      }),
+      expect.objectContaining({
+        kind: 'paragraph',
+        from: source.indexOf('A quoted **result**.'),
+        to: source.indexOf('A quoted **result**.') + 'A quoted **result**.'.length,
+        value: 'A quoted **result**.',
+      }),
+    ])
+  })
+
+  it('maps directive body prose and figure captions', () => {
+    const source = `:::{note}
+Editable **note** body.
+:::
+
+:::{figure} ./figure.svg
+:alt: Figure description
+
+Editable *caption*.
+:::
+`
+    const result = renderMyst(source)
+
+    expect(result.editableBlocks).toEqual([
+      expect.objectContaining({
+        kind: 'paragraph',
+        value: 'Editable **note** body.',
+      }),
+      expect.objectContaining({
+        kind: 'paragraph',
+        value: 'Editable *caption*.',
+      }),
+    ])
+  })
+
   it('renders raw HTML tables used by scientific manuscripts', () => {
     const result = renderMyst(`
 <div class="publication-data-source" hidden aria-hidden="true">
@@ -245,7 +301,9 @@ Mesoscope details.
 
     expect(result.error).toBeNull()
     expect(result.html).toContain('<h3>Shared</h3>')
-    expect(result.html).toContain('<p>Shared metadata details.</p>')
+    expect(result.html).toContain(
+      '<p data-myst-edit-id="myst-editable-0">Shared metadata details.</p>',
+    )
     expect(result.html).toContain('<h3>Mesoscope</h3>')
     expect(result.html).not.toContain('tab-set')
     expect(result.html).not.toContain('tab-item')

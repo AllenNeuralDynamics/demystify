@@ -91,10 +91,13 @@ beside the bound manuscript (for example, `paper/references.bib` for
 `paper/index.md`). Existing BibTeX citation keys and source formatting are
 preserved.
 
-The same picker is available while editing a rendered paragraph. Visual editing
-supports plain text, bold, italic, inline code, links, line breaks, and atomic
-citation chips. Blocks containing unsupported inline MyST remain rendered but
-read-only, so source syntax is never silently flattened.
+The same picker is available while editing rendered prose. Visual editing
+supports headings and paragraphs with plain text, bold, italic, inline code,
+links, line breaks, and atomic citation chips. That includes single-line list
+items and blockquotes, admonition and tab body prose, and figure captions while
+preserving their surrounding MyST markers. Tables, math and code blocks,
+directive settings, marked multiline blocks, and unsupported inline MyST remain
+rendered but read-only, so source syntax is never silently flattened.
 
 When a bibliography is present, **Save to GitHub** creates the manuscript blob,
 the `references.bib` blob, one Git tree, and one commit before advancing the room

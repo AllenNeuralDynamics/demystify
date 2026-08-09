@@ -89,6 +89,60 @@ describe('MystPreview', () => {
     yDocument.destroy()
   })
 
+  it('edits nested prose without consuming its structural markers', async () => {
+    const content = `- Listed **result**.
+
+> Quoted result.
+
+:::{note}
+Note body.
+:::
+${figure}`
+    const yDocument = new Y.Doc()
+    const text = yDocument.getText('content')
+    text.insert(0, content)
+    const onBeginEdit = (block: { from: number; to: number; value: string }) =>
+      createCollaborativeTextEditAnchor(text, block.from, block.to, block.value)
+    const onCommitEdit = vi.fn(() => 'applied' as const)
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          editable
+          onBeginEdit={onBeginEdit}
+          onCommitEdit={onCommitEdit}
+        />,
+      )
+    })
+
+    const paragraphWithText = (value: string) => Array.from(container.querySelectorAll('p'))
+      .find((paragraph) => paragraph.textContent === value)
+    const listParagraph = paragraphWithText('Listed result.')
+    expect(listParagraph?.classList).toContain('myst-editable-block')
+    expect(paragraphWithText('Quoted result.')?.classList).toContain('myst-editable-block')
+    expect(paragraphWithText('Note body.')?.classList).toContain('myst-editable-block')
+    expect(paragraphWithText('A static result.')?.classList).toContain('myst-editable-block')
+
+    await act(async () => listParagraph?.click())
+    const field = container.querySelector<HTMLElement>('[aria-label="Edit paragraph"]')
+    expect(field?.querySelector('strong')?.textContent).toBe('result')
+    await act(async () => {
+      if (field) await replaceEditableText(field, 'Revised list result.')
+      container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
+    })
+
+    expect(onCommitEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedText: 'Listed **result**.' }),
+      'Revised list result.',
+    )
+
+    await act(async () => root.unmount())
+    yDocument.destroy()
+  })
+
   it('keeps the visual draft open when the source changed concurrently', async () => {
     const content = '# Draft'
     const yDocument = new Y.Doc()

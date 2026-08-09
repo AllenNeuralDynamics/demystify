@@ -278,13 +278,30 @@ const getSourceLineStarts = (source: string) => {
   return starts
 }
 
+const getNodeLineRange = (node: PreviewTreeNode): { startLine: number; endLine: number } | null => {
+  const startLine = node.position?.start?.line
+  const endLine = node.position?.end?.line
+  if (typeof startLine === 'number' && typeof endLine === 'number') {
+    return { startLine, endLine }
+  }
+  const childRanges = (node.children ?? [])
+    .map(getNodeLineRange)
+    .filter((range): range is { startLine: number; endLine: number } => Boolean(range))
+  if (!childRanges.length) return null
+  return {
+    startLine: Math.min(...childRanges.map((range) => range.startLine)),
+    endLine: Math.max(...childRanges.map((range) => range.endLine)),
+  }
+}
+
 const getNodeContentRange = (
   node: PreviewTreeNode,
   source: string,
   lineStarts: number[],
 ) => {
-  const startLine = node.position?.start?.line
-  const endLine = node.position?.end?.line
+  const lineRange = getNodeLineRange(node)
+  const startLine = lineRange?.startLine
+  const endLine = lineRange?.endLine
   if (
     typeof startLine !== 'number' ||
     typeof endLine !== 'number' ||
@@ -309,7 +326,11 @@ const getNodeContentRange = (
   }
 
   if (!/^ {0,3}\S/.test(blockSource)) return null
-  const indentation = blockSource.match(/^ {0,3}/)?.[0].length ?? 0
+  const structuralPrefix = blockSource.match(
+    /^(?: {0,3}>[\t ]?)*(?: {0,3}(?:[-+*]|\d{1,9}[.)])[\t ]+(?:\[[ xX]\][\t ]+)?)?/,
+  )?.[0] ?? ''
+  if (structuralPrefix && blockSource.includes('\n')) return null
+  const indentation = structuralPrefix.length || (blockSource.match(/^ {0,3}/)?.[0].length ?? 0)
   return {
     from: blockFrom + indentation,
     to: blockFrom + blockSource.length,
@@ -394,31 +415,46 @@ const prepareEditableBlocks = (
   protectedTokens: Set<string>,
 ) => (tree: PreviewTreeNode) => {
   const lineStarts = getSourceLineStarts(source)
-  tree.children?.forEach((node) => {
-    if (node.type !== 'heading' && node.type !== 'paragraph') return
-    const range = getNodeContentRange(node, source, lineStarts)
-    const inline = parseEditableInline(node.children)
-    if (!range || !inline?.length) return
-    const value = source.slice(range.from, range.to)
-    if (Array.from(protectedTokens).some((token) => value.includes(token))) return
-
-    const block: MystEditableBlock = {
-      id: `myst-editable-${editableBlocks.length}`,
-      kind: node.type,
-      from: range.from,
-      to: range.to,
-      value,
-      inline,
+  const editableContainers = new Set([
+    'root',
+    'list',
+    'listItem',
+    'blockquote',
+    'mystDirective',
+    'mystDirectiveBody',
+    'admonition',
+    'container',
+  ])
+  const visitNode = (node: PreviewTreeNode, supportedContainer: boolean) => {
+    if (supportedContainer && (node.type === 'heading' || node.type === 'paragraph')) {
+      const range = getNodeContentRange(node, source, lineStarts)
+      const inline = parseEditableInline(node.children)
+      if (range && inline?.length) {
+        const value = source.slice(range.from, range.to)
+        if (!Array.from(protectedTokens).some((token) => value.includes(token))) {
+          const block: MystEditableBlock = {
+            id: `myst-editable-${editableBlocks.length}`,
+            kind: node.type,
+            from: range.from,
+            to: range.to,
+            value,
+            inline,
+          }
+          editableBlocks.push(block)
+          node.data = {
+            ...node.data,
+            hProperties: {
+              ...node.data?.hProperties,
+              'data-myst-edit-id': block.id,
+            },
+          }
+        }
+      }
     }
-    editableBlocks.push(block)
-    node.data = {
-      ...node.data,
-      hProperties: {
-        ...node.data?.hProperties,
-        'data-myst-edit-id': block.id,
-      },
-    }
-  })
+    const childContainerSupported = supportedContainer && editableContainers.has(node.type ?? '')
+    node.children?.forEach((child) => visitNode(child, childContainerSupported))
+  }
+  visitNode(tree, true)
 }
 
 const directiveBody = (data: DirectiveData) =>
