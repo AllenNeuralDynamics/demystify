@@ -73,6 +73,16 @@ interface GitReference {
   }
 }
 
+interface GitCommitDetails {
+  sha: string
+  html_url: string
+  tree: { sha: string }
+}
+
+interface GitObjectResponse {
+  sha: string
+}
+
 interface GitCommitResponse {
   commit: {
     sha: string
@@ -459,6 +469,114 @@ export const createRepositorySnapshot = async (
     commitSha: commit.commit.sha,
     commitUrl: commit.commit.html_url,
     fileSha: commit.content?.sha ?? null,
+    unchanged: false,
+  }
+}
+
+export const createRepositoryFilesSnapshot = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  files: Array<{ path: string; content: string }>,
+  commitMessage?: string,
+) => {
+  const { owner, repository, baseBranch, branchName } = target
+  if (!files.length) throw new ApiError(400, 'At least one snapshot file is required.')
+  const uniqueFiles = new Map<string, string>()
+  for (const file of files) {
+    const path = validatePath(file.path)
+    if (uniqueFiles.has(path)) throw new ApiError(400, `Snapshot path ${path} is duplicated.`)
+    uniqueFiles.set(path, file.content)
+  }
+  const message = commitMessage?.trim()
+    ? commitMessage.trim().slice(0, 120)
+    : `Update ${target.path} from DeMystify`
+  const repositoryPath = `/repos/${owner}/${repository}`
+  const branchReference = await findOrCreateBranch(
+    request,
+    owner,
+    repository,
+    baseBranch,
+    branchName,
+  )
+
+  const existingFiles = new Map<string, { sha: string; content: string }>()
+  await Promise.all(Array.from(uniqueFiles.keys(), async (path) => {
+    try {
+      const existing = await githubRequest<GitHubContentFile>(
+        request,
+        `${repositoryPath}/contents/${encodeRepositoryPath(path)}?ref=${encodeURIComponent(branchName)}`,
+      )
+      existingFiles.set(path, {
+        sha: existing.sha,
+        content: existing.encoding === 'base64' && existing.content
+          ? Buffer.from(existing.content.replace(/\s/g, ''), 'base64').toString('utf8')
+          : '',
+      })
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error
+    }
+  }))
+
+  const changedFiles = Array.from(uniqueFiles, ([path, content]) => ({ path, content }))
+    .filter((file) => existingFiles.get(file.path)?.content !== file.content)
+  if (!changedFiles.length) {
+    return {
+      branchName,
+      commitSha: branchReference.object.sha,
+      commitUrl: `https://github.com/${owner}/${repository}/commit/${branchReference.object.sha}`,
+      fileSha: existingFiles.get(target.path)?.sha ?? null,
+      unchanged: true,
+    }
+  }
+
+  const parentCommit = await githubRequest<GitCommitDetails>(
+    request,
+    `${repositoryPath}/git/commits/${branchReference.object.sha}`,
+  )
+  const blobs = await Promise.all(changedFiles.map(async (file) => ({
+    path: file.path,
+    blob: await githubRequest<GitObjectResponse>(request, `${repositoryPath}/git/blobs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: Buffer.from(file.content, 'utf8').toString('base64'),
+        encoding: 'base64',
+      }),
+    }),
+  })))
+  const tree = await githubRequest<GitObjectResponse>(request, `${repositoryPath}/git/trees`, {
+    method: 'POST',
+    body: JSON.stringify({
+      base_tree: parentCommit.tree.sha,
+      tree: blobs.map(({ path, blob }) => ({
+        path,
+        mode: '100644',
+        type: 'blob',
+        sha: blob.sha,
+      })),
+    }),
+  })
+  const commit = await githubRequest<GitCommitDetails>(request, `${repositoryPath}/git/commits`, {
+    method: 'POST',
+    body: JSON.stringify({
+      message,
+      tree: tree.sha,
+      parents: [branchReference.object.sha],
+    }),
+  })
+  await githubRequest<GitReference>(
+    request,
+    `${repositoryPath}/git/refs/heads/${encodeURIComponent(branchName)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ sha: commit.sha, force: false }),
+    },
+  )
+  const manuscriptBlob = blobs.find((entry) => entry.path === target.path)?.blob.sha
+  return {
+    branchName,
+    commitSha: commit.sha,
+    commitUrl: commit.html_url,
+    fileSha: manuscriptBlob ?? existingFiles.get(target.path)?.sha ?? null,
     unchanged: false,
   }
 }

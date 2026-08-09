@@ -1,6 +1,7 @@
 import type { Request } from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  createRepositoryFilesSnapshot,
   createRepositoryPullRequest,
   getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
@@ -39,6 +40,79 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('createRepositoryFilesSnapshot', () => {
+  it('commits the manuscript and bibliography atomically through one Git tree', async () => {
+    const requests: Array<{ url: string; method: string; body?: Record<string, unknown> }> = []
+    let blobIndex = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
+      requests.push({ url, method, body })
+      if (url.includes('/git/ref/heads/')) {
+        return jsonResponse({ object: { sha: 'parent-commit' } })
+      }
+      if (url.includes('/contents/')) return jsonResponse({ message: 'Not Found' }, 404)
+      if (url.endsWith('/git/commits/parent-commit')) {
+        return jsonResponse({ sha: 'parent-commit', tree: { sha: 'base-tree' } })
+      }
+      if (url.endsWith('/git/blobs')) {
+        blobIndex += 1
+        return jsonResponse({ sha: `blob-${blobIndex}` })
+      }
+      if (url.endsWith('/git/trees')) return jsonResponse({ sha: 'new-tree' })
+      if (url.endsWith('/git/commits') && method === 'POST') {
+        return jsonResponse({
+          sha: 'atomic-commit',
+          html_url: 'https://github.com/researcher/paper/commit/atomic-commit',
+          tree: { sha: 'new-tree' },
+        })
+      }
+      if (url.includes('/git/refs/heads/') && method === 'PATCH') {
+        return jsonResponse({ object: { sha: 'atomic-commit' } })
+      }
+      throw new Error(`Unexpected GitHub request: ${method} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(createRepositoryFilesSnapshot(request, target, [{
+      path: 'paper.md',
+      content: '# Paper\n',
+    }, {
+      path: 'references.bib',
+      content: '@article{paper, title={Paper}}\n',
+    }])).resolves.toEqual({
+      branchName: 'demystify/test-room',
+      commitSha: 'atomic-commit',
+      commitUrl: 'https://github.com/researcher/paper/commit/atomic-commit',
+      fileSha: 'blob-1',
+      unchanged: false,
+    })
+
+    const treeRequest = requests.find(({ url }) => url.endsWith('/git/trees'))
+    expect(treeRequest?.body).toEqual({
+      base_tree: 'base-tree',
+      tree: [{
+        path: 'paper.md',
+        mode: '100644',
+        type: 'blob',
+        sha: 'blob-1',
+      }, {
+        path: 'references.bib',
+        mode: '100644',
+        type: 'blob',
+        sha: 'blob-2',
+      }],
+    })
+    expect(requests.filter(({ url, method }) => url.endsWith('/git/commits') && method === 'POST'))
+      .toHaveLength(1)
+    expect(requests.at(-1)).toMatchObject({
+      method: 'PATCH',
+      body: { sha: 'atomic-commit', force: false },
+    })
+  })
 })
 
 describe('createRepositoryPullRequest', () => {

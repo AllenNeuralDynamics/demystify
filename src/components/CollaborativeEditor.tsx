@@ -9,6 +9,7 @@ import { yCollab } from 'y-codemirror.next'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import { getCommentRange } from '../lib/commentAnchors'
+import { getCitationInsertion } from '../lib/citationInsertion'
 import {
   fillSnippetSelection,
   mystAuthoringCompletionSource,
@@ -35,6 +36,8 @@ export interface CollaborativeEditorHandle {
   redo: () => void
   wrapSelection: (before: string, after?: string) => void
   insertSnippet: (template: string, selectedTextPlaceholder?: string) => void
+  insertText: (text: string) => void
+  insertCitation: (citation: string) => void
   getCommentSelection: () => { from: number; to: number } | null
   revealRange: (from: number, to: number) => void
   focus: () => void
@@ -216,6 +219,32 @@ export const CollaborativeEditor = forwardRef<
         selectedText,
       )
       snippet(resolvedTemplate)(view, null, from, to)
+      view.focus()
+    },
+    insertText: (text) => {
+      const view = viewRef.current
+      if (!view || readOnlyRef.current || !text) return
+      const { from, to } = view.state.selection.main
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+      })
+      view.focus()
+    },
+    insertCitation: (citation) => {
+      const view = viewRef.current
+      if (!view || readOnlyRef.current || !citation) return
+      const { from, to } = view.state.selection.main
+      const insertion = getCitationInsertion(
+        view.state.doc.toString(),
+        from,
+        to,
+        citation,
+      )
+      view.dispatch({
+        changes: { from, to, insert: insertion.text },
+        selection: { anchor: from + insertion.cursorOffset },
+      })
       view.focus()
     },
     getCommentSelection: () => {

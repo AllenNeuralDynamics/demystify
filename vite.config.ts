@@ -7,11 +7,17 @@ import { fileURLToPath } from 'node:url'
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      'markdown-it/lib/common/utils.js': fileURLToPath(
+    alias: [{
+      find: 'markdown-it/lib/common/utils.js',
+      replacement: fileURLToPath(
         new URL('./src/shims/markdownItUtils.ts', import.meta.url),
       ),
-    },
+    }, {
+      find: /^@citation-js\/core$/,
+      replacement: fileURLToPath(
+        new URL('./src/shims/citationJsCore.ts', import.meta.url),
+      ),
+    }],
   },
   server: {
     host: process.env.HOST ?? '127.0.0.1',

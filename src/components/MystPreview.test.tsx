@@ -19,19 +19,18 @@ A static result.
 :::
 `
 
-const setNativeValue = (
-  field: HTMLInputElement | HTMLTextAreaElement,
-  value: string,
-) => {
-  const prototype = field instanceof HTMLTextAreaElement
-    ? HTMLTextAreaElement.prototype
-    : HTMLInputElement.prototype
-  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(field, value)
-  field.dispatchEvent(new Event('input', { bubbles: true }))
+const replaceEditableText = async (field: HTMLElement, value: string) => {
+  field.textContent = value
+  field.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    data: value,
+    inputType: 'insertText',
+  }))
+  await new Promise((resolve) => window.setTimeout(resolve, 0))
 }
 
 describe('MystPreview', () => {
-  it('edits source-mapped plain blocks while leaving formatted blocks read-only', async () => {
+  it('edits plain blocks and preserves supported formatting in rich blocks', async () => {
     const content = '# Draft\n\nFirst paragraph.\n\nA *formatted* paragraph.'
     const yDocument = new Y.Doc()
     const text = yDocument.getText('content')
@@ -58,14 +57,24 @@ describe('MystPreview', () => {
 
     const paragraphs = container.querySelectorAll('p')
     expect(paragraphs[0].classList).toContain('myst-editable-block')
-    expect(paragraphs[1].classList).not.toContain('myst-editable-block')
+    expect(paragraphs[1].classList).toContain('myst-editable-block')
+
+    await act(async () => paragraphs[1].click())
+    expect(container.querySelector('[aria-label="Edit paragraph"] em')?.textContent).toBe('formatted')
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
+    })
+    expect(onCommitEdit).toHaveBeenLastCalledWith(
+      expect.objectContaining({ expectedText: 'A *formatted* paragraph.' }),
+      'A *formatted* paragraph.',
+    )
 
     await act(async () => paragraphs[0].click())
-    const field = container.querySelector<HTMLTextAreaElement>('[aria-label="Edit paragraph"]')
+    const field = container.querySelector<HTMLElement>('[aria-label="Edit paragraph"]')
     expect(field).not.toBeNull()
     await act(async () => {
       if (!field) return
-      setNativeValue(field, 'Revised paragraph.')
+      await replaceEditableText(field, 'Revised paragraph.')
     })
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
@@ -141,9 +150,9 @@ describe('MystPreview', () => {
         key: 'Enter',
       }))
     })
-    const field = container.querySelector<HTMLInputElement>('[aria-label="Edit heading"]')
+    const field = container.querySelector<HTMLElement>('[aria-label="Edit heading"]')
     await act(async () => {
-      if (field) setNativeValue(field, '   ')
+      if (field) await replaceEditableText(field, '   ')
       container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
     })
 

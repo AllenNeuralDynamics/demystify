@@ -1,5 +1,6 @@
 import {
   Archive,
+  AtSign,
   Bold,
   Check,
   ChevronDown,
@@ -34,10 +35,12 @@ import {
   CollaborativeEditor,
   type CollaborativeEditorHandle,
 } from './components/CollaborativeEditor'
+import { CitationPicker, type CitationSelection } from './components/CitationPicker'
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
 import { ShareDialog } from './components/ShareDialog'
+import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
 import { useRoomAccess } from './hooks/useRoomAccess'
@@ -48,6 +51,7 @@ import {
   getRepositoryFileGitHubUrl,
   getRepositoryGitHubUrl,
   loadRepositoryFile,
+  loadRepositoryBibliography,
   mirrorRoomComment,
   mirrorRoomCommentReply,
   startRoomRevision,
@@ -55,6 +59,7 @@ import {
   type RepositoryBinding,
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
+import { formatCitation, type CitationStyle } from './lib/references'
 import { sampleManuscript } from './lib/sampleManuscript'
 
 type WorkspaceView = 'source' | 'split' | 'preview'
@@ -123,6 +128,8 @@ function App() {
   const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [citationPickerOpen, setCitationPickerOpen] = useState(false)
+  const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingEditAccess, setIsCheckingEditAccess] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
@@ -191,6 +198,9 @@ function App() {
     isReadOnly,
   )
   const sharedComments = collaboration.comments
+  const initializeBibliography = collaboration.initializeBibliography
+  const isBibliographyInitialized = collaboration.isBibliographyInitialized
+  const isCollaborationSynced = collaboration.isSynced
   const applyCommentMirror = collaboration.applyCommentMirror
   const applyCommentMessageMirror = collaboration.applyCommentMessageMirror
   const applyGitHubCommentSync = collaboration.applyGitHubCommentSync
@@ -289,6 +299,33 @@ function App() {
       active = false
     }
   }, [initializeRevision, repositoryBinding, roomAccess.isReady])
+
+  useEffect(() => {
+    if (
+      !repositoryBinding ||
+      !isCollaborationSynced ||
+      isBibliographyInitialized ||
+      isReadOnly
+    ) return
+    let active = true
+    loadRepositoryBibliography(repositoryBinding)
+      .then((file) => {
+        if (active) initializeBibliography(file.content)
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        showNotice(error instanceof Error ? error.message : 'Could not load references.bib')
+      })
+    return () => {
+      active = false
+    }
+  }, [
+    initializeBibliography,
+    isBibliographyInitialized,
+    isCollaborationSynced,
+    isReadOnly,
+    repositoryBinding,
+  ])
 
   useEffect(() => {
     if (!roomReviewNumber) return
@@ -520,6 +557,9 @@ function App() {
       const snapshot = await createSnapshot(
         roomName,
         collaboration.getSnapshotContent(),
+        collaboration.bibliography.trim()
+          ? collaboration.getSnapshotBibliography()
+          : undefined,
       )
       roomAccess.applyReview(snapshot.review)
       showNotice(
@@ -538,15 +578,47 @@ function App() {
     }
   }
 
+  const insertCitation = (
+    selections: CitationSelection[],
+    style: CitationStyle,
+  ) => {
+    try {
+      const keys = selections.map((selection) => {
+        if (selection.kind === 'existing') return selection.key
+        const result = collaboration.addBibliographyReference(selection.paper)
+        if (!result) throw new Error('The reference library is not writable.')
+        return result.key
+      })
+      if (visualCitationInserter) {
+        visualCitationInserter(keys, style, collaboration.getSnapshotBibliography())
+      }
+      else editorRef.current?.insertCitation(formatCitation(keys, style))
+      setCitationPickerOpen(false)
+      setVisualCitationInserter(null)
+      showNotice(`${keys.length} ${keys.length === 1 ? 'citation' : 'citations'} inserted`)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Could not insert the citation')
+    }
+  }
+
+  const closeCitationPicker = () => {
+    setCitationPickerOpen(false)
+    setVisualCitationInserter(null)
+  }
+
   const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
     if (isReadOnly) return
+    const bibliographyFile = await loadRepositoryBibliography(binding)
     await roomAccess.bind(binding)
     collaboration.replaceContent(content)
+    collaboration.replaceBibliography(bibliographyFile.content)
   }
 
   const bindRepositoryDraft = async (binding: RepositoryBinding) => {
     if (isReadOnly) return
+    const bibliographyFile = await loadRepositoryBibliography(binding)
     await roomAccess.bind(binding)
+    collaboration.replaceBibliography(bibliographyFile.content)
   }
 
   return (
@@ -840,6 +912,19 @@ function App() {
                   pattern.selectedTextPlaceholder,
                 )}
               />
+              <button
+                className="citation-trigger"
+                type="button"
+                title="Cite a paper"
+                disabled={isReadOnly}
+                onClick={() => {
+                  setVisualCitationInserter(null)
+                  setCitationPickerOpen(true)
+                }}
+              >
+                <AtSign size={16} />
+                <span>Cite</span>
+              </button>
               <span className="toolbar-divider" />
               <button className="icon-button" type="button" title="Bold" disabled={isReadOnly} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
@@ -913,6 +998,7 @@ function App() {
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
                   assetBaseUrl={repositoryAssetBaseUrl}
+                  bibliography={collaboration.bibliography}
                   content={collaboration.content}
                   editable={!isReadOnly && collaboration.isSynced}
                   onBeginEdit={(block) => collaboration.beginTextEdit(
@@ -922,6 +1008,10 @@ function App() {
                   )}
                   onCommitEdit={collaboration.commitTextEdit}
                   onEditError={showNotice}
+                  onRequestCitation={(insert) => {
+                    setVisualCitationInserter(() => insert)
+                    setCitationPickerOpen(true)
+                  }}
                 />
               </Suspense>
             </section>
@@ -1090,6 +1180,15 @@ function App() {
           </div>
         </section>
       </main>
+
+      {citationPickerOpen && (
+        <CitationPicker
+          bibliography={collaboration.bibliography}
+          roomName={roomName}
+          onClose={closeCitationPicker}
+          onInsert={insertCitation}
+        />
+      )}
 
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 

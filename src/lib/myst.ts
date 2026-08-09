@@ -4,6 +4,7 @@ import { mystParser } from 'myst-parser'
 import { State, formatHtml, mystToHast, transform } from 'myst-to-html'
 import rehypeStringify from 'rehype-stringify'
 import { unified } from 'unified'
+import { tryParseBibliography, type PaperReference } from './references'
 
 export interface MystRenderResult {
   html: string
@@ -17,10 +18,20 @@ export interface MystEditableBlock {
   from: number
   to: number
   value: string
+  inline: MystEditableInline[]
 }
+
+export type MystEditableInline =
+  | { type: 'text'; value: string }
+  | { type: 'strong' | 'emphasis'; children: MystEditableInline[] }
+  | { type: 'inlineCode'; value: string }
+  | { type: 'link'; url: string; title?: string; children: MystEditableInline[] }
+  | { type: 'break' }
+  | { type: 'citation'; keys: string[]; style: 'parenthetical' | 'narrative' }
 
 interface MystRenderOptions {
   assetBaseUrl?: string
+  bibliography?: string
 }
 
 interface ProtectedHtmlBlock {
@@ -120,8 +131,16 @@ const preparePreviewSource = (source: string) => source.replace(
 
 interface PreviewTreeNode {
   type?: string
+  name?: string
+  kind?: string
   value?: string
   title?: string
+  label?: string
+  identifier?: string
+  prefix?: string
+  suffix?: string
+  partial?: string
+  url?: string
   children?: PreviewTreeNode[]
   position?: {
     start?: { line?: number; column?: number }
@@ -132,6 +151,125 @@ interface PreviewTreeNode {
   }
 }
 
+const citationAuthor = (reference: PaperReference) => {
+  const names = reference.authors
+    .map((author) => author.family || author.literal)
+    .filter((name): name is string => Boolean(name))
+  if (!names.length) return reference.key
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} & ${names[1]}`
+  return `${names[0]} et al.`
+}
+
+const citationLabel = (node: PreviewTreeNode, reference: PaperReference) => {
+  if (node.partial === 'author') return citationAuthor(reference)
+  if (node.partial === 'year') return String(reference.year ?? 'n.d.')
+  return node.kind === 'narrative'
+    ? `${citationAuthor(reference)} (${reference.year ?? 'n.d.'})`
+    : `${citationAuthor(reference)}, ${reference.year ?? 'n.d.'}`
+}
+
+const citationLink = (node: PreviewTreeNode, reference: PaperReference): PreviewTreeNode => ({
+  type: 'link',
+  url: reference.doi ? `https://doi.org/${reference.doi}` : reference.url ?? '#references',
+  children: [{ type: 'text', value: citationLabel(node, reference) }],
+  data: {
+    hProperties: {
+      className: ['myst-citation'],
+      'data-citation-key': reference.key,
+    },
+  },
+})
+
+const preparePreviewCitations = (
+  bibliography: string,
+) => (tree: PreviewTreeNode) => {
+  const parsed = tryParseBibliography(bibliography)
+  if (parsed.error) return
+  const references = new Map<string, PaperReference>(
+    parsed.references.map((reference): [string, PaperReference] => [
+      reference.key.toLowerCase(),
+      reference,
+    ]),
+  )
+  const citedKeys: string[] = []
+
+  const resolveCitation = (node: PreviewTreeNode) => {
+    const key = node.identifier || node.label
+    const lookupKey = key?.toLowerCase()
+    const reference = lookupKey ? references.get(lookupKey) : undefined
+    if (!reference || !lookupKey) {
+      return [{ type: 'text', value: key ? `[missing: ${key}]` : '[missing citation]' }]
+    }
+    if (!citedKeys.includes(lookupKey)) citedKeys.push(lookupKey)
+    const link = citationLink(node, reference)
+    const children: PreviewTreeNode[] = []
+    if (node.prefix) children.push({ type: 'text', value: `${node.prefix} ` })
+    children.push(link)
+    if (node.suffix) children.push({ type: 'text', value: `, ${node.suffix}` })
+    return children
+  }
+
+  const visitNode = (node: PreviewTreeNode) => {
+    if (!node.children) return
+    node.children = node.children.flatMap((child) => {
+      if (child.type === 'cite') return resolveCitation(child)
+      if (child.type === 'citeGroup') {
+        const children = (child.children ?? []).flatMap((citation, index) => [
+          ...(index ? [{ type: 'text', value: '; ' } as PreviewTreeNode] : []),
+          ...resolveCitation(citation),
+        ])
+        return child.kind === 'parenthetical'
+          ? [{ type: 'text', value: '(' }, ...children, { type: 'text', value: ')' }]
+          : children
+      }
+      visitNode(child)
+      return [child]
+    })
+  }
+  visitNode(tree)
+
+  if (!citedKeys.length || !tree.children) return
+  tree.children.push({
+    type: 'heading',
+    depth: 2,
+    identifier: 'references',
+    children: [{ type: 'text', value: 'References' }],
+  } as PreviewTreeNode, {
+    type: 'list',
+    ordered: true,
+    spread: false,
+    children: citedKeys.flatMap((key) => {
+      const reference = references.get(key)
+      if (!reference) return []
+      const author = reference.authors.map((name) => [name.family, name.given]
+        .filter(Boolean).join(', ')).join('; ') || 'Unknown author'
+      const details = [
+        author,
+        reference.year ? `(${reference.year})` : '(n.d.)',
+        reference.title,
+        reference.containerTitle,
+      ].filter(Boolean).join('. ')
+      const referenceContent: PreviewTreeNode = reference.doi || reference.url
+        ? {
+            type: 'link',
+            url: reference.doi ? `https://doi.org/${reference.doi}` : reference.url ?? undefined,
+            children: [{ type: 'text', value: details }],
+            data: { hProperties: { className: ['myst-reference'] } },
+          }
+        : { type: 'text', value: details }
+      return [{
+        type: 'listItem',
+        spread: false,
+        children: [{
+          type: 'paragraph',
+          children: [referenceContent],
+        }],
+      } as PreviewTreeNode]
+    }),
+  } as PreviewTreeNode)
+}
+
 const getSourceLineStarts = (source: string) => {
   const starts = [0]
   for (let index = 0; index < source.length; index += 1) {
@@ -140,9 +278,8 @@ const getSourceLineStarts = (source: string) => {
   return starts
 }
 
-const getNodeTextRange = (
+const getNodeContentRange = (
   node: PreviewTreeNode,
-  value: string,
   source: string,
   lineStarts: number[],
 ) => {
@@ -164,48 +301,114 @@ const getNodeTextRange = (
     : undefined
   if (node.type === 'heading' && !headingPrefix) return null
 
-  const searchFrom = headingPrefix?.length ?? 0
-  const valueFrom = blockSource.indexOf(value, searchFrom)
-  if (valueFrom < 0) return null
-
-  const before = blockSource.slice(0, valueFrom)
-  const after = blockSource.slice(valueFrom + value.length)
-  const hasValidSyntax = node.type === 'heading'
-    ? before === headingPrefix && /^(?:[\t ]+#+[\t ]*)?$/.test(after)
-    : /^ {0,3}$/.test(before) && /^[\t ]*$/.test(after)
-  if (!hasValidSyntax) return null
-
-  return {
-    from: blockFrom + valueFrom,
-    to: blockFrom + valueFrom + value.length,
+  if (node.type === 'heading') {
+    const closing = blockSource.match(/[\t ]+#+[\t ]*$/)?.[0] ?? ''
+    const from = blockFrom + (headingPrefix?.length ?? 0)
+    const to = blockFrom + blockSource.length - closing.length
+    return to > from ? { from, to } : null
   }
+
+  if (!/^ {0,3}\S/.test(blockSource)) return null
+  const indentation = blockSource.match(/^ {0,3}/)?.[0].length ?? 0
+  return {
+    from: blockFrom + indentation,
+    to: blockFrom + blockSource.length,
+  }
+}
+
+const parseEditableInline = (
+  nodes: PreviewTreeNode[] | undefined,
+): MystEditableInline[] | null => {
+  if (!nodes) return null
+  const parsed: MystEditableInline[] = []
+  for (const node of nodes) {
+    if (node.type === 'text' && typeof node.value === 'string') {
+      parsed.push({ type: 'text', value: node.value })
+      continue
+    }
+    if (node.type === 'strong' || node.type === 'emphasis') {
+      const children = parseEditableInline(node.children)
+      if (!children) return null
+      parsed.push({ type: node.type, children })
+      continue
+    }
+    if (node.type === 'inlineCode' && typeof node.value === 'string') {
+      parsed.push({ type: 'inlineCode', value: node.value })
+      continue
+    }
+    if (node.type === 'link' && typeof node.url === 'string') {
+      const children = parseEditableInline(node.children)
+      if (!children) return null
+      parsed.push({
+        type: 'link',
+        url: node.url,
+        ...(node.title ? { title: node.title } : {}),
+        children,
+      })
+      continue
+    }
+    if (node.type === 'break') {
+      parsed.push({ type: 'break' })
+      continue
+    }
+    if (node.type === 'mystRole' && node.name?.startsWith('cite:')) {
+      const children = parseEditableInline(node.children)
+      const citation = children?.length === 1 && children[0].type === 'citation'
+        ? children[0]
+        : null
+      const keys = node.value?.split(';').map((key) => key.trim()).filter(Boolean) ?? []
+      if (!citation || keys.length !== citation.keys.length) return null
+      parsed.push({ ...citation, keys })
+      continue
+    }
+    if (node.type === 'cite' && !node.prefix && !node.suffix && !node.partial) {
+      const key = node.identifier || node.label
+      if (!key || (node.kind !== 'parenthetical' && node.kind !== 'narrative')) return null
+      parsed.push({ type: 'citation', keys: [key], style: node.kind })
+      continue
+    }
+    if (
+      node.type === 'citeGroup' &&
+      (node.kind === 'parenthetical' || node.kind === 'narrative')
+    ) {
+      const keys = (node.children ?? []).map((citation) =>
+        !citation.prefix && !citation.suffix && !citation.partial
+          ? citation.identifier || citation.label
+          : undefined)
+      if (!keys.length || keys.some((key) => !key)) return null
+      parsed.push({
+        type: 'citation',
+        keys: keys as string[],
+        style: node.kind,
+      })
+      continue
+    }
+    return null
+  }
+  return parsed
 }
 
 const prepareEditableBlocks = (
   source: string,
   editableBlocks: MystEditableBlock[],
+  protectedTokens: Set<string>,
 ) => (tree: PreviewTreeNode) => {
   const lineStarts = getSourceLineStarts(source)
   tree.children?.forEach((node) => {
     if (node.type !== 'heading' && node.type !== 'paragraph') return
-    if (node.children?.length !== 1 || node.children[0].type !== 'text') return
-
-    const text = node.children[0]
-    const range = typeof text.value === 'string'
-      ? getNodeTextRange(node, text.value, source, lineStarts)
-      : null
-    if (
-      !range ||
-      typeof text.value !== 'string' ||
-      source.slice(range.from, range.to) !== text.value
-    ) return
+    const range = getNodeContentRange(node, source, lineStarts)
+    const inline = parseEditableInline(node.children)
+    if (!range || !inline?.length) return
+    const value = source.slice(range.from, range.to)
+    if (Array.from(protectedTokens).some((token) => value.includes(token))) return
 
     const block: MystEditableBlock = {
       id: `myst-editable-${editableBlocks.length}`,
       kind: node.type,
       from: range.from,
       to: range.to,
-      value: text.value,
+      value,
+      inline,
     }
     editableBlocks.push(block)
     node.data = {
@@ -321,7 +524,12 @@ export const renderMyst = (
           previewAuthorshipExplorerDirective,
         ],
       })
-      .use(() => prepareEditableBlocks(protectedHtml.source, editableBlocks))
+      .use(() => prepareEditableBlocks(
+        protectedHtml.source,
+        editableBlocks,
+        new Set(protectedHtml.blocks.map((block) => block.token)),
+      ))
+      .use(() => preparePreviewCitations(options.bibliography ?? ''))
       .use(prepareLightweightPreview)
       .use(transform, new State())
       .use(mystToHast)

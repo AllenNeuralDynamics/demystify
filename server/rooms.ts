@@ -8,9 +8,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
 import type { Pool, PoolClient } from 'pg'
+import { searchCrossrefWorks } from './citations.js'
 import {
   ApiError,
   createRepositoryPullRequest,
+  createRepositoryFilesSnapshot,
   createRepositorySnapshot,
   findRepositoryPullRequest,
   getRepositoryPullRequest,
@@ -247,6 +249,12 @@ const requireBinding = (room: RoomRecord) => {
 
 const getDocumentTitle = (content: string) =>
   content.match(/^#\s+(.+)$/m)?.[1]?.trim() || 'Untitled manuscript'
+
+const getBibliographyPath = (manuscriptPath: string) => {
+  const segments = manuscriptPath.split('/')
+  segments[segments.length - 1] = 'references.bib'
+  return segments.join('/')
+}
 
 const toRoomReview = (
   pullRequest: RepositoryPullRequest,
@@ -1078,6 +1086,15 @@ export const createRoomRouter = (
   router.delete('/rooms/:roomName/viewer-links', revokeShareLink('viewer'))
   router.delete('/rooms/:roomName/collaborator-links', revokeShareLink('collaborator'))
 
+  router.get('/rooms/:roomName/citations/search', async (request, response) => {
+    const roomName = readRoomNameParameter(request)
+    requireWritableRoom(
+      await authorizeRoomRequest(request, roomStore, roomName, options),
+    )
+    const query = typeof request.query.q === 'string' ? request.query.q : ''
+    response.json({ results: await searchCrossrefWorks(query) })
+  })
+
   router.post('/rooms/:roomName/snapshots', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
     const room = requireWritableRoom(
@@ -1085,17 +1102,23 @@ export const createRoomRouter = (
     )
     const binding = requireBinding(room)
     const content = readText(request.body.content, 'content')
+    const bibliography = typeof request.body.bibliography === 'string'
+      ? request.body.bibliography
+      : undefined
     const commitMessage =
       typeof request.body.commitMessage === 'string'
         ? request.body.commitMessage
         : undefined
 
-    const snapshot = await createRepositorySnapshot(
-      request,
-      binding,
-      content,
-      commitMessage,
-    )
+    const snapshot = bibliography === undefined
+      ? await createRepositorySnapshot(request, binding, content, commitMessage)
+      : await createRepositoryFilesSnapshot(request, binding, [{
+          path: binding.path,
+          content,
+        }, {
+          path: getBibliographyPath(binding.path),
+          content: bibliography,
+        }], commitMessage)
     let review = room.review
     if (!binding.isFork) {
       const existingPullRequest =

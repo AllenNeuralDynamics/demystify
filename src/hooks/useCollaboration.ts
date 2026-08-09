@@ -22,6 +22,14 @@ import {
   type CollaborativeTextEditAnchor,
   type CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
+import {
+  addReference,
+  canonicalReferenceId,
+  createGeneratedReference,
+  materializeBibliography,
+  type GeneratedReferenceEntry,
+  type PaperSearchResult,
+} from '../lib/references'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -58,6 +66,8 @@ interface CollaborationSession {
   document: Y.Doc
   provider: WebsocketProvider
   text: Y.Text
+  bibliography: Y.Text
+  generatedReferences: Y.Map<GeneratedReferenceEntry>
   comments: Y.Map<SharedComment>
   commentMessages: Y.Map<SharedCommentMessage>
   metadata: Y.Map<string | number | boolean>
@@ -94,6 +104,8 @@ export const useCollaboration = (
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
+  const [bibliography, setBibliography] = useState('')
+  const [isBibliographyInitialized, setIsBibliographyInitialized] = useState(false)
   const [comments, setComments] = useState<SharedComment[]>([])
   const [commentMessages, setCommentMessages] = useState<SharedCommentMessage[]>([])
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
@@ -107,6 +119,8 @@ export const useCollaboration = (
       connect: false,
     })
     const text = document.getText('content')
+    const bibliographyText = document.getText('bibliography')
+    const generatedReferences = document.getMap<GeneratedReferenceEntry>('references')
     const commentMap = document.getMap<SharedComment>('comments')
     const commentMessageMap = document.getMap<SharedCommentMessage>('commentMessages')
     const metadata = document.getMap<string | number | boolean>('metadata')
@@ -114,6 +128,8 @@ export const useCollaboration = (
       document,
       provider,
       text,
+      bibliography: bibliographyText,
+      generatedReferences,
       comments: commentMap,
       commentMessages: commentMessageMap,
       metadata,
@@ -121,6 +137,13 @@ export const useCollaboration = (
     let initializationTimer: number | undefined
 
     const updateContent = () => setContent(text.toString())
+    const updateBibliography = () => setBibliography(materializeBibliography(
+      bibliographyText.toString(),
+      generatedReferences.values(),
+    ))
+    const updateMetadata = () => {
+      setIsBibliographyInitialized(metadata.get('bibliographyInitialized') === true)
+    }
     const updateComments = () => {
       setComments(
         Array.from(commentMap.values()).sort((first, second) =>
@@ -175,6 +198,9 @@ export const useCollaboration = (
     provider.on('sync', initializeEmptyDocument)
     provider.awareness.on('change', updateCollaborators)
     text.observe(updateContent)
+    bibliographyText.observe(updateBibliography)
+    generatedReferences.observe(updateBibliography)
+    metadata.observe(updateMetadata)
     commentMap.observe(updateComments)
     commentMessageMap.observe(updateCommentMessages)
     const connectionTimer = window.setTimeout(() => provider.connect(), 0)
@@ -183,6 +209,9 @@ export const useCollaboration = (
       window.clearTimeout(connectionTimer)
       window.clearTimeout(initializationTimer)
       text.unobserve(updateContent)
+      bibliographyText.unobserve(updateBibliography)
+      generatedReferences.unobserve(updateBibliography)
+      metadata.unobserve(updateMetadata)
       commentMap.unobserve(updateComments)
       commentMessageMap.unobserve(updateCommentMessages)
       provider.off('status', updateStatus)
@@ -192,6 +221,8 @@ export const useCollaboration = (
       document.destroy()
       setSession(null)
       setIsSynced(false)
+      setBibliography('')
+      setIsBibliographyInitialized(false)
     }
   }, [enabled, initialContent, readOnly, roomName])
 
@@ -303,6 +334,49 @@ export const useCollaboration = (
     })
   }
 
+  const initializeBibliography = useCallback((source: string) => {
+    if (!session || readOnly || session.metadata.get('bibliographyInitialized')) return false
+    session.document.transact(() => {
+      session.bibliography.delete(0, session.bibliography.length)
+      if (source) session.bibliography.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.metadata.set('bibliographyInitialized', true)
+    })
+    return true
+  }, [readOnly, session])
+
+  const replaceBibliography = useCallback((source: string) => {
+    if (!session || readOnly) return
+    session.document.transact(() => {
+      session.bibliography.delete(0, session.bibliography.length)
+      if (source) session.bibliography.insert(0, source.replace(/\r\n?/g, '\n'))
+      session.generatedReferences.clear()
+      session.metadata.set('bibliographyInitialized', true)
+    })
+  }, [readOnly, session])
+
+  const addBibliographyReference = useCallback((paper: PaperSearchResult) => {
+    if (!session || readOnly) return null
+    const id = canonicalReferenceId(paper)
+    const existingGenerated = session.generatedReferences.get(id)
+    if (existingGenerated) {
+      return { key: existingGenerated.key, added: false }
+    }
+
+    const current = materializeBibliography(
+      session.bibliography.toString(),
+      session.generatedReferences.values(),
+    )
+    const existing = addReference(current, paper)
+    if (!existing.added) return { key: existing.key, added: false }
+    const generated = createGeneratedReference(current, paper)
+    if (!generated) return { key: existing.key, added: false }
+    session.document.transact(() => {
+      session.generatedReferences.set(id, generated)
+      session.metadata.set('bibliographyInitialized', true)
+    })
+    return { key: generated.key, added: true }
+  }, [readOnly, session])
+
   const beginTextEdit = useCallback((
     from: number,
     to: number,
@@ -333,15 +407,26 @@ export const useCollaboration = (
     )
   }
 
+  const getSnapshotBibliography = () => {
+    if (!session) return bibliography
+    return materializeBibliography(
+      session.bibliography.toString(),
+      session.generatedReferences.values(),
+    )
+  }
+
   return {
     sharedText: session?.text ?? null,
+    sharedBibliography: session?.bibliography ?? null,
     provider: session?.provider ?? null,
     content,
+    bibliography,
     comments,
     commentMessages,
     collaborators,
     status: enabled ? status : 'disconnected',
     isSynced,
+    isBibliographyInitialized,
     addComment,
     addCommentReply,
     toggleComment,
@@ -352,6 +437,10 @@ export const useCollaboration = (
     beginTextEdit,
     commitTextEdit,
     replaceContent,
+    initializeBibliography,
+    replaceBibliography,
+    addBibliographyReference,
     getSnapshotContent,
+    getSnapshotBibliography,
   }
 }

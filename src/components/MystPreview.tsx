@@ -1,6 +1,5 @@
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
-import { Check, X } from 'lucide-react'
 import morphdom from 'morphdom'
 import {
   memo,
@@ -13,7 +12,6 @@ import {
   useState,
 } from 'react'
 import type {
-  FocusEvent as ReactFocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from 'react'
@@ -23,9 +21,14 @@ import type {
   CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
 import { renderMyst, type MystEditableBlock } from '../lib/myst'
+import {
+  VisualInlineEditor,
+  type VisualCitationInserter,
+} from './VisualInlineEditor'
 
 interface MystPreviewProps {
   assetBaseUrl?: string
+  bibliography?: string
   content: string
   editable?: boolean
   onBeginEdit?: (block: MystEditableBlock) => CollaborativeTextEditAnchor | null
@@ -34,12 +37,12 @@ interface MystPreviewProps {
     replacement: string,
   ) => CollaborativeTextEditResult
   onEditError?: (message: string) => void
+  onRequestCitation?: (insert: VisualCitationInserter) => void
 }
 
 interface ActiveVisualEdit {
   anchor: CollaborativeTextEditAnchor
   block: MystEditableBlock
-  draft: string
   error: string | null
   target: HTMLElement
 }
@@ -48,19 +51,21 @@ const previewDelayMs = 400
 
 export const MystPreview = memo(({
   assetBaseUrl,
+  bibliography = '',
   content,
   editable = false,
   onBeginEdit,
   onCommitEdit,
   onEditError,
+  onRequestCitation,
 }: MystPreviewProps) => {
   const previewRef = useRef<HTMLElement>(null)
   const deferredContent = useDeferredValue(content)
   const [previewContent, setPreviewContent] = useState(deferredContent)
   const [activeEdit, setActiveEdit] = useState<ActiveVisualEdit | null>(null)
   const preview = useMemo(
-    () => renderMyst(previewContent, { assetBaseUrl }),
-    [assetBaseUrl, previewContent],
+    () => renderMyst(previewContent, { assetBaseUrl, bibliography }),
+    [assetBaseUrl, bibliography, previewContent],
   )
   const editableBlocks = useMemo(
     () => new Map(preview.editableBlocks.map((block) => [block.id, block])),
@@ -123,7 +128,7 @@ export const MystPreview = memo(({
 
     target.replaceChildren()
     target.classList.add('is-visual-editing')
-    setActiveEdit({ anchor, block, draft: block.value, error: null, target })
+    setActiveEdit({ anchor, block, error: null, target })
   }
 
   const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
@@ -143,11 +148,11 @@ export const MystPreview = memo(({
 
   const cancelEditing = () => setActiveEdit(null)
 
-  const commitEditing = () => {
+  const commitEditing = (draft: string) => {
     if (!activeEdit || !onCommitEdit) return
     const replacement = activeEdit.block.kind === 'heading'
-      ? activeEdit.draft.trim()
-      : activeEdit.draft
+      ? draft.trim()
+      : draft
     if (activeEdit.block.kind === 'heading' && !replacement) {
       setActiveEdit((current) => current
         ? { ...current, error: 'A heading cannot be empty.' }
@@ -170,28 +175,6 @@ export const MystPreview = memo(({
       : current)
   }
 
-  const handleEditorKeyDown = (
-    event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      cancelEditing()
-    } else if (
-      (activeEdit?.block.kind === 'heading' && event.key === 'Enter') ||
-      (event.key === 'Enter' && (event.metaKey || event.ctrlKey))
-    ) {
-      event.preventDefault()
-      commitEditing()
-    }
-  }
-
-  const handleEditorBlur = (event: ReactFocusEvent<HTMLSpanElement>) => {
-    const nextTarget = event.relatedTarget
-    if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-      commitEditing()
-    }
-  }
-
   if (preview.error && !activeEdit) {
     return (
       <div className="preview-error" role="status">
@@ -211,45 +194,14 @@ export const MystPreview = memo(({
         onKeyDown={handlePreviewKeyDown}
       />
       {activeEdit && createPortal(
-        <span className="visual-block-editor" onBlur={handleEditorBlur}>
-          {activeEdit.block.kind === 'heading' ? (
-            <input
-              autoFocus
-              aria-label="Edit heading"
-              className="visual-block-field"
-              value={activeEdit.draft}
-              onChange={(event) => setActiveEdit((current) => current
-                ? { ...current, draft: event.target.value, error: null }
-                : current)}
-              onKeyDown={handleEditorKeyDown}
-            />
-          ) : (
-            <textarea
-              autoFocus
-              aria-label="Edit paragraph"
-              className="visual-block-field"
-              rows={Math.max(2, Math.min(10, activeEdit.draft.split('\n').length + 1))}
-              value={activeEdit.draft}
-              onChange={(event) => setActiveEdit((current) => current
-                ? { ...current, draft: event.target.value, error: null }
-                : current)}
-              onKeyDown={handleEditorKeyDown}
-            />
-          )}
-          <span className="visual-block-actions">
-            <button type="button" title="Save visual edit" onClick={commitEditing}>
-              <Check size={15} />
-            </button>
-            <button type="button" title="Cancel visual edit" onClick={cancelEditing}>
-              <X size={15} />
-            </button>
-          </span>
-          {activeEdit.error && (
-            <span className="visual-block-error" role="alert">
-              {activeEdit.error}
-            </span>
-          )}
-        </span>,
+        <VisualInlineEditor
+          bibliography={bibliography}
+          block={activeEdit.block}
+          error={activeEdit.error}
+          onCancel={cancelEditing}
+          onRequestCitation={(insert) => onRequestCitation?.(insert)}
+          onSave={commitEditing}
+        />,
         activeEdit.target,
       )}
     </>

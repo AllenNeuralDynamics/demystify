@@ -1,3 +1,5 @@
+import { getBibliographyPath, type PaperSearchResult } from './references'
+
 export interface GitHubUser {
   id: number
   login: string
@@ -270,13 +272,39 @@ export const loadRepositoryFile = async (binding: RepositoryBinding) => {
   )
 }
 
-export const createSnapshot = (roomName: string, content: string) =>
+export const loadRepositoryBibliography = async (binding: RepositoryBinding) => {
+  const path = getBibliographyPath(binding.path)
+  try {
+    const file = await loadRepositoryFile({ ...binding, path })
+    return { ...file, exists: true }
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 404) {
+      return { content: '', sha: null, path, htmlUrl: null, exists: false }
+    }
+    throw error
+  }
+}
+
+export const createSnapshot = (
+  roomName: string,
+  content: string,
+  bibliography?: string,
+) =>
   apiRequest<SnapshotResult>(`/api/rooms/${encodeURIComponent(roomName)}/snapshots`, {
     method: 'POST',
     body: JSON.stringify({
       content,
+      ...(bibliography === undefined ? {} : { bibliography }),
     }),
   })
+
+export const searchPapers = async (roomName: string, query: string) => {
+  const parameters = new URLSearchParams({ q: query })
+  const result = await apiRequest<{ results: PaperSearchResult[] }>(
+    `/api/rooms/${encodeURIComponent(roomName)}/citations/search?${parameters}`,
+  )
+  return result.results
+}
 
 export const createPullRequest = (roomName: string, title: string) =>
   apiRequest<RoomReview>(

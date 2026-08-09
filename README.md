@@ -81,6 +81,26 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 8. Replies and native review-thread resolution synchronize in both directions while the room is open. DeMystify polls GitHub on focus and every 15 seconds.
 9. Closing or merging the PR archives the room. Text, comments, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
+## Citations And Visual Editing
+
+Select **Cite** in the authoring toolbar to search the manuscript's local
+reference library first, then Crossref by title, author, year, or DOI. Multiple
+papers can be inserted as one parenthetical or narrative MyST citation. New
+records are deduplicated by DOI and added to a collaborative `references.bib`
+beside the bound manuscript (for example, `paper/references.bib` for
+`paper/index.md`). Existing BibTeX citation keys and source formatting are
+preserved.
+
+The same picker is available while editing a rendered paragraph. Visual editing
+supports plain text, bold, italic, inline code, links, line breaks, and atomic
+citation chips. Blocks containing unsupported inline MyST remain rendered but
+read-only, so source syntax is never silently flattened.
+
+When a bibliography is present, **Save to GitHub** creates the manuscript blob,
+the `references.bib` blob, one Git tree, and one commit before advancing the room
+branch. A pull request therefore cannot contain a citation without its matching
+bibliography entry.
+
 GitHub is the durable review history; Yjs handles keystroke-level collaboration between commits.
 
 ## Sharing Access
@@ -124,6 +144,7 @@ npm start                   # Serve dist and WebSockets in production mode
 - PostgreSQL stores server sessions, immutable room bindings, and Yjs updates. Local LevelDB and JSON storage remain development fallbacks.
 - Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
 - Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
+- Paper search uses the public Crossref REST API through the server. Set the optional `CROSSREF_MAILTO` environment variable to identify production requests to Crossref's polite pool.
 - Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
 - Viewer-link rotation and revocation invalidate anonymous sessions and disconnect active viewer sockets immediately.
 - Repository permission changes take effect for new room claims and WebSocket reconnects. Established sockets are not continuously reauthorized.
