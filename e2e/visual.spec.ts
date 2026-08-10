@@ -1,5 +1,7 @@
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+const platformSnapshot = (name: string) => `${process.platform}-${name}`
+
 const waitForStableRendering = async (page: Parameters<typeof authenticateMaintainer>[0]) => {
   const preview = page.getByRole('article', { name: /Visual MyST editor|Rendered MyST preview/ })
   await expect(preview.getByRole('heading', {
@@ -15,7 +17,7 @@ test('desktop maintainer workspace matches its visual baseline', async ({ page }
   await authenticateMaintainer(page, roomName, testInfo)
   await waitForStableRendering(page)
 
-  await expect(page).toHaveScreenshot('maintainer-desktop.png', {
+  await expect(page).toHaveScreenshot(platformSnapshot('maintainer-desktop.png'), {
     animations: 'disabled',
     caret: 'hide',
     maxDiffPixelRatio: 0.02,
@@ -29,7 +31,7 @@ test('mobile maintainer workspace matches its visual baseline', async ({ page },
   await authenticateMaintainer(page, roomName, testInfo)
   await waitForStableRendering(page)
 
-  await expect(page).toHaveScreenshot('maintainer-mobile.png', {
+  await expect(page).toHaveScreenshot(platformSnapshot('maintainer-mobile.png'), {
     animations: 'disabled',
     caret: 'hide',
     maxDiffPixelRatio: 0.02,

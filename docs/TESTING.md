@@ -37,8 +37,10 @@ gitignored `test-results/` and `playwright-report/` directories. GitHub Actions
 retains the HTML report for 14 days. No GitHub or Replit credentials are needed;
 the E2E server enables the guarded test session route only under `NODE_ENV=test`.
 
-Visual baselines are review artifacts, not an automatic approval mechanism. After
-an intentional interface change, regenerate them and inspect every image before
+Visual baselines are review artifacts, not an automatic approval mechanism. The
+text-heavy workspace baselines are platform-specific because Linux and macOS font
+metrics wrap the same bundled fonts differently. After an intentional interface
+change, regenerate the current platform's baselines and inspect every image before
 committing:
 
 ```bash
