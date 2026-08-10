@@ -20,6 +20,7 @@ const disconnectedSession: GitHubSession = {
 const renderDialog = async (session: GitHubSession) => {
   const container = document.createElement('div')
   const root = createRoot(container)
+  const onClose = vi.fn()
   await act(async () => {
     root.render(
       <GitHubDialog
@@ -31,7 +32,7 @@ const renderDialog = async (session: GitHubSession) => {
         canManageRepository={false}
         binding={null}
         review={null}
-        onClose={vi.fn()}
+        onClose={onClose}
         onOpenFile={vi.fn()}
         onBindDraft={vi.fn()}
         onSave={vi.fn()}
@@ -40,7 +41,7 @@ const renderDialog = async (session: GitHubSession) => {
       />,
     )
   })
-  return { container, root }
+  return { container, root, onClose }
 }
 
 describe('GitHubDialog identity mode', () => {
@@ -72,6 +73,17 @@ describe('GitHubDialog identity mode', () => {
     expect(container.textContent).toContain('only a verified repository writer can publish')
     expect(container.querySelector('.repository-controls')).toBeNull()
 
+    await act(async () => root.unmount())
+  })
+
+  it('closes on Escape', async () => {
+    const { onClose, root } = await renderDialog(disconnectedSession)
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+
+    expect(onClose).toHaveBeenCalledOnce()
     await act(async () => root.unmount())
   })
 })

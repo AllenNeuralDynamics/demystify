@@ -114,6 +114,15 @@ export const GitHubDialog = ({
     }
   }, [directory, open, selectedRepository])
 
+  useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose, open])
+
   if (!open) return null
 
   const makeBinding = (): RepositoryBinding | null => {

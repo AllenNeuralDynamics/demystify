@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   MessageSquare,
   PanelLeftClose,
+  PanelLeftOpen,
   Redo2,
   RefreshCw,
   Reply,
@@ -146,6 +147,14 @@ function App() {
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
   const [referenceManagerOpen, setReferenceManagerOpen] = useState(false)
   const [publicationMetadataOpen, setPublicationMetadataOpen] = useState(false)
+  const blockingDialogOpen =
+    citationPickerOpen ||
+    referenceManagerOpen ||
+    publicationMetadataOpen ||
+    helpOpen ||
+    editingProfile ||
+    shareDialogOpen ||
+    githubDialogOpen
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -161,6 +170,11 @@ function App() {
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
+  const narrowViewport = useRef(window.innerWidth <= 820)
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
+  const helpTriggerRef = useRef<HTMLButtonElement>(null)
+  const wasSidebarOpen = useRef(sidebarOpen)
   const github = useGitHubSession()
   const shareSession = useShareSession(roomName)
   const principalKey = github.session?.user
@@ -298,6 +312,50 @@ function App() {
     const timeout = window.setTimeout(() => setNotice(null), 2_400)
     return () => window.clearTimeout(timeout)
   }, [notice])
+
+  useEffect(() => {
+    const handleResize = () => {
+      const nextNarrowViewport = window.innerWidth <= 820
+      if (nextNarrowViewport && !narrowViewport.current) setSidebarOpen(false)
+      narrowViewport.current = nextNarrowViewport
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (editingProfile) {
+        event.preventDefault()
+        setEditingProfile(false)
+        return
+      }
+      if (blockingDialogOpen || window.innerWidth > 820) return
+      if (sidebarOpen) {
+        event.preventDefault()
+        setSidebarOpen(false)
+      } else if (commentsOpen) {
+        event.preventDefault()
+        setCommentsOpen(false)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [
+    blockingDialogOpen,
+    commentsOpen,
+    editingProfile,
+    sidebarOpen,
+  ])
+
+  useEffect(() => {
+    if (
+      wasSidebarOpen.current &&
+      !sidebarOpen &&
+      sidebarRef.current?.contains(document.activeElement)
+    ) sidebarToggleRef.current?.focus()
+    wasSidebarOpen.current = sidebarOpen
+  }, [sidebarOpen])
 
   useEffect(() => {
     if (!initializeRevision || !roomAccess.isReady || !repositoryBinding) return
@@ -529,6 +587,11 @@ function App() {
     setShareDialogOpen(true)
   }
 
+  const closeHelpDialog = () => {
+    setHelpOpen(false)
+    window.requestAnimationFrame(() => helpTriggerRef.current?.focus())
+  }
+
   const createDocument = () => {
     const url = new URL(window.location.href)
     url.searchParams.set('doc', crypto.randomUUID())
@@ -725,15 +788,18 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
+      <header className="topbar" inert={blockingDialogOpen}>
         <div className="brand-block">
           <button
-            className="icon-button mobile-sidebar-toggle"
+            ref={sidebarToggleRef}
+            className="icon-button sidebar-toggle"
             type="button"
-            title="Toggle files"
+            title={sidebarOpen ? 'Hide files' : 'Show files'}
+            aria-controls="project-files-sidebar"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen((open) => !open)}
           >
-            <PanelLeftClose size={18} />
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </button>
           <div className="brand-mark" aria-hidden="true">D</div>
           <div>
@@ -760,6 +826,7 @@ function App() {
 
         <div className="topbar-actions">
           <button
+            ref={helpTriggerRef}
             className="icon-button"
             type="button"
             title="How DeMystify works"
@@ -859,8 +926,25 @@ function App() {
         </div>
       </header>
 
-      <main className={`workspace ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-        <aside className={`file-sidebar ${sidebarOpen ? 'open' : ''}`}>
+      <main
+        className={`workspace ${sidebarOpen ? '' : 'sidebar-collapsed'}`}
+        inert={blockingDialogOpen}
+      >
+        {sidebarOpen && (
+          <button
+            className="sidebar-backdrop"
+            type="button"
+            aria-label="Close project files"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        <aside
+          ref={sidebarRef}
+          id="project-files-sidebar"
+          className={`file-sidebar ${sidebarOpen ? 'open' : ''}`}
+          aria-label="Project files"
+          inert={!sidebarOpen}
+        >
           <div className="sidebar-heading">
             <span>Workspace</span>
             <button className="icon-button" type="button" title="New document" onClick={createDocument}>
@@ -1085,7 +1169,7 @@ function App() {
               </button>
               <span className="toolbar-divider" />
               <button
-                className="icon-button"
+                className="icon-button comments-trigger"
                 type="button"
                 title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
                 disabled={!isPrimaryFile}
@@ -1397,7 +1481,7 @@ function App() {
         </Suspense>
       )}
 
-      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <HelpDialog open={helpOpen} onClose={closeHelpDialog} />
 
       {editingProfile && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setEditingProfile(false)}>

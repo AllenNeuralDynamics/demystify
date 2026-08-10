@@ -185,7 +185,11 @@
   background: transparent;
 }
 
-.mobile-sidebar-toggle {
+.sidebar-toggle {
+  display: inline-grid;
+}
+
+.sidebar-backdrop {
   display: none;
 }
 
@@ -215,6 +219,10 @@
 
 .workspace.sidebar-collapsed {
   grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.workspace.sidebar-collapsed .file-sidebar {
+  border-right: 0;
 }
 
 .file-sidebar {
@@ -685,6 +693,11 @@
   border-radius: 7px;
   background: white;
   box-shadow: 0 14px 36px rgba(27, 38, 31, 0.18), 0 2px 7px rgba(27, 38, 31, 0.08);
+}
+
+.manuscript-workspace.access-mode .myst-insert-palette,
+.manuscript-workspace.archived .myst-insert-palette {
+  max-height: min(590px, calc(100vh - 187px));
 }
 
 .myst-insert-search {
@@ -3310,6 +3323,10 @@
     display: none;
   }
 
+  .document-panes.view-preview.comments-open .preview-pane {
+    display: block;
+  }
+
   .topbar {
     grid-template-columns: minmax(200px, 1fr) minmax(220px, 1fr) auto;
   }
@@ -3331,10 +3348,6 @@
     display: none;
   }
 
-  .mobile-sidebar-toggle {
-    display: inline-grid;
-  }
-
   .workspace,
   .workspace.sidebar-collapsed {
     grid-template-columns: minmax(0, 1fr);
@@ -3351,6 +3364,15 @@
     box-shadow: 12px 0 30px rgba(28, 38, 32, 0.13);
   }
 
+  .sidebar-backdrop {
+    position: fixed;
+    z-index: 14;
+    inset: 62px 0 0 min(280px, calc(100vw - 32px));
+    display: block;
+    border: 0;
+    background: rgba(25, 34, 28, 0.18);
+  }
+
   .file-sidebar.open {
     transform: translateX(0);
   }
@@ -3364,7 +3386,7 @@
     display: flex;
   }
 
-  .formatting-tools > :not(.myst-insert-menu):not(.citation-trigger):not(.reference-library-trigger):not(.publication-metadata-trigger) {
+  .formatting-tools > :not(.myst-insert-menu):not(.citation-trigger):not(.reference-library-trigger):not(.publication-metadata-trigger):not(.comments-trigger) {
     display: none;
   }
 
@@ -3417,12 +3439,42 @@
     display: none;
   }
 
-  .manuscript-workspace.archived .document-panes.comments-open .comments-panel {
+  .manuscript-workspace.archived .document-panes.comments-open .comments-panel,
+  .manuscript-workspace.access-mode .document-panes.comments-open .comments-panel {
     top: 169px;
   }
 }
 
 @media (max-width: 560px) {
+  .document-panes.comments-open .comments-panel {
+    top: 99px;
+  }
+
+  .manuscript-workspace.archived .document-panes.comments-open .comments-panel,
+  .manuscript-workspace.access-mode .document-panes.comments-open .comments-panel {
+    top: 163px;
+  }
+
+  .editor-toolbar {
+    padding-inline: 7px;
+  }
+
+  .myst-insert-trigger,
+  .citation-trigger,
+  .reference-library-trigger,
+  .publication-metadata-trigger {
+    width: 32px;
+    flex: 0 0 32px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .myst-insert-trigger span,
+  .myst-insert-trigger > svg:last-child {
+    display: none;
+  }
+
   .publication-metadata-backdrop {
     align-items: stretch;
     padding: 8px;
@@ -3643,6 +3695,10 @@
     top: 56px;
   }
 
+  .sidebar-backdrop {
+    inset-block-start: 56px;
+  }
+
   .brand-mark,
   .workspace-name,
   .collaborator-stack {
@@ -3658,7 +3714,7 @@
   }
 
   .view-switcher button {
-    width: 34px;
+    width: 32px;
     justify-content: center;
     padding: 0;
   }
@@ -3792,5 +3848,32 @@
 
   .env-list {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 560px) {
+  .publication-metadata-backdrop,
+  .reference-manager-backdrop,
+  .citation-picker-backdrop {
+    align-items: stretch;
+    padding: 8px;
+  }
+
+  .publication-metadata,
+  .reference-manager,
+  .citation-picker {
+    height: calc(100vh - 16px);
+    min-height: 0;
+  }
+
+  .github-dialog-loading,
+  .github-connect-state,
+  .github-identity-state {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .github-dialog-body {
+    overflow-y: auto;
   }
 }

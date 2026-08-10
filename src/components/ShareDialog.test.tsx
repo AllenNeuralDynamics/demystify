@@ -55,4 +55,31 @@ describe('ShareDialog', () => {
 
     await act(async () => root.unmount())
   })
+
+  it('closes on Escape', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const onClose = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <ShareDialog
+          open
+          roomName={room.roomName}
+          room={room}
+          canManageLinks
+          onClose={onClose}
+          onRoomRefresh={vi.fn(async () => room)}
+          onNotice={vi.fn()}
+        />,
+      )
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+
+    expect(onClose).toHaveBeenCalledOnce()
+    await act(async () => root.unmount())
+  })
 })

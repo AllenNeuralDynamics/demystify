@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   createShareLink,
   revokeShareLink,
@@ -78,6 +78,18 @@ export const ShareDialog = ({
   const [generatedUrls, setGeneratedUrls] = useState<Partial<Record<AnonymousShareRole, string>>>({})
   const [workingRole, setWorkingRole] = useState<AnonymousShareRole | null>(null)
   const [copied, setCopied] = useState<'maintainer' | 'collaborator' | 'viewer' | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setGeneratedUrls({})
+      setCopied(null)
+      onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose, open])
 
   if (!open) return null
 
