@@ -31,7 +31,16 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import './App.css'
 import {
   CollaborativeEditor,
@@ -175,6 +184,12 @@ function App() {
   const sidebarRef = useRef<HTMLElement>(null)
   const helpTriggerRef = useRef<HTMLButtonElement>(null)
   const wasSidebarOpen = useRef(sidebarOpen)
+  const escapeStateRef = useRef({
+    blockingDialogOpen,
+    commentsOpen,
+    editingProfile,
+    sidebarOpen,
+  })
   const github = useGitHubSession()
   const shareSession = useShareSession(roomName)
   const principalKey = github.session?.user
@@ -313,6 +328,15 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [notice])
 
+  useLayoutEffect(() => {
+    escapeStateRef.current = {
+      blockingDialogOpen,
+      commentsOpen,
+      editingProfile,
+      sidebarOpen,
+    }
+  }, [blockingDialogOpen, commentsOpen, editingProfile, sidebarOpen])
+
   useEffect(() => {
     const handleResize = () => {
       const nextNarrowViewport = window.innerWidth <= 820
@@ -321,16 +345,22 @@ function App() {
     }
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (editingProfile) {
+      const {
+        blockingDialogOpen: dialogOpen,
+        commentsOpen: commentsVisible,
+        editingProfile: profileOpen,
+        sidebarOpen: sidebarVisible,
+      } = escapeStateRef.current
+      if (profileOpen) {
         event.preventDefault()
         setEditingProfile(false)
         return
       }
-      if (blockingDialogOpen || window.innerWidth > 820) return
-      if (sidebarOpen) {
+      if (dialogOpen || window.innerWidth > 820) return
+      if (sidebarVisible) {
         event.preventDefault()
         setSidebarOpen(false)
-      } else if (commentsOpen) {
+      } else if (commentsVisible) {
         event.preventDefault()
         setCommentsOpen(false)
       }
@@ -341,12 +371,7 @@ function App() {
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [
-    blockingDialogOpen,
-    commentsOpen,
-    editingProfile,
-    sidebarOpen,
-  ])
+  }, [])
 
   useEffect(() => {
     if (
