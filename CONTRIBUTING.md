@@ -16,12 +16,16 @@ The web application runs at `http://localhost:5173`; the API and WebSocket serve
 ```bash
 npm test
 npm run test:collaboration
+npm run test:e2e:quick
 npm run lint
 npm run build
+npm run test:bundle
 npm audit --omit=dev
 ```
 
-The collaboration test launches an isolated server, rejects unauthorized sockets, and verifies two authenticated clients converge.
+The collaboration and browser tests launch isolated local servers. Run the complete
+cross-browser matrix with `npm run test:e2e` before a release. Routine validation
+must not target the deployed Replit application.
 
 ## Pull Requests
 

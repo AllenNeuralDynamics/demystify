@@ -403,7 +403,7 @@
 .tree-label {
   display: block;
   padding: 0 8px 7px;
-  color: #8b938e;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1404,7 +1404,7 @@
   place-content: center;
   justify-items: center;
   gap: 8px;
-  color: #929a95;
+  color: var(--muted);
   font-size: 11px;
 }
 

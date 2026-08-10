@@ -182,6 +182,7 @@ function App() {
   const narrowViewport = useRef(window.innerWidth <= 820)
   const sidebarToggleRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  const commentsTriggerRef = useRef<HTMLButtonElement>(null)
   const helpTriggerRef = useRef<HTMLButtonElement>(null)
   const wasSidebarOpen = useRef(sidebarOpen)
   const escapeStateRef = useRef({
@@ -363,6 +364,7 @@ function App() {
       } else if (commentsVisible) {
         event.preventDefault()
         setCommentsOpen(false)
+        window.requestAnimationFrame(() => commentsTriggerRef.current?.focus())
       }
     }
     window.addEventListener('resize', handleResize)
@@ -859,7 +861,7 @@ function App() {
           >
             <CircleHelp size={18} />
           </button>
-          <div className="collaborator-stack" aria-label="Current collaborators">
+          <div className="collaborator-stack" role="group" aria-label="Current collaborators">
             {collaboration.collaborators.slice(0, 4).map((collaborator) => (
               <button
                 className="avatar"
@@ -1194,6 +1196,7 @@ function App() {
               </button>
               <span className="toolbar-divider" />
               <button
+                ref={commentsTriggerRef}
                 className="icon-button comments-trigger"
                 type="button"
                 title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
@@ -1299,7 +1302,15 @@ function App() {
                       {commentPollError ? ' | GitHub sync retrying' : ''}
                     </span>
                   </div>
-                  <button className="icon-button" type="button" title="Close comments" onClick={() => setCommentsOpen(false)}>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Close comments"
+                    onClick={() => {
+                      setCommentsOpen(false)
+                      window.requestAnimationFrame(() => commentsTriggerRef.current?.focus())
+                    }}
+                  >
                     <X size={16} />
                   </button>
                 </div>

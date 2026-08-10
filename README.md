@@ -178,10 +178,18 @@ The Express server hosts GitHub routes and upgrades `/collaboration/<room>` conn
 npm run dev                 # Web app + API/WebSocket watch mode
 npm test                    # Unit tests
 npm run test:collaboration  # Self-contained auth + two-client convergence test
+npm run test:e2e:quick      # Chromium browser tests against isolated localhost services
+npm run test:e2e            # Chromium, Firefox, WebKit, and mobile browser matrix
+npm run test:bundle         # Gzip budget for an existing production build
 npm run lint                # ESLint
 npm run build               # Client/server typecheck + production bundle
 npm start                   # Serve dist and WebSockets in production mode
 ```
+
+Run `npx playwright install chromium firefox webkit` once before the complete
+local browser matrix. The browser suite starts isolated services on ports 4173
+and 8791, enables only the guarded test-auth routes, and never targets the Replit
+deployment. See [Testing](docs/TESTING.md) for coverage and update procedures.
 
 ## Production Notes
 

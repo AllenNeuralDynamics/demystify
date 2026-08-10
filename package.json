@@ -14,7 +14,13 @@
     "preview": "vite preview",
     "start": "NODE_ENV=production node dist-server/server/index.js",
     "test": "vitest run",
-    "test:collaboration": "node scripts/test-collaboration.mjs"
+    "test:collaboration": "node scripts/test-collaboration.mjs",
+    "test:bundle": "node scripts/check-bundle-size.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:quick": "playwright test --project=chromium",
+    "test:e2e:update": "playwright test --project=chromium --update-snapshots=all",
+    "test:e2e:server": "rm -rf .data/e2e-yjs .data/e2e-rooms.json && NODE_ENV=test ENABLE_TEST_AUTH=1 HOST=127.0.0.1 PORT=8791 APP_URL=http://127.0.0.1:4173 SESSION_SECRET=e2e-local-session-secret GITHUB_CLIENT_ID=e2e-client GITHUB_CLIENT_SECRET=e2e-secret GITHUB_APP_SLUG=e2e-app YPERSISTENCE=.data/e2e-yjs ROOMS_PATH=.data/e2e-rooms.json tsx server/index.ts",
+    "test:e2e:web": "DEMYSTIFY_API_TARGET=http://127.0.0.1:8791 vite --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
     "@citation-js/core": "^0.8.2",
@@ -58,7 +64,9 @@
     "yjs": "^13.6.32"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.62.1",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.19.0",

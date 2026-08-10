@@ -1,4 +1,64 @@
-# Safe GitHub Integration Testing
+# Testing
+
+## Automated Local Browser Suite
+
+The Playwright suite exercises the real React application, Express API, and Yjs
+WebSocket gateway entirely on localhost. It starts Vite on port 4173 and a
+temporary test-auth server on port 8791. The configuration contains no remote
+base URL, so routine browser tests cannot consume Replit deployment credits.
+
+Install the browser binaries once:
+
+```bash
+npx playwright install chromium firefox webkit
+```
+
+Run the fast Chromium suite while developing, then the complete matrix before a
+release:
+
+```bash
+npm run test:e2e:quick
+npm run test:e2e
+```
+
+The complete matrix covers desktop Chromium, Firefox, and WebKit plus emulated
+Mobile Chrome and Mobile Safari. It includes:
+
+- Anonymous and authenticated application startup
+- Maintainer authoring, comments, view modes, dialogs, focus, and Escape ordering
+- Live viewer and suggestion-mode synchronization with independent browser sessions
+- Exact responsive breakpoints, short-landscape actions, and overflow checks
+- Automated WCAG A/AA analysis with axe
+- Desktop, mobile, and short-landscape visual regression baselines
+- Automatic failure on page exceptions, HTTP 5xx responses, and unexpected console errors
+
+Playwright traces, screenshots, videos, and the HTML report are generated under
+gitignored `test-results/` and `playwright-report/` directories. GitHub Actions
+retains the HTML report for 14 days. No GitHub or Replit credentials are needed;
+the E2E server enables the guarded test session route only under `NODE_ENV=test`.
+
+Visual baselines are review artifacts, not an automatic approval mechanism. After
+an intentional interface change, regenerate them and inspect every image before
+committing:
+
+```bash
+npm run test:e2e:update -- e2e/visual.spec.ts
+npm run test:e2e:quick -- e2e/visual.spec.ts
+```
+
+The production build also has gzip budgets. Build before checking them:
+
+```bash
+npm run build
+npm run test:bundle
+```
+
+Manual release checks still include VoiceOver, browser zoom, reduced motion, and
+at least one physical touch device. Those checks should use localhost whenever
+possible. Limit the deployed application to a brief health and sign-in smoke test
+after promotion.
+
+## Safe GitHub Integration Testing
 
 ## Snapshot Test Against a Fork
 

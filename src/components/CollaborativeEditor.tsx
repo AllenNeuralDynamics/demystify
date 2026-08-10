@@ -93,7 +93,7 @@ const editorTheme = EditorView.theme({
   '.cm-gutters': {
     background: '#fff',
     border: 'none',
-    color: '#b3b8b5',
+    color: '#68716c',
   },
   '.cm-activeLine, .cm-activeLineGutter': {
     background: '#f4f7f4',
@@ -143,6 +143,10 @@ export const CollaborativeEditor = forwardRef<
         basicSetup,
         markdown(),
         markdownLanguage.data.of({ autocomplete: mystAuthoringCompletionSource }),
+        EditorView.contentAttributes.of({
+          'aria-label': 'MyST source',
+          tabindex: '0',
+        }),
         EditorView.lineWrapping,
         editorTheme,
         readOnlyCompartmentRef.current.of([
