@@ -845,10 +845,12 @@ function App() {
                 title={github.session?.user ? 'GitHub identity' : 'Connect GitHub identity'}
                 onClick={() => setGitHubDialogOpen(true)}
               >
-                {github.session?.user ? (
+                {github.session?.user?.avatarUrl ? (
                   <img src={github.session.user.avatarUrl} alt="" />
                 ) : (
-                  <GitFork size={16} />
+                  github.session?.user
+                    ? <UserRound size={16} />
+                    : <GitFork size={16} />
                 )}
                 <span>{github.session?.user ? `@${github.session.user.login}` : 'Connect GitHub'}</span>
               </button>
@@ -978,7 +980,7 @@ function App() {
           </div>
         </aside>
 
-        <section className={`manuscript-workspace ${isReadOnly ? 'archived' : ''}`}>
+        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${sharedAccessRole && !isArchived ? 'access-mode' : ''}`}>
           {isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />

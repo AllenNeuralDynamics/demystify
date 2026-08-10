@@ -484,6 +484,10 @@
   grid-template-rows: 56px 43px minmax(0, 1fr);
 }
 
+.manuscript-workspace.access-mode {
+  grid-template-rows: 56px 43px minmax(0, 1fr);
+}
+
 .archive-banner {
   min-width: 0;
   display: grid;
@@ -3352,7 +3356,7 @@
   }
 
   .editor-toolbar {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 4px;
   }
 
@@ -3398,6 +3402,10 @@
   }
 
   .manuscript-workspace.archived {
+    grid-template-rows: 64px 43px minmax(0, 1fr);
+  }
+
+  .manuscript-workspace.access-mode {
     grid-template-rows: 64px 43px minmax(0, 1fr);
   }
 
