@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-The web application runs at `http://localhost:5173`; the API and WebSocket server run at `http://127.0.0.1:8787`.
+The web application runs at `http://127.0.0.1:5173`; the API and WebSocket server run at `http://127.0.0.1:8787`.
 
 ## Before Opening a Pull Request
 
@@ -26,6 +26,11 @@ npm audit --omit=dev
 The collaboration and browser tests launch isolated local servers. Run the complete
 cross-browser matrix with `npm run test:e2e` before a release. Routine validation
 must not target the deployed Replit application.
+
+The `main` branch is protected. Create a topic branch and open a pull request;
+GitHub requires the branch to be current and both the `validate` and `browser`
+checks to pass before merge. Direct pushes, force pushes, and deletion of `main`
+are blocked, including for administrators.
 
 ## Pull Requests
 

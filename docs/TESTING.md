@@ -22,7 +22,12 @@ npm run test:e2e
 ```
 
 The complete matrix covers desktop Chromium, Firefox, and WebKit plus emulated
-Mobile Chrome and Mobile Safari. It includes:
+Mobile Chrome and Mobile Safari. Core startup, maintainer authoring, dialogs,
+focus, and Escape ordering run in all five projects. Viewer and Suggestion-mode
+collaboration run in the three desktop engines. Axe analysis, responsive geometry,
+visual regression, and disconnect/reconnect recovery run once in Chromium because
+they validate engine-independent DOM policy or deterministic Chromium baselines.
+Across those projects, the suite includes:
 
 - Anonymous and authenticated application startup
 - Maintainer authoring, comments, view modes, dialogs, focus, and Escape ordering

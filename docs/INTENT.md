@@ -11,9 +11,9 @@ DeMystify provides a Google-Docs-like editing surface while keeping valid MyST M
 The intended workflow is:
 
 1. A repository owner installs the DeMystify GitHub App on selected repositories.
-2. Maintainers authenticate with GitHub and pass a repository write check. Invited contributors use an expiring Suggestion link and may also authenticate for verified attribution without gaining publish access; viewers use an independent read-only link.
+2. Maintainers authenticate with GitHub and pass a repository write check. Invited contributors use a revocable Suggestion link with configurable expiration and may also authenticate for verified attribution without gaining publish access; viewers use an independent read-only link with the same expiration options.
 3. DeMystify loads a manuscript file into a shared Yjs document.
-4. Authors edit together with presence, comments, and immediate preview.
+4. Authors edit together with presence, comments, and a fast, debounced browser preview.
 5. The first deliberate snapshot creates a working branch and draft pull request; later snapshots update that same review.
 6. The repository's existing tests and MyST build remain the publication gate.
 
@@ -24,7 +24,7 @@ The intended workflow is:
 - **MyST configuration remains canonical.** Project and publication controls read and write standard page frontmatter or `project` fields in `myst.yml`. Authors use MyST `authors` and `affiliations`, including ORCID and CRediT `roles`; DeMystify does not maintain a parallel authorship schema.
 - **Least privilege.** Repository access comes from a narrowly scoped GitHub App, never shared personal access tokens.
 - **Repository rules still apply.** Generated assets, provenance, authorship, tests, and branch protection remain owned by each manuscript repository.
-- **Attribution is explicit.** GitHub identity should drive presence and audit history, while scientific authorship remains governed by the manuscript project.
+- **Attribution is explicit.** When provided, GitHub identity drives verified presence and comment attribution; invited users may remain anonymous to GitHub, while scientific authorship remains governed by the manuscript project.
 
 ## Intended Users
 

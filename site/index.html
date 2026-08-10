@@ -90,7 +90,7 @@
           <li>
             <span class="step-number">2</span>
             <h3>Write</h3>
-            <p>Authorized collaborators edit one MyST document with cursors and comments.</p>
+            <p>Maintainers and invited Suggestion participants edit shared MyST project files; viewers follow read-only.</p>
           </li>
           <li>
             <span class="step-number">3</span>
@@ -111,8 +111,8 @@
           <h2 id="source-title">No document-format round trip</h2>
           <p>
             Equations, directives, figures, citations, tables, and readable source are not
-            flattened into another format. The browser preview is immediate; repository CI
-            remains authoritative.
+            flattened into another format. The browser preview is fast and debounced;
+            repository CI remains authoritative.
           </p>
         </div>
         <pre aria-label="Example MyST figure directive"><code>:::{figure} ./images/result.svg
@@ -150,21 +150,23 @@ Caption with methods, units, and provenance.
           </div>
         </div>
         <div class="architecture-notes">
-          <p><strong>Identity</strong><span>GitHub App OAuth for every collaborator</span></p>
+          <p><strong>Identity</strong><span>GitHub OAuth for maintainers; optional verified identity for invited guests</span></p>
           <p><strong>Preview</strong><span>Fast browser MyST render; repository CI remains authoritative</span></p>
-          <p><strong>Access</strong><span>Repository permissions checked before joining a room</span></p>
+          <p><strong>Access</strong><span>Repository checks for maintainers; revocable capability grants for invited roles</span></p>
         </div>
       </section>
 
       <section class="trust-band" aria-labelledby="trust-title">
         <div>
           <span class="eyebrow">Trust boundary</span>
-          <h2 id="trust-title">GitHub identity. Selected repositories. No personal tokens.</h2>
+          <h2 id="trust-title">Scoped access. Selected repositories. No personal tokens.</h2>
         </div>
         <p>
-          The production design uses an organization-approved GitHub App with contents and pull
-          request permissions only. User authorization remains server-side, and repository access
-          is rechecked when collaborators join or reconnect after an owner revokes access.
+          The deployment model uses a GitHub App with read/write contents and pull-request
+          permissions plus read-only metadata. Maintainer authorization remains server-side, and
+          repository access is rechecked on claims, HTTP mutations, and WebSocket reconnects;
+          established sockets are not continuously reauthorized. Suggestion and viewer access use
+          independent, revocable links with configurable expiration.
         </p>
       </section>
 
@@ -173,9 +175,14 @@ Caption with methods, units, and provenance.
           <span class="eyebrow">Project status</span>
           <h2 id="status-title">A tested MVP packaged for a controlled pilot</h2>
           <p>
-            The local prototype already supports simultaneous source editing, presence, shared
-            comments, MyST and KaTeX preview, persistence, GitHub file loading, branch snapshots,
-            and pull-request creation.
+            The tested MVP supports simultaneous multi-file source editing, presence, shared
+            comments, citations, publication metadata, MyST and KaTeX preview, persistence,
+            GitHub project loading, branch snapshots, and pull-request creation.
+          </p>
+          <p class="pilot-boundary">
+            <strong>Pilot boundary:</strong> DeMystify is not approved for confidential or
+            regulated manuscripts. Use only synthetic or explicitly approved non-sensitive
+            content in the public pilot.
           </p>
         </div>
         <div class="status-columns">
@@ -188,6 +195,7 @@ Caption with methods, units, and provenance.
               <li>Repository-authorized WebSocket rooms</li>
               <li>Shared PostgreSQL persistence</li>
               <li>Single-instance Cloud Run packaging</li>
+              <li>Multi-file projects, references, and metadata</li>
               <li>Responsive manuscript workspace</li>
             </ul>
           </div>
@@ -196,6 +204,9 @@ Caption with methods, units, and provenance.
             <ul>
               <li>Repository-native MyST preview workers</li>
               <li>Multi-instance WebSocket fan-out</li>
+              <li>Backups and tested restoration</li>
+              <li>Rate limits and security-header review</li>
+              <li>Metrics, alerting, and service ownership</li>
               <li>Audit, retention, and incident controls</li>
             </ul>
           </div>

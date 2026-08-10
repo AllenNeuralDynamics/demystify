@@ -2,7 +2,7 @@
 
 DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It combines a CodeMirror source editor, lightweight MyST browser preview, shared cursors and comments, durable Yjs storage, and a GitHub branch/pull-request workflow.
 
-> **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed authorization and shared PostgreSQL persistence are implemented.
+> **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed maintainer authorization, capability-based invited roles, and shared PostgreSQL persistence are implemented.
 
 [Live pilot](https://demystify--jeromelecoq.replit.app/) · [Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Replit pilot](docs/REPLIT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
 
@@ -16,8 +16,8 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 - Repository browsing and MyST file loading
 - Explicit snapshots to a `demystify/...` branch
 - One persisted draft pull request per room, created by the first snapshot
-- Revocable, expiring Suggestion links for room editing without repository access
-- Revocable, expiring view-only links that do not require a GitHub account
+- Revocable Suggestion links with configurable expiration for room editing without repository access
+- Revocable view-only links with configurable expiration that do not require a GitHub account
 - Responsive source, split, and preview modes
 
 ## Local Development
@@ -29,9 +29,9 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. The command runs both Vite and the API/WebSocket server. Maintainers sign in with GitHub and need repository write access. Invited contributors and viewers enter only the room named by their expiring sharing link. Contributors can also sign in with GitHub for verified comment and presence attribution without gaining repository authority.
+Open http://127.0.0.1:5173. The command runs both Vite and the API/WebSocket server. Maintainers sign in with GitHub and need repository write access. Invited contributors and viewers enter only the room named by their revocable sharing link. Contributors can also sign in with GitHub for verified comment and presence attribution without gaining repository authority.
 
-GitHub credentials are required for collaborative rooms. By default, document updates persist under `.data/yjs`; room ownership and repository bindings persist under `.data/rooms.json`. Set `DATABASE_URL` to exercise the production PostgreSQL stores locally.
+Server-side GitHub App credentials are required to create maintainer rooms and use repository workflows. Suggestion participants and viewers can join an existing room through an active sharing link without a GitHub account. By default, document updates persist under `.data/yjs`; room ownership and repository bindings persist under `.data/rooms.json`. Set `DATABASE_URL` to exercise the production PostgreSQL stores locally.
 
 ## GitHub App Setup
 
@@ -154,8 +154,8 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 The **Share** dialog presents three explicit roles:
 
 - **Maintainer:** a GitHub-authenticated repository writer. Maintainers edit the room, bind repositories, manage sharing, save snapshots, update the draft pull request, and mirror queued comments to GitHub. The shareable Maintainer URL is the plain room URL: it carries no capability and grants access only after GitHub verifies write permission to the bound repository.
-- **Suggestion mode:** an invited person with the expiring Suggestion link edits live manuscript files, references, metadata, and DeMystify comments without repository or publishing access. Changes remain in DeMystify until a maintainer deliberately publishes the shared state. GitHub sign-in is optional but recommended; new presence and comments then use `Name (@handle)` attribution while the room remains in Suggestion mode. Comments remain durable in Yjs/PostgreSQL and queue until a maintainer mirrors them to the pull request.
-- **Viewer:** anyone with the expiring viewer link. Viewers receive live text, preview, comments, and presence but cannot modify room state.
+- **Suggestion mode:** an invited person with a revocable Suggestion link edits live manuscript files, references, metadata, and DeMystify comments without repository or publishing access. Links may expire after 7, 30, or 90 days, or have no expiration. Changes remain in DeMystify until a maintainer deliberately publishes the shared state. GitHub sign-in is optional but recommended; new presence and comments then use `Name (@handle)` attribution while the room remains in Suggestion mode. Comments remain durable in Yjs/PostgreSQL and queue until a maintainer mirrors them to the pull request.
+- **Viewer:** anyone with a separately revocable viewer link using the same expiration options. Viewers receive live text, preview, comments, and presence but cannot modify room state.
 
 Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes. Suggestion-mode WebSockets may submit Yjs updates; viewer WebSockets accept only awareness and initial synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.
 
@@ -215,7 +215,7 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
 - Suggestion/tracked-change mode is not implemented yet.
-- Each bound room owns one manuscript path, working branch, and pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
+- Each bound room owns one primary manuscript path, its discovered project sources, one working branch, and one pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - A continuously visible collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Starter-tier cloud credits are suitable only for short pilot sessions; sustained external collaboration needs an explicit cloud budget and monitoring.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.
