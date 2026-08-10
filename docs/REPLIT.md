@@ -1,5 +1,9 @@
 # Replit Pilot
 
+**Last validated:** August 10, 2026
+
+**Deployed application source:** [`48ccdb3736254bfe1951d913c8b6e3f27884969f`](https://github.com/AllenNeuralDynamics/demystify/commit/48ccdb3736254bfe1951d913c8b6e3f27884969f)
+
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
 also provided one free Autoscale publication that expires after 30 days. Replit
@@ -14,7 +18,7 @@ production data outside Allen Institute infrastructure.
 
 ## Current Deployment
 
-The validated fresh pilot deployment is:
+The current pilot deployment is:
 
 | Setting | Value |
 | --- | --- |
@@ -23,14 +27,18 @@ The validated fresh pilot deployment is:
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Visibility | Public |
-| Database | Fresh Replit production PostgreSQL database |
+| Database | Replit production PostgreSQL database |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
+| Application source | `48ccdb3736254bfe1951d913c8b6e3f27884969f` |
 | Free publication expiry | September 8, 2026 |
 
-The current Replit project was imported directly from `origin/main`, uses the
-repository's root `.replit` configuration, and has no generated split artifacts.
-It intentionally started with a clean production database.
+The Replit project was initially imported directly from `origin/main` and uses
+the repository's root `.replit` configuration. Subsequent releases use a guarded
+exact-SHA overlay: fetch `origin/main`, assert the full intended SHA, overlay its
+tracked files, install from the lockfile, build, and require a clean tracked-tree
+comparison before Republish. The production database was initialized empty for
+the pilot and now contains the pilot's persistent state.
 
 ## Project Setup
 
@@ -64,11 +72,11 @@ the root build removes `tsc` before that phase runs.
 subscription-only GCE provider even though the Starter account was authorized
 for one free published app using Autoscale or Static.
 
-### Agent-Generated Artifact Routing
+### Replit Workspace Artifact Routing
 
-The current Agent-native Replit project retains generated artifact manifests.
-Its production routing uses the root DeMystify build as the single source of
-application code:
+Replit retains generated artifact manifests in its project workspace; they are
+not tracked application source in this repository. Production routing uses the
+root DeMystify build as the single source of application code:
 
 ```toml
 # artifacts/demystify-deploy/.replit-artifact/artifact.toml
@@ -143,9 +151,9 @@ production secrets. Use the same published origin everywhere. The current
 deployment uses:
 
 ```text
-APP_URL=https://demystify-deploy--jlecoq.replit.app
-GitHub App homepage=https://demystify-deploy--jlecoq.replit.app
-GitHub App callback=https://demystify-deploy--jlecoq.replit.app/api/auth/github/callback
+APP_URL=https://demystify--jeromelecoq.replit.app
+GitHub App homepage=https://demystify--jeromelecoq.replit.app
+GitHub App callback=https://demystify--jeromelecoq.replit.app/api/auth/github/callback
 ```
 
 Configure a dedicated pilot GitHub App with:
@@ -207,9 +215,20 @@ behavior are part of the test.
 
 ## Validation
 
-The August 8, 2026 deployment passed these production checks:
+The August 10, 2026 release from application SHA `48ccdb3736254bfe1951d913c8b6e3f27884969f`
+passed these production checks:
 
 - `/`, `/api/health`, and `/api/config` returned HTTP `200`.
+- Production served the expected `index-Cf7rR240.js` application bundle.
+- A live WebKit smoke test closed Comments with Escape, restored trigger focus,
+   exposed the collaborator group semantics, and reported no page exceptions or
+   server `5xx` responses.
+- Replit kept one maximum Autoscale machine and the production PostgreSQL
+   database connected.
+
+The initial full role and integration validation on August 8, 2026 additionally
+passed these checks against the same pilot environment:
+
 - GitHub OAuth completed through Allen Institute SSO using the stable callback.
 - `/collaboration/<room>` reached the DeMystify WebSocket authorization gate.
 - Suggestion-mode and viewer sockets connected successfully.

@@ -244,9 +244,13 @@ h1 {
 .section-index {
   align-self: start;
   padding-top: 62px;
-  color: #6e7d75;
+  color: var(--muted);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
+}
+
+.thesis .section-index {
+  color: #aeb9b3;
 }
 
 .thesis p {
@@ -293,6 +297,14 @@ h1 {
   color: var(--muted);
   font-size: 16px;
   line-height: 1.65;
+}
+
+.section-heading > .pilot-boundary {
+  margin-top: 20px;
+  padding-left: 14px;
+  border-left: 3px solid var(--coral);
+  color: #713c33;
+  font-size: 14px;
 }
 
 .steps {
@@ -463,6 +475,10 @@ code {
   color: #39554b;
 }
 
+.trust-band .eyebrow {
+  color: #8c3529;
+}
+
 .status-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -559,6 +575,10 @@ footer p {
   margin: 0;
   color: #aeb9b3;
   font-size: 10px;
+}
+
+footer > .brand {
+  color: #d9e2dd;
 }
 
 footer > a:last-child {

@@ -13,7 +13,9 @@ Run one containerized DeMystify instance on Cloud Run behind HTTPS:
 
 Serving the frontend, API, and WebSocket endpoint from one origin avoids cross-origin cookies and routing complexity. Firebase Hosting can serve a documentation site, but its 60-second dynamic rewrite timeout should not proxy the collaboration socket.
 
-## Required Environment
+## Production Environment
+
+These application settings are required in production:
 
 ```dotenv
 GITHUB_CLIENT_ID=
@@ -23,11 +25,18 @@ SESSION_SECRET=
 APP_URL=https://demystify.example.org
 HOST=0.0.0.0
 PORT=8080
+```
+
+The GitHub App callback must be `${APP_URL}/api/auth/github/callback`.
+
+PostgreSQL is also required in production. Configure either one connection URL:
+
+```dotenv
 DATABASE_URL=postgresql://demystify:password@host/demystify
 PGPOOL_MAX=10
 ```
 
-The GitHub App callback must be `${APP_URL}/api/auth/github/callback`. Cloud Run with Cloud SQL normally supplies `PGHOST=/cloudsql/PROJECT:REGION:INSTANCE`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` instead of `DATABASE_URL`.
+or the standard PostgreSQL variables. Cloud Run with Cloud SQL normally uses `PGHOST=/cloudsql/PROJECT:REGION:INSTANCE`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`; `PGPOOL_MAX` is optional and defaults to the application's configured pool size.
 
 Production startup fails unless PostgreSQL and `SESSION_SECRET` are configured. The application creates `demystify_sessions`, `demystify_rooms`, and `demystify_yjs_updates` automatically.
 
