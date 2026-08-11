@@ -182,18 +182,17 @@ app.use((request, response, next) => {
     settled = true
     clearTimeout(longRequestTimer)
     activeHttpRequests -= 1
-    if (reported) {
-      console.info(JSON.stringify({
-        event: 'http_request_end',
-        activeHttpRequests,
-        category,
-        method: request.method,
-        outcome,
-        status: response.statusCode,
-        durationSeconds: Math.round((Date.now() - startedAt) / 1_000),
-        ...client,
-      }))
-    }
+    const durationMilliseconds = Date.now() - startedAt
+    console.info(JSON.stringify({
+      event: reported ? 'http_request_end' : 'http_request_complete',
+      activeHttpRequests,
+      category,
+      method: request.method,
+      outcome,
+      status: response.statusCode,
+      durationMilliseconds,
+      ...client,
+    }))
   }
   response.once('finish', () => settle('finish'))
   response.once('close', () => settle('close'))
