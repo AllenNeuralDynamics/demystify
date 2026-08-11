@@ -53,18 +53,20 @@ units during the socket-free diagnostic release despite the warm graph. It also
 retained the 29.77 MB production database with zero database compute hours.
 
 Replit uses request-based Autoscale billing on Cloud Run. A non-minimum idle
-instance is not kept longer than 15 minutes, while CPU and memory are billed only
-during startup, shutdown, or request processing. During the socket-free
-diagnostic release, the deployment's Resource usage panel reported zero compute
-units even while the infrastructure graph still showed a warm container. Do not
-infer credit consumption from the infrastructure graph alone.
+instance is not kept longer than 15 minutes. Replit charges compute while
+requests are served; the underlying Cloud Run lifecycle also treats startup and
+graceful shutdown as billable instance time. During the socket-free diagnostic
+release, Replit's Resource usage panel reported zero compute units even while
+the infrastructure graph still showed a warm container. Do not infer credit
+consumption from the infrastructure graph alone.
 
 The explicitly approved restart reused that database without copying or
 recreating it. Replit's new-publish form would not attach the retained database
 automatically, so its credentials were rotated and the new `DATABASE_URL` was
 added as a masked deployment secret. A read-only query confirmed 5 room rows, 5
 Yjs update rows, and 29 session rows before publication. Continue monitoring the
-instance after idle periods; unpublish again if it remains warm without traffic.
+instance after idle periods; investigate or unpublish if Resource usage shows
+unexplained compute consumption without user traffic.
 
 ## Project Setup
 
@@ -303,15 +305,19 @@ Subsequent releases narrowed the remaining activity source further:
 - Release `c8c27642` logged no accepted collaboration socket and no HTTP request
    open longer than 10 seconds.
 - Release `ebbc2fa5` also logged no collaboration upgrade waiting in session,
-   authorization, or hydration, ruling out every inbound request phase inside
-   DeMystify.
+   authorization, or hydration, ruling out a collaboration upgrade stalled in
+   any instrumented DeMystify stage.
 - All GitHub requests and PostgreSQL statements are now bounded, so an upstream
    stall cannot keep a collaboration upgrade open indefinitely.
-- Release `ef0ec2e4` initially recorded two successful, 11--13 ms application
-   `GET` requests from non-browser clients seven seconds apart during startup.
-   These are consistent with infrastructure health probes. A control-plane-free
-   observation beginning at `2026-08-11T06:19:06Z` is testing whether they recur
-   often enough to reset the Autoscale idle window.
+- Release `ef0ec2e4` initially recorded two successful
+   `http_request_complete` events in the `application` category: `GET` requests
+   lasting 11 ms and 13 ms, seven seconds apart shortly after startup. Their
+   client metadata did not match a recognized browser family. These events are
+   consistent with platform-generated startup or publication checks, but the
+   privacy-safe fields do not identify their source and do not prove that they
+   were probes. A control-plane-free observation beginning at
+   `2026-08-11T06:19:06Z` is testing whether they recur often enough to reset the
+   Autoscale idle window.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
@@ -356,8 +362,9 @@ all work.
 - Free development URLs work only while the workspace is active and may change
    after reopening the project.
 - The Starter publication is temporary. Keep cloud-credit monitoring active and
-   unpublish if the Autoscale instance remains warm without traffic.
-- Autoscale restarts regularly and can have a cold start after inactivity.
+   unpublish if Resource usage shows unexplained compute consumption.
+- Autoscale instances may stop after inactivity and restart on later traffic,
+   causing a cold start.
 - Replit production PostgreSQL is usage-billed, although a small pilot should
   consume little storage and compute.
 - Replit's deployment filesystem is not durable; PostgreSQL is required.
