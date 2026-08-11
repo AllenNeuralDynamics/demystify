@@ -79,7 +79,7 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 5. Later snapshots update the same branch and pull request. Open **PR #...** from the workspace or repository dialog to review it in GitHub.
 6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it.
 7. Comments created before the PR exists remain queued until the first changed snapshot. Changed lines become native GitHub review threads; unchanged lines fall back to marked PR conversation comments with path, lines, and quoted context.
-8. Replies and native review-thread resolution synchronize in both directions while the room is open. DeMystify polls GitHub on focus and every 15 seconds.
+8. Replies and native review-thread resolution synchronize in both directions while the room is active. DeMystify polls GitHub on focus and every 60 seconds while the page has recent activity.
 9. Closing or merging the PR archives the room. Text, comments, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
 ## Citations And Visual Editing
@@ -199,7 +199,7 @@ deployment. See [Testing](docs/TESTING.md) for coverage and update procedures.
 - PostgreSQL stores server sessions, immutable room bindings, and Yjs updates. Local LevelDB and JSON storage remain development fallbacks.
 - Preserve WebSocket upgrades for `/collaboration/`; the included Cloud Run configuration sends them directly to the application.
 - Keep the Cloud Run maximum at one instance until a cross-instance Pub/Sub channel is implemented.
-- Hidden browser tabs disconnect their collaboration WebSocket and pause GitHub polling, then reconnect when visible. This prevents abandoned tabs from holding an Autoscale instance and production database active indefinitely.
+- Hidden browser tabs and visible pages without interaction for 10 minutes disconnect their collaboration WebSocket and pause GitHub polling. Yjs state remains mounted locally, and pointer, keyboard, scroll, focus, or visibility activity reconnects before synchronization resumes. This prevents abandoned tabs from holding request-based compute active indefinitely.
 - Paper search uses the public Crossref REST API through the server. Set the optional `CROSSREF_MAILTO` environment variable to identify production requests to Crossref's polite pool.
 - Room bindings are enforced during HTTP claims and WebSocket upgrades. Broad production use still needs backups, audit retention, rate limits, metrics, and operational review.
 - Viewer-link rotation and revocation invalidate anonymous sessions and disconnect active viewer sockets immediately.
@@ -217,5 +217,5 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - Suggestion/tracked-change mode is not implemented yet.
 - Each bound room owns one primary manuscript path, its discovered project sources, one working branch, and one pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
-- A continuously visible collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Starter-tier cloud credits are suitable only for short pilot sessions; sustained external collaboration needs an explicit cloud budget and monitoring.
+- An actively used collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Idle suspension limits forgotten-tab cost, but sustained external collaboration still needs an explicit cloud budget and monitoring.
 - Fork bindings support file loading and snapshots, but automatic pull requests are disabled because GitHub may target the parent repository. Use a standalone repository for isolated PR tests.

@@ -32,6 +32,7 @@ Across those projects, the suite includes:
 - Anonymous and authenticated application startup
 - Maintainer authoring, comments, view modes, dialogs, focus, and Escape ordering
 - Live viewer and suggestion-mode synchronization with independent browser sessions
+- Ten-minute idle WebSocket suspension and activity-based reconnection
 - Exact responsive breakpoints, short-landscape actions, and overflow checks
 - Automated WCAG A/AA analysis with axe
 - Desktop, mobile, and short-landscape visual regression baselines

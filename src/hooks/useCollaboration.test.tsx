@@ -57,12 +57,12 @@ const profile = {
   colorLight: '#dcefe9',
 }
 
-const CollaborationHarness = () => {
-  useCollaboration('visibility-test-room', profile, '# Draft')
+const CollaborationHarness = ({ active = true }: { active?: boolean }) => {
+  useCollaboration('visibility-test-room', profile, '# Draft', true, false, active)
   return null
 }
 
-describe('useCollaboration visibility lifecycle', () => {
+describe('useCollaboration connection lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     providerInstances.length = 0
@@ -76,27 +76,19 @@ describe('useCollaboration visibility lifecycle', () => {
     vi.useRealTimers()
   })
 
-  it('disconnects hidden tabs and reconnects them when visible', async () => {
+  it('disconnects inactive pages and reconnects them after activity', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
 
     await act(async () => root.render(<CollaborationHarness />))
-    await act(async () => vi.runOnlyPendingTimers())
     const provider = providerInstances[0]
     expect(provider.connect).toHaveBeenCalledTimes(1)
 
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'hidden',
-    })
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
+    await act(async () => root.render(<CollaborationHarness active={false} />))
     expect(provider.disconnect).toHaveBeenCalledTimes(1)
+    expect(provider.destroy).not.toHaveBeenCalled()
 
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'visible',
-    })
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
+    await act(async () => root.render(<CollaborationHarness active />))
     expect(provider.connect).toHaveBeenCalledTimes(2)
 
     await act(async () => root.unmount())

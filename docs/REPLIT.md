@@ -239,8 +239,9 @@ passed these checks against the same pilot environment:
 - Both temporary links were revoked, and no test branch or pull request remained.
 - Replit reported the final Autoscale build as `success` with no build in
    progress.
-- Production uses one maximum Autoscale instance. Hidden tabs disconnect Yjs and
-   pause polling so abandoned browser tabs do not hold compute active.
+- Production uses one maximum Autoscale instance. Hidden tabs and visible pages
+   idle for 10 minutes disconnect Yjs and pause polling; meaningful activity
+   reconnects them so abandoned browser tabs do not hold compute active.
 
 For ongoing pilot validation:
 

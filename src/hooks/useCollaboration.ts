@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import type {
@@ -104,6 +104,7 @@ export const useCollaboration = (
   initialContent: string,
   enabled = true,
   readOnly = false,
+  shouldConnect = true,
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
@@ -121,6 +122,7 @@ export const useCollaboration = (
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
+  const providerRef = useRef<WebsocketProvider | null>(null)
 
   useEffect(() => {
     if (!enabled) return
@@ -128,6 +130,7 @@ export const useCollaboration = (
     const provider = new WebsocketProvider(getWebSocketUrl(), roomName, document, {
       connect: false,
     })
+    providerRef.current = provider
     const text = document.getText('content')
     const bibliographyText = document.getText('bibliography')
     const mystConfigText = document.getText('mystConfig')
@@ -239,20 +242,9 @@ export const useCollaboration = (
     metadata.observe(updateMetadata)
     commentMap.observe(updateComments)
     commentMessageMap.observe(updateCommentMessages)
-    const updateConnectionForVisibility = () => {
-      if (window.document.visibilityState === 'hidden') {
-        provider.disconnect()
-        return
-      }
-      provider.connect()
-    }
-    window.document.addEventListener('visibilitychange', updateConnectionForVisibility)
-    const connectionTimer = window.setTimeout(updateConnectionForVisibility, 0)
 
     return () => {
-      window.clearTimeout(connectionTimer)
       window.clearTimeout(initializationTimer)
-      window.document.removeEventListener('visibilitychange', updateConnectionForVisibility)
       text.unobserve(updateContent)
       bibliographyText.unobserve(updateBibliography)
       mystConfigText.unobserve(updateMystConfig)
@@ -265,6 +257,7 @@ export const useCollaboration = (
       provider.awareness.off('change', updateCollaborators)
       provider.off('sync', initializeEmptyDocument)
       provider.destroy()
+      if (providerRef.current === provider) providerRef.current = null
       document.destroy()
       setSession(null)
       setIsSynced(false)
@@ -279,6 +272,13 @@ export const useCollaboration = (
       setAreProjectFilesInitialized(false)
     }
   }, [enabled, initialContent, readOnly, roomName])
+
+  useEffect(() => {
+    const provider = providerRef.current
+    if (!provider) return
+    if (shouldConnect) provider.connect()
+    else provider.disconnect()
+  }, [enabled, initialContent, readOnly, roomName, shouldConnect])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
