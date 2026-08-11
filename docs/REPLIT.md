@@ -1,11 +1,11 @@
 # Replit Pilot
 
-**Last validated:** August 11, 2026
+**Last validated:** August 10, 2026
 
-**Last deployed application source:** [`312c94d44b03f5f36ba3cfe085b1307ed5899fe9`](https://github.com/AllenNeuralDynamics/demystify/commit/312c94d44b03f5f36ba3cfe085b1307ed5899fe9)
+**Deployed application source:** [`312c94d44b03f5f36ba3cfe085b1307ed5899fe9`](https://github.com/AllenNeuralDynamics/demystify/commit/312c94d44b03f5f36ba3cfe085b1307ed5899fe9)
 
-**Publication status:** Intentionally unpublished on August 11, 2026, to
-preserve cloud credits. The production PostgreSQL database remains available.
+**Publication status:** Online. Replit release `c0e948f3` was published on
+August 10, 2026, after an explicitly approved restart.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -21,20 +21,22 @@ production data outside Allen Institute infrastructure.
 
 ## Pilot Status
 
-The last pilot deployment and retained resources are:
+The current pilot deployment is:
 
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Offline; intentionally unpublished August 11, 2026 |
-| Former public URL | `https://demystify--jeromelecoq.replit.app/` returns Replit HTTP `404` |
-| Last deployment type | Autoscale (`cloudrun`) |
-| Last machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
-| Database | Replit production PostgreSQL database retained (29.77 MB at shutdown) |
+| Publication | Online; restarted August 10, 2026 |
+| Public URL | <https://demystify--jeromelecoq.replit.app/> |
+| Deployment type | Autoscale (`cloudrun`) |
+| Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
+| Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
-| Last OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Last application source | `312c94d44b03f5f36ba3cfe085b1307ed5899fe9` |
-| Cloud credits at shutdown | 45% used |
+| OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
+| Application source | `312c94d44b03f5f36ba3cfe085b1307ed5899fe9` |
+| Replit release | `c0e948f3` |
+| Cloud credits after restart smoke | 45% used |
+| Free publication expiry | September 8, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
 the repository's root `.replit` configuration. Subsequent releases use a guarded
@@ -43,13 +45,19 @@ tracked files, install from the lockfile, build, and require a clean tracked-tre
 comparison before Republish. The production database was initialized empty for
 the pilot and now contains the pilot's persistent state.
 
-After the final smoke check, the Autoscale instance remained at approximately
+After an earlier smoke check, the Autoscale instance remained at approximately
 2% CPU and memory for more than one hour despite zero completed HTTP requests in
 that hour and no open local production tabs. Because an unexplained long-lived
 connection or platform drain failure could continue consuming credits, the
-publication was shut down. Replit retained the 29.77 MB production database and
-reported zero database compute hours. Republish only with an explicit cloud
-budget and monitoring plan.
+publication was temporarily shut down at 45% cloud-credit usage. Replit retained
+the 29.77 MB production database and reported zero database compute hours.
+
+The explicitly approved restart reused that database without copying or
+recreating it. Replit's new-publish form would not attach the retained database
+automatically, so its credentials were rotated and the new `DATABASE_URL` was
+added as a masked deployment secret. A read-only query confirmed 5 room rows, 5
+Yjs update rows, and 29 session rows before publication. Continue monitoring the
+instance after idle periods; unpublish again if it remains warm without traffic.
 
 ## Project Setup
 
@@ -226,8 +234,8 @@ behavior are part of the test.
 
 ## Validation
 
-The August 11, 2026 release from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
-passed these production checks:
+The August 10, 2026 restart from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
+as Replit release `c0e948f3` passed these production checks:
 
 - `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
 - Production served the expected `index-BXPO2YEi.js` application bundle.
@@ -235,6 +243,9 @@ passed these production checks:
    all crawlers.
 - Replit kept one maximum Autoscale machine and the production PostgreSQL
    database connected.
+- An unauthenticated claim against a retained room returned the expected HTTP
+   `401` after the live server successfully read room storage.
+- Cloud-credit usage remained at 45% after the bounded production smoke.
 - Full unit, integration, accessibility, responsive, visual, and five-project
    browser validation ran locally and in GitHub Actions before publication, not
    against Replit production.
@@ -256,7 +267,7 @@ passed these checks against the same pilot environment:
    idle for 10 minutes disconnect Yjs and pause polling; meaningful activity
    reconnects them so abandoned browser tabs do not hold compute active.
 
-For pilot validation after an approved republish:
+For ongoing pilot validation:
 
 1. Open `https://<current-origin>/api/health` and confirm
    `{"status":"ok"}`.
@@ -281,8 +292,8 @@ all work.
 - Keep Max machines at `1`; horizontal fan-out is not implemented.
 - Free development URLs work only while the workspace is active and may change
    after reopening the project.
-- The pilot is currently unpublished. Any future publication requires explicit
-   cloud-budget approval and remains temporary on Starter.
+- The Starter publication is temporary. Keep cloud-credit monitoring active and
+   unpublish if the Autoscale instance remains warm without traffic.
 - Autoscale restarts regularly and can have a cold start after inactivity.
 - Replit production PostgreSQL is usage-billed, although a small pilot should
   consume little storage and compute.
