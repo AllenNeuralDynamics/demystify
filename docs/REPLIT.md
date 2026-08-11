@@ -2,10 +2,10 @@
 
 **Last validated:** August 10, 2026
 
-**Deployed application source:** [`312c94d44b03f5f36ba3cfe085b1307ed5899fe9`](https://github.com/AllenNeuralDynamics/demystify/commit/312c94d44b03f5f36ba3cfe085b1307ed5899fe9)
+**Deployed application source:** [`9d1383faf79dbbf02f78e70942ad72d79404c98a`](https://github.com/AllenNeuralDynamics/demystify/commit/9d1383faf79dbbf02f78e70942ad72d79404c98a)
 
-**Publication status:** Online. Replit release `c0e948f3` was published on
-August 10, 2026, after an explicitly approved restart.
+**Publication status:** Online. Replit release `55ead814` was published on
+August 10, 2026, with collaboration socket diagnostics enabled.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -33,10 +33,10 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `312c94d44b03f5f36ba3cfe085b1307ed5899fe9` |
-| Replit release | `c0e948f3` |
+| Application source | `9d1383faf79dbbf02f78e70942ad72d79404c98a` |
+| Replit release | `55ead814` |
 | Cloud credits after restart smoke | 45% used |
-| Free publication expiry | September 8, 2026 |
+| Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
 the repository's root `.replit` configuration. Subsequent releases use a guarded
@@ -45,12 +45,19 @@ tracked files, install from the lockfile, build, and require a clean tracked-tre
 comparison before Republish. The production database was initialized empty for
 the pilot and now contains the pilot's persistent state.
 
-After an earlier smoke check, the Autoscale instance remained at approximately
-2% CPU and memory for more than one hour despite zero completed HTTP requests in
-that hour and no open local production tabs. Because an unexplained long-lived
-connection or platform drain failure could continue consuming credits, the
-publication was temporarily shut down at 45% cloud-credit usage. Replit retained
-the 29.77 MB production database and reported zero database compute hours.
+After an earlier smoke check, the infrastructure graph showed approximately 2%
+CPU and memory despite zero completed HTTP requests and no open local production
+tabs. The publication was temporarily shut down at 45% cloud-credit usage while
+that infrastructure warmth was investigated. Replit later reported zero compute
+units during the socket-free diagnostic release despite the warm graph. It also
+retained the 29.77 MB production database with zero database compute hours.
+
+Replit documents request-based Autoscale billing separately from container
+lifetime: an app goes idle after 15 minutes without traffic, but CPU and memory
+are billed only while requests are processed. During the socket-free diagnostic
+release, the deployment's Resource usage panel reported zero compute units even
+while the infrastructure graph still showed a warm container. Do not infer
+credit consumption from the infrastructure graph alone.
 
 The explicitly approved restart reused that database without copying or
 recreating it. Replit's new-publish form would not attach the retained database
@@ -250,7 +257,7 @@ warm without completed HTTP traffic, investigate Replit's instance-drain path.
 
 ## Validation
 
-The August 10, 2026 restart from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
+The August 10, 2026 application release from SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
 as Replit release `c0e948f3` passed these production checks:
 
 - `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
@@ -265,6 +272,13 @@ as Replit release `c0e948f3` passed these production checks:
 - Full unit, integration, accessibility, responsive, visual, and five-project
    browser validation ran locally and in GitHub Actions before publication, not
    against Replit production.
+
+Diagnostic release `55ead814` from application SHA
+`9d1383faf79dbbf02f78e70942ad72d79404c98a` additionally established:
+
+- No collaboration socket opened after the replacement process started.
+- The previous release stopped when the diagnostic release was promoted.
+- Replit reported zero compute units during the initial socket-free idle window.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
