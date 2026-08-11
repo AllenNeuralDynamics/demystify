@@ -14,7 +14,10 @@ import {
   type ReadyYjsPersistence,
   verifyDatabaseConnection,
 } from './database.js'
-import { describeCollaborationClient } from './collaboration-observability.js'
+import {
+  describeCollaborationClient,
+  describeHttpRequestCategory,
+} from './collaboration-observability.js'
 import { ApiError, githubRouter } from './github.js'
 import {
   authorizeRoomAccess,
@@ -142,9 +145,60 @@ if (!sessionSecret) {
   throw new Error('SESSION_SECRET is required in production.')
 }
 
+const diagnosticFingerprintSalt = randomUUID()
 const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
+let activeHttpRequests = 0
+app.use((request, response, next) => {
+  const startedAt = Date.now()
+  const client = describeCollaborationClient({
+    forwardedFor: request.headers['x-forwarded-for'],
+    remoteAddress: request.socket.remoteAddress,
+    userAgent: request.headers['user-agent'],
+    fingerprintSalt: diagnosticFingerprintSalt,
+  })
+  const category = describeHttpRequestCategory(request.path)
+  let reported = false
+  let settled = false
+  activeHttpRequests += 1
+
+  const longRequestTimer = setTimeout(() => {
+    if (settled) return
+    reported = true
+    console.info(JSON.stringify({
+      event: 'http_request_long_running',
+      activeHttpRequests,
+      category,
+      method: request.method,
+      durationSeconds: Math.round((Date.now() - startedAt) / 1_000),
+      ...client,
+    }))
+  }, 10_000)
+  longRequestTimer.unref()
+
+  const settle = (outcome: 'close' | 'finish') => {
+    if (settled) return
+    settled = true
+    clearTimeout(longRequestTimer)
+    activeHttpRequests -= 1
+    if (reported) {
+      console.info(JSON.stringify({
+        event: 'http_request_end',
+        activeHttpRequests,
+        category,
+        method: request.method,
+        outcome,
+        status: response.statusCode,
+        durationSeconds: Math.round((Date.now() - startedAt) / 1_000),
+        ...client,
+      }))
+    }
+  }
+  response.once('finish', () => settle('finish'))
+  response.once('close', () => settle('close'))
+  next()
+})
 app.use(express.json({ limit: '2mb' }))
 const sessionMiddleware = session({
   name: 'demystify.sid',
@@ -228,7 +282,6 @@ app.use(
 
 const server = createServer(app)
 const webSocketServer = new WebSocketServer({ noServer: true })
-const collaborationFingerprintSalt = randomUUID()
 
 webSocketServer.on('connection', (socket, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
@@ -332,7 +385,7 @@ server.on('upgrade', (request, socket, head) => {
           forwardedFor: request.headers['x-forwarded-for'],
           remoteAddress: request.socket.remoteAddress,
           userAgent: request.headers['user-agent'],
-          fingerprintSalt: collaborationFingerprintSalt,
+          fingerprintSalt: diagnosticFingerprintSalt,
         })
         console.info(JSON.stringify({
           event: 'collaboration_socket_open',

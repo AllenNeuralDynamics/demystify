@@ -2,7 +2,10 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import WebSocket, { WebSocketServer } from 'ws'
 import { describe, expect, it } from 'vitest'
-import { describeCollaborationClient } from './collaboration-observability.js'
+import {
+  describeCollaborationClient,
+  describeHttpRequestCategory,
+} from './collaboration-observability.js'
 
 describe('describeCollaborationClient', () => {
   it('summarizes VS Code clients without retaining identifying headers', () => {
@@ -92,5 +95,18 @@ describe('describeCollaborationClient', () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve())
     })
+  })
+})
+
+describe('describeHttpRequestCategory', () => {
+  it.each([
+    ['/api/health', 'health'],
+    ['/api/config', 'configuration'],
+    ['/api/auth/session', 'authentication'],
+    ['/api/rooms/private-room/claim', 'room'],
+    ['/api/github/repositories', 'github'],
+    ['/assets/index.js', 'application'],
+  ] as const)('classifies %s without retaining path parameters', (path, category) => {
+    expect(describeHttpRequestCategory(path)).toBe(category)
   })
 })
