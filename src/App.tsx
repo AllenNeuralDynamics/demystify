@@ -55,6 +55,7 @@ import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
+import { usePageActivity } from './hooks/usePageActivity'
 import { useRoomAccess } from './hooks/useRoomAccess'
 import { useShareSession } from './hooks/useViewerSession'
 import {
@@ -83,6 +84,7 @@ type WorkspaceView = 'source' | 'split' | 'preview'
 
 const isMystSourcePath = (path: string) => /\.(?:md|myst)$/i.test(path)
 const projectManifestVersion = 1
+const githubPollIntervalMs = 60_000
 
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
@@ -191,6 +193,7 @@ function App() {
     editingProfile,
     sidebarOpen,
   })
+  const pageActive = usePageActivity()
   const github = useGitHubSession()
   const shareSession = useShareSession(roomName)
   const principalKey = github.session?.user
@@ -235,6 +238,7 @@ function App() {
     revisionInitialContent ?? sampleManuscript,
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
+    pageActive,
   )
   const primaryFilePath = repositoryBinding?.path ?? 'manuscript.md'
   const projectFilePaths = useMemo(() => Array.from(new Set([
@@ -461,7 +465,7 @@ function App() {
   ])
 
   useEffect(() => {
-    if (!roomReviewNumber) return
+    if (!roomReviewNumber || !pageActive) return
     let active = true
     const refresh = () => {
       if (document.visibilityState === 'hidden') return
@@ -470,7 +474,8 @@ function App() {
         showNotice(error instanceof Error ? error.message : 'Room status refresh failed')
       })
     }
-    const interval = window.setInterval(refresh, 15_000)
+    refresh()
+    const interval = window.setInterval(refresh, githubPollIntervalMs)
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => {
@@ -479,7 +484,7 @@ function App() {
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)
     }
-  }, [refreshRoom, roomReviewNumber])
+  }, [pageActive, refreshRoom, roomReviewNumber])
 
   useEffect(() => {
     const reviewNumber = roomAccess.review?.number
@@ -533,7 +538,7 @@ function App() {
   ])
 
   useEffect(() => {
-    if (!roomAccess.review?.number || !canMirrorGitHub) return
+    if (!roomAccess.review?.number || !canMirrorGitHub || !pageActive) return
     let active = true
     const sync = () => {
       if (document.visibilityState === 'hidden') return
@@ -551,7 +556,7 @@ function App() {
         })
     }
     sync()
-    const interval = window.setInterval(sync, 15_000)
+    const interval = window.setInterval(sync, githubPollIntervalMs)
     window.addEventListener('focus', sync)
     document.addEventListener('visibilitychange', sync)
     return () => {
@@ -560,7 +565,13 @@ function App() {
       window.removeEventListener('focus', sync)
       document.removeEventListener('visibilitychange', sync)
     }
-  }, [applyGitHubCommentSync, canMirrorGitHub, roomAccess.review?.number, roomName])
+  }, [
+    applyGitHubCommentSync,
+    canMirrorGitHub,
+    pageActive,
+    roomAccess.review?.number,
+    roomName,
+  ])
 
   useEffect(() => {
     const reviewNumber = roomAccess.review?.number

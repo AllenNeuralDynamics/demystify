@@ -105,3 +105,21 @@ test('queues local edits while disconnected and converges after reconnecting', a
     await viewerContext.close()
   }
 })
+
+test('suspends an idle room and reconnects on activity', async ({ page }, testInfo) => {
+  await page.clock.install()
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const status = page.locator('.sync-status')
+  const editor = page.locator('.cm-content')
+
+  await expect(status).toHaveText('Live')
+  await expect(editor).toContainText('A shared language for reproducible manuscripts')
+
+  await page.clock.fastForward(10 * 60_000)
+  await expect(status).toHaveText('disconnected')
+  await expect(editor).toContainText('A shared language for reproducible manuscripts')
+
+  await page.locator('.editor-toolbar').dispatchEvent('pointerdown')
+  await expect(status).toHaveText('Live')
+})
