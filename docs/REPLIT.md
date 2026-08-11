@@ -1,8 +1,8 @@
 # Replit Pilot
 
-**Last validated:** August 10, 2026
+**Last validated:** August 11, 2026
 
-**Deployed application source:** [`48ccdb3736254bfe1951d913c8b6e3f27884969f`](https://github.com/AllenNeuralDynamics/demystify/commit/48ccdb3736254bfe1951d913c8b6e3f27884969f)
+**Deployed application source:** [`312c94d44b03f5f36ba3cfe085b1307ed5899fe9`](https://github.com/AllenNeuralDynamics/demystify/commit/312c94d44b03f5f36ba3cfe085b1307ed5899fe9)
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -30,7 +30,7 @@ The current pilot deployment is:
 | Database | Replit production PostgreSQL database |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `48ccdb3736254bfe1951d913c8b6e3f27884969f` |
+| Application source | `312c94d44b03f5f36ba3cfe085b1307ed5899fe9` |
 | Free publication expiry | September 8, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -215,16 +215,18 @@ behavior are part of the test.
 
 ## Validation
 
-The August 10, 2026 release from application SHA `48ccdb3736254bfe1951d913c8b6e3f27884969f`
+The August 11, 2026 release from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
 passed these production checks:
 
-- `/`, `/api/health`, and `/api/config` returned HTTP `200`.
-- Production served the expected `index-Cf7rR240.js` application bundle.
-- A live WebKit smoke test closed Comments with Escape, restored trigger focus,
-   exposed the collaborator group semantics, and reported no page exceptions or
-   server `5xx` responses.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+- Production served the expected `index-BXPO2YEi.js` application bundle.
+- Live HTML declared `noindex, nofollow, noarchive`, and `robots.txt` disallowed
+   all crawlers.
 - Replit kept one maximum Autoscale machine and the production PostgreSQL
    database connected.
+- Full unit, integration, accessibility, responsive, visual, and five-project
+   browser validation ran locally and in GitHub Actions before publication, not
+   against Replit production.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
