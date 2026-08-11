@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { createServer, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -13,6 +14,7 @@ import {
   type ReadyYjsPersistence,
   verifyDatabaseConnection,
 } from './database.js'
+import { describeCollaborationClient } from './collaboration-observability.js'
 import { ApiError, githubRouter } from './github.js'
 import {
   authorizeRoomAccess,
@@ -226,6 +228,7 @@ app.use(
 
 const server = createServer(app)
 const webSocketServer = new WebSocketServer({ noServer: true })
+const collaborationFingerprintSalt = randomUUID()
 
 webSocketServer.on('connection', (socket, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
@@ -324,6 +327,29 @@ server.on('upgrade', (request, socket, head) => {
 
       if (socket.destroyed || !access) return
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        const connectedAt = Date.now()
+        const client = describeCollaborationClient({
+          forwardedFor: request.headers['x-forwarded-for'],
+          remoteAddress: request.socket.remoteAddress,
+          userAgent: request.headers['user-agent'],
+          fingerprintSalt: collaborationFingerprintSalt,
+        })
+        console.info(JSON.stringify({
+          event: 'collaboration_socket_open',
+          activeConnections: webSocketServer.clients.size,
+          role: access.role,
+          ...client,
+        }))
+        webSocket.once('close', (code) => {
+          console.info(JSON.stringify({
+            event: 'collaboration_socket_close',
+            activeConnections: webSocketServer.clients.size,
+            role: access.role,
+            code,
+            durationSeconds: Math.round((Date.now() - connectedAt) / 1_000),
+            ...client,
+          }))
+        })
         if (access.role !== 'editor') {
           if (access.role === 'viewer') readOnlyGuestSockets.add(webSocket)
           const key = capabilityKey(roomName, access.role)
