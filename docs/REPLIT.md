@@ -232,6 +232,22 @@ To publish:
 Autoscale instances can stop and restart by design, so reconnect and persistence
 behavior are part of the test.
 
+### Collaboration Socket Diagnostics
+
+Accepted collaboration sockets emit structured `collaboration_socket_open` and
+`collaboration_socket_close` log events. Each event includes the active socket
+count, access role, browser family, platform, and a process-scoped salted client
+fingerprint; close events also include the close code and connection duration.
+Open events report the count after the new socket is tracked; close events report
+the remaining count after the closed socket is removed.
+No room name, user identity, raw address, or full user-agent string is logged.
+The fingerprint exists only to correlate reconnects within one server process
+and must not be used as an authentication or abuse-prevention signal.
+
+An open event without a corresponding close event explains why Autoscale still
+sees a long-lived request. If no open event appears while the instance remains
+warm without completed HTTP traffic, investigate Replit's instance-drain path.
+
 ## Validation
 
 The August 10, 2026 restart from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
