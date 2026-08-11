@@ -282,6 +282,7 @@ app.use(
 
 const server = createServer(app)
 const webSocketServer = new WebSocketServer({ noServer: true })
+let activeCollaborationUpgrades = 0
 
 webSocketServer.on('connection', (socket, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
@@ -334,12 +335,56 @@ server.on('upgrade', (request, socket, head) => {
     return
   }
 
+  const upgradeStartedAt = Date.now()
+  const upgradeClient = describeCollaborationClient({
+    forwardedFor: request.headers['x-forwarded-for'],
+    remoteAddress: request.socket.remoteAddress,
+    userAgent: request.headers['user-agent'],
+    fingerprintSalt: diagnosticFingerprintSalt,
+  })
+  let upgradeStage: 'authorization' | 'hydration' | 'session' = 'session'
+  let upgradeReported = false
+  let upgradeSettled = false
+  activeCollaborationUpgrades += 1
+
+  const longUpgradeTimer = setTimeout(() => {
+    if (upgradeSettled) return
+    upgradeReported = true
+    console.info(JSON.stringify({
+      event: 'collaboration_upgrade_long_running',
+      activeCollaborationUpgrades,
+      stage: upgradeStage,
+      durationSeconds: Math.round((Date.now() - upgradeStartedAt) / 1_000),
+      ...upgradeClient,
+    }))
+  }, 10_000)
+  longUpgradeTimer.unref()
+
+  const settleUpgrade = (outcome: 'aborted' | 'accepted' | 'rejected') => {
+    if (upgradeSettled) return
+    upgradeSettled = true
+    clearTimeout(longUpgradeTimer)
+    activeCollaborationUpgrades -= 1
+    if (upgradeReported) {
+      console.info(JSON.stringify({
+        event: 'collaboration_upgrade_end',
+        activeCollaborationUpgrades,
+        stage: upgradeStage,
+        outcome,
+        durationSeconds: Math.round((Date.now() - upgradeStartedAt) / 1_000),
+        ...upgradeClient,
+      }))
+    }
+  }
+  socket.once('close', () => settleUpgrade('aborted'))
+
   const response = new ServerResponse(request)
   sessionMiddleware(
     request as express.Request,
     response as unknown as express.Response,
     async (sessionError) => {
       if (sessionError) {
+        settleUpgrade('rejected')
         rejectUpgrade(socket, 500, 'Session lookup failed')
         return
       }
@@ -347,6 +392,7 @@ server.on('upgrade', (request, socket, head) => {
       let document: ReturnType<typeof getYDoc> | null = null
       let access: Awaited<ReturnType<typeof authorizeRoomAccess>> | null = null
       try {
+        upgradeStage = 'authorization'
         access = await authorizeRoomAccess(
           request as express.Request,
           roomStore,
@@ -354,6 +400,7 @@ server.on('upgrade', (request, socket, head) => {
           lifecycleOptions,
         )
         if (yjsPersistence) {
+          upgradeStage = 'hydration'
           document = getYDoc(roomName)
           await yjsPersistence.waitForHydration(document)
         }
@@ -366,6 +413,7 @@ server.on('upgrade', (request, socket, head) => {
           console.error(`Could not restore Yjs room ${roomName}:`, error)
         }
         const status = error instanceof ApiError ? error.status : 500
+        settleUpgrade('rejected')
         rejectUpgrade(
           socket,
           status,
@@ -378,8 +426,12 @@ server.on('upgrade', (request, socket, head) => {
         return
       }
 
-      if (socket.destroyed || !access) return
+      if (socket.destroyed || !access) {
+        settleUpgrade('aborted')
+        return
+      }
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        settleUpgrade('accepted')
         const connectedAt = Date.now()
         const client = describeCollaborationClient({
           forwardedFor: request.headers['x-forwarded-for'],

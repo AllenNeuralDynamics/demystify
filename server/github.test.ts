@@ -5,6 +5,7 @@ import {
   createRepositoryPullRequest,
   findRepositoryMystConfig,
   findRepositoryProjectFiles,
+  fetchGitHub,
   getAuthorshipDataPaths,
   getMystBibliographyPaths,
   getMystConfigCandidatePaths,
@@ -46,6 +47,36 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('fetchGitHub', () => {
+  it('turns a stalled GitHub request into a gateway timeout', async () => {
+    vi.stubGlobal('fetch', vi.fn((_input, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+          once: true,
+        })
+      })))
+
+    await expect(fetchGitHub('https://api.github.com/user', {}, 1)).rejects.toMatchObject({
+      status: 504,
+      message: 'GitHub did not respond in time.',
+    })
+  })
+
+  it('preserves caller cancellation', async () => {
+    const controller = new AbortController()
+    const cancellation = new Error('caller canceled')
+    controller.abort(cancellation)
+    vi.stubGlobal('fetch', vi.fn((_input, init?: RequestInit) =>
+      Promise.reject(init?.signal?.reason)))
+
+    await expect(fetchGitHub(
+      'https://api.github.com/user',
+      { signal: controller.signal },
+      1_000,
+    )).rejects.toBe(cancellation)
+  })
 })
 
 describe('getAuthorshipDataPaths', () => {

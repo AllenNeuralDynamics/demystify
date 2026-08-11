@@ -122,6 +122,9 @@ export class LocalYjsPersistence implements ReadyYjsPersistence {
 const databaseConfigured = () =>
   Boolean(process.env.DATABASE_URL || process.env.PGHOST)
 
+export const databaseStatementTimeoutMs = 15_000
+export const databaseQueryTimeoutMs = 20_000
+
 export const createDatabasePool = () => {
   if (!databaseConfigured()) return null
 
@@ -132,6 +135,8 @@ export const createDatabasePool = () => {
     max: Number(process.env.PGPOOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    statement_timeout: databaseStatementTimeoutMs,
+    query_timeout: databaseQueryTimeoutMs,
     application_name: 'demystify',
   })
 }
