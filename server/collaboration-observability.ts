@@ -9,6 +9,14 @@ export interface CollaborationClientMetadata {
   fingerprint: string
 }
 
+export type HttpRequestCategory =
+  | 'application'
+  | 'authentication'
+  | 'configuration'
+  | 'github'
+  | 'health'
+  | 'room'
+
 const firstHeaderValue = (value: HeaderValue) =>
   Array.isArray(value) ? value[0] : value
 
@@ -38,6 +46,15 @@ const describePlatform = (userAgent: string) => {
   if (/\b(?:Macintosh|Mac OS X)\b/i.test(userAgent)) return 'macos' as const
   if (/\bLinux\b/i.test(userAgent)) return 'linux' as const
   return 'other' as const
+}
+
+export const describeHttpRequestCategory = (path: string): HttpRequestCategory => {
+  if (path === '/api/health') return 'health'
+  if (path === '/api/config') return 'configuration'
+  if (path.startsWith('/api/auth/')) return 'authentication'
+  if (path.startsWith('/api/rooms/')) return 'room'
+  if (path.startsWith('/api/github/')) return 'github'
+  return 'application'
 }
 
 export const describeCollaborationClient = ({
