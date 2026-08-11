@@ -2,10 +2,11 @@
 
 **Last validated:** August 10, 2026
 
-**Deployed application source:** [`9d1383faf79dbbf02f78e70942ad72d79404c98a`](https://github.com/AllenNeuralDynamics/demystify/commit/9d1383faf79dbbf02f78e70942ad72d79404c98a)
+**Deployed application source:** [`8824565d8964f2aea87c2ca28aa460ca6d3e6b9f`](https://github.com/AllenNeuralDynamics/demystify/commit/8824565d8964f2aea87c2ca28aa460ca6d3e6b9f)
 
-**Publication status:** Online. Replit release `55ead814` was published on
-August 10, 2026, with collaboration socket diagnostics enabled.
+**Publication status:** Online. Replit release `ebbc2fa5` was published on
+August 10, 2026, with complete request-lifecycle diagnostics and bounded
+external dependency waits.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -33,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `9d1383faf79dbbf02f78e70942ad72d79404c98a` |
-| Replit release | `55ead814` |
+| Application source | `8824565d8964f2aea87c2ca28aa460ca6d3e6b9f` |
+| Replit release | `ebbc2fa5` |
 | Cloud credits after restart smoke | 45% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -294,6 +295,16 @@ Diagnostic release `55ead814` from application SHA
 - No collaboration socket opened after the replacement process started.
 - The previous release stopped when the diagnostic release was promoted.
 - Replit reported zero compute units during the initial socket-free idle window.
+
+Subsequent releases narrowed the remaining activity source further:
+
+- Release `c8c27642` logged no accepted collaboration socket and no HTTP request
+   open longer than 10 seconds.
+- Release `ebbc2fa5` also logged no collaboration upgrade waiting in session,
+   authorization, or hydration, ruling out every inbound request phase inside
+   DeMystify.
+- All GitHub requests and PostgreSQL statements are now bounded, so an upstream
+   stall cannot keep a collaboration upgrade open indefinitely.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
