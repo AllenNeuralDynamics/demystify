@@ -316,8 +316,18 @@ Subsequent releases narrowed the remaining activity source further:
    consistent with platform-generated startup or publication checks, but the
    privacy-safe fields do not identify their source and do not prove that they
    were probes. A control-plane-free observation beginning at
-   `2026-08-11T06:19:06Z` is testing whether they recur often enough to reset the
-   Autoscale idle window.
+   `2026-08-11T06:19:06Z` recorded no HTTP, collaboration-upgrade, or
+   collaboration-socket event through `2026-08-11T06:34:31Z`.
+
+The release emitted no shutdown event during that traffic-free interval. A
+single health request at `2026-08-11T06:35:25Z` returned in 0.36 seconds, spent
+2 ms inside the already-running application, and produced no new startup event.
+This proves the process remained physically warm beyond the documented idle
+window even though no request reached DeMystify. Replit still reported zero
+compute units and cloud-credit usage remained at 45%. The remaining discrepancy
+is therefore platform-side instance retention or internal activity outside the
+DeMystify process, not an application traffic leak. It is not evidence of
+ongoing compute charges under the observed request-based billing state.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
