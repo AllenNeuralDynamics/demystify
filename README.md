@@ -2,9 +2,9 @@
 
 DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It combines a CodeMirror source editor, lightweight MyST browser preview, shared cursors and comments, durable Yjs storage, and a GitHub branch/pull-request workflow.
 
-> **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed maintainer authorization, capability-based invited roles, and shared PostgreSQL persistence are implemented.
+> **Status:** Working research prototype. Use it locally or for controlled single-instance pilots; repository-backed maintainer authorization, capability-based invited roles, and shared PostgreSQL persistence are implemented. The public Replit pilot is intentionally unpublished to preserve cloud credits.
 
-[Live pilot](https://demystify--jeromelecoq.replit.app/) · [Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Replit pilot](docs/REPLIT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
+[Project site](https://allenneuraldynamics.github.io/demystify/) · [Intent](docs/INTENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [Replit pilot status](docs/REPLIT.md) · [Safe testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
 
 ## Features
 
