@@ -6,13 +6,40 @@ import type { Pool } from 'pg'
 import { describe, expect, it, vi } from 'vitest'
 import type * as Yjs from 'yjs'
 import {
+  createDatabasePool,
   createPostgresSessionStore,
+  databaseQueryTimeoutMs,
+  databaseStatementTimeoutMs,
   LocalYjsPersistence,
   PostgresYjsPersistence,
 } from './database.js'
 
 const require = createRequire(import.meta.url)
 const yjs = require('yjs') as typeof Yjs
+
+describe('createDatabasePool', () => {
+  it('bounds connection, statement, and client query waits', async () => {
+    const originalDatabaseUrl = process.env.DATABASE_URL
+    const originalHost = process.env.PGHOST
+    delete process.env.DATABASE_URL
+    process.env.PGHOST = '127.0.0.1'
+
+    try {
+      const pool = createDatabasePool()
+      expect(pool?.options).toMatchObject({
+        connectionTimeoutMillis: 10_000,
+        statement_timeout: databaseStatementTimeoutMs,
+        query_timeout: databaseQueryTimeoutMs,
+      })
+      await pool?.end()
+    } finally {
+      if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = originalDatabaseUrl
+      if (originalHost === undefined) delete process.env.PGHOST
+      else process.env.PGHOST = originalHost
+    }
+  })
+})
 
 describe('createPostgresSessionStore', () => {
   it('initializes the session table before returning the store', async () => {

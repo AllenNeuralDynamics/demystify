@@ -253,7 +253,15 @@ later completion emits `http_request_end`. These events contain only the method,
 a broad route category, active request count, duration, outcome/status, and the
 same process-scoped client metadata. Exact paths and path parameters are not
 logged. If neither socket nor long-request events appear while the instance
-exceeds Cloud Run's idle limit, the activity is outside the DeMystify process.
+exceeds Cloud Run's idle limit, check the pre-acceptance collaboration upgrade.
+Upgrades still waiting after 10 seconds emit `collaboration_upgrade_long_running`
+with only the current stage (`session`, `authorization`, or `hydration`); a later
+resolution emits `collaboration_upgrade_end`. If none of these three diagnostic
+event families appears, the activity is outside the DeMystify process.
+
+GitHub requests and PostgreSQL statements are bounded to 15 seconds, with a
+20-second PostgreSQL client fallback. A stalled permission check or room
+hydration therefore ends instead of holding an Autoscale request indefinitely.
 
 ## Validation
 
