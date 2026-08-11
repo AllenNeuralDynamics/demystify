@@ -52,12 +52,12 @@ that infrastructure warmth was investigated. Replit later reported zero compute
 units during the socket-free diagnostic release despite the warm graph. It also
 retained the 29.77 MB production database with zero database compute hours.
 
-Replit documents request-based Autoscale billing separately from container
-lifetime: an app goes idle after 15 minutes without traffic, but CPU and memory
-are billed only while requests are processed. During the socket-free diagnostic
-release, the deployment's Resource usage panel reported zero compute units even
-while the infrastructure graph still showed a warm container. Do not infer
-credit consumption from the infrastructure graph alone.
+Replit uses request-based Autoscale billing on Cloud Run. A non-minimum idle
+instance is not kept longer than 15 minutes, while CPU and memory are billed only
+during startup, shutdown, or request processing. During the socket-free
+diagnostic release, the deployment's Resource usage panel reported zero compute
+units even while the infrastructure graph still showed a warm container. Do not
+infer credit consumption from the infrastructure graph alone.
 
 The explicitly approved restart reused that database without copying or
 recreating it. Replit's new-publish form would not attach the retained database
