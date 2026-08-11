@@ -1,11 +1,12 @@
 # Replit Pilot
 
-**Last validated:** August 10, 2026
+**Last validated:** August 11, 2026
 
-**Deployed application source:** [`2e0d922dbc0d90b63880de892b6eed0879484aee`](https://github.com/AllenNeuralDynamics/demystify/commit/2e0d922dbc0d90b63880de892b6eed0879484aee)
+**Deployed application source:** [`82b3fd010a603f2335c3e452edd2cb8853becee1`](https://github.com/AllenNeuralDynamics/demystify/commit/82b3fd010a603f2335c3e452edd2cb8853becee1)
 
-**Publication status:** Online. Replit release `ef0ec2e4` was published on
-August 10, 2026, with privacy-safe completion logging for every HTTP request.
+**Publication status:** Online. Replit release `d7dc25c7` was published on
+August 11, 2026, with the responsive, visual-selection, figure-label, and
+citation-style feedback fixes.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -26,15 +27,15 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; restarted August 10, 2026 |
+| Publication | Online; updated August 11, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `2e0d922dbc0d90b63880de892b6eed0879484aee` |
-| Replit release | `ef0ec2e4` |
+| Application source | `82b3fd010a603f2335c3e452edd2cb8853becee1` |
+| Replit release | `d7dc25c7` |
 | Cloud credits after restart smoke | 45% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -328,6 +329,18 @@ compute units and cloud-credit usage remained at 45%. The remaining discrepancy
 is therefore platform-side instance retention or internal activity outside the
 DeMystify process, not an application traffic leak. It is not evidence of
 ongoing compute charges under the observed request-based billing state.
+
+The August 11, 2026 feedback release `d7dc25c7` from application SHA
+`82b3fd010a603f2335c3e452edd2cb8853becee1` passed these release checks:
+
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+- Production served the expected `index-DiLyObOF.js` application bundle with
+   the noindex meta policy and crawler disallow file intact.
+- At a 900 px viewport, the deployed Comments and Source/Split/Visual controls
+   did not overlap and the document had no horizontal overflow.
+- Local and protected GitHub validation passed 167 unit/server tests, authenticated
+   collaboration integration, lint, build and bundle budgets, dependency audit,
+   and 44 executed Playwright checks across desktop and mobile projects.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
