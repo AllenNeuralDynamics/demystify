@@ -80,6 +80,7 @@ export interface BibliographyImportResult {
 export type BibliographyEditResult = 'applied' | 'conflict' | 'unavailable'
 
 export type CitationStyle = 'parenthetical' | 'narrative'
+export type CitationSyntax = 'markdown' | 'role'
 
 export interface CitationDetails {
   prefix?: string
@@ -560,15 +561,42 @@ const normalizeCitationDetail = (value: string | undefined, label: string) => {
   return normalized
 }
 
+export const detectCitationSyntax = (
+  source: string,
+  fallback: CitationSyntax = 'role',
+): CitationSyntax => {
+  const roleCount = Array.from(
+    source.matchAll(/\{cite(?::[a-z]+)?\}`([^`]*)`/gi),
+    (match) => match[1].split(';').filter((part) => part.trim()).length,
+  ).reduce((total, count) => total + count, 0)
+  const markdownCount = Array.from(source.matchAll(
+    /(?:^|[\s[(;])-?@[A-Za-z0-9][\w:.#$%&+?~/-]*(?![\w:.#$%&+?~/-])/gim,
+  )).length
+  if (markdownCount === roleCount) return fallback
+  return markdownCount > roleCount ? 'markdown' : 'role'
+}
+
 export const formatCitation = (
   keys: string[],
   style: CitationStyle,
   details: CitationDetails = {},
+  syntax: CitationSyntax = 'role',
 ) => {
   const uniqueKeys = Array.from(new Set(keys.map((key) => key.trim()).filter(Boolean)))
   if (!uniqueKeys.length) throw new Error('Select at least one reference.')
   const prefix = normalizeCitationDetail(details.prefix, 'Citation prefix')
   const suffix = normalizeCitationDetail(details.suffix, 'Citation locator or suffix')
+  if (syntax === 'markdown') {
+    if (style === 'parenthetical') {
+      const entries = uniqueKeys.map((key) => `@${key}`)
+      if (prefix) entries[0] = `${prefix} ${entries[0]}`
+      if (suffix) entries[entries.length - 1] += `, ${suffix}`
+      return `[${entries.join('; ')}]`
+    }
+    if (uniqueKeys.length === 1 && !prefix) {
+      return `@${uniqueKeys[0]}${suffix ? ` [${suffix}]` : ''}`
+    }
+  }
   const roleEntries = uniqueKeys.map((key, index) => [
     index === 0 && prefix ? `{${prefix}}` : '',
     key,

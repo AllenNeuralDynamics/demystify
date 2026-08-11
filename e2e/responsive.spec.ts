@@ -8,6 +8,9 @@ const viewportMatrix = [
   { width: 667, height: 320 },
   { width: 820, height: 560 },
   { width: 821, height: 560 },
+  { width: 900, height: 560 },
+  { width: 972, height: 560 },
+  { width: 973, height: 560 },
   { width: 1180, height: 600 },
   { width: 1400, height: 900 },
   { width: 1600, height: 500 },
@@ -34,6 +37,7 @@ test('critical application geometry remains inside every supported viewport', as
         toolbar: rect('.editor-toolbar'),
         workspace: rect('.workspace'),
         commentsTrigger: rect('button.comments-trigger'),
+        viewSwitcher: rect('.view-switcher'),
       }
     })
 
@@ -50,6 +54,14 @@ test('critical application geometry remains inside every supported viewport', as
       expect(bounds?.left, `${viewport.width}x${viewport.height} ${name} left edge`).toBeGreaterThanOrEqual(-1)
       expect(bounds?.right, `${viewport.width}x${viewport.height} ${name} right edge`).toBeLessThanOrEqual(viewport.width + 1)
     }
+    expect(
+      geometry.commentsTrigger && geometry.viewSwitcher &&
+      Math.max(geometry.commentsTrigger.left, geometry.viewSwitcher.left) <
+        Math.min(geometry.commentsTrigger.right, geometry.viewSwitcher.right) &&
+      Math.max(geometry.commentsTrigger.top, geometry.viewSwitcher.top) <
+        Math.min(geometry.commentsTrigger.bottom, geometry.viewSwitcher.bottom),
+      `${viewport.width}x${viewport.height} comments/view switcher overlap`,
+    ).toBe(false)
   }
 })
 

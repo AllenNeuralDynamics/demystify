@@ -5,6 +5,7 @@ import {
   tryParseBibliography,
   type CitationDetails,
   type CitationStyle,
+  type CitationSyntax,
   type PaperReference,
 } from './references'
 
@@ -28,6 +29,7 @@ export const visualInlineSchema = new Schema({
         style: { default: 'parenthetical' },
         prefix: { default: '' },
         suffix: { default: '' },
+        syntax: { default: 'role' },
         label: { default: '' },
       },
       parseDOM: [{
@@ -39,6 +41,7 @@ export const visualInlineSchema = new Schema({
             style: element.dataset.citationStyle ?? 'parenthetical',
             prefix: element.dataset.citationPrefix ?? '',
             suffix: element.dataset.citationSuffix ?? '',
+            syntax: element.dataset.citationSyntax ?? 'role',
             label: element.textContent ?? '',
           }
         },
@@ -50,6 +53,7 @@ export const visualInlineSchema = new Schema({
         'data-citation-style': node.attrs.style,
         'data-citation-prefix': node.attrs.prefix,
         'data-citation-suffix': node.attrs.suffix,
+        'data-citation-syntax': node.attrs.syntax,
         contenteditable: 'false',
         title: `Citation: ${(node.attrs.keys as string[]).join('; ')}`,
       }, node.attrs.label],
@@ -133,6 +137,7 @@ export const visualCitationLabel = (
 const toProseMirrorNodes = (
   inline: MystEditableInline[],
   bibliography: string,
+  citationSyntax: CitationSyntax,
   marks: Mark[] = [],
 ): ProseMirrorNode[] => inline.flatMap((node) => {
   if (node.type === 'text') {
@@ -140,7 +145,7 @@ const toProseMirrorNodes = (
   }
   if (node.type === 'strong' || node.type === 'emphasis') {
     const mark = visualInlineSchema.marks[node.type].create()
-    return toProseMirrorNodes(node.children, bibliography, [...marks, mark])
+    return toProseMirrorNodes(node.children, bibliography, citationSyntax, [...marks, mark])
   }
   if (node.type === 'inlineCode') {
     return node.value
@@ -149,7 +154,7 @@ const toProseMirrorNodes = (
   }
   if (node.type === 'link') {
     const mark = visualInlineSchema.marks.link.create({ href: node.url, title: node.title ?? null })
-    return toProseMirrorNodes(node.children, bibliography, [...marks, mark])
+    return toProseMirrorNodes(node.children, bibliography, citationSyntax, [...marks, mark])
   }
   if (node.type === 'break') return [visualInlineSchema.nodes.hard_break.create()]
   if (node.type === 'citation') {
@@ -158,6 +163,7 @@ const toProseMirrorNodes = (
       style: node.style,
       prefix: node.prefix ?? '',
       suffix: node.suffix ?? '',
+      syntax: citationSyntax,
       label: visualCitationLabel(node.keys, node.style, bibliography, {
         prefix: node.prefix,
         suffix: node.suffix,
@@ -170,9 +176,10 @@ const toProseMirrorNodes = (
 export const createVisualInlineDocument = (
   inline: MystEditableInline[],
   bibliography: string,
+  citationSyntax: CitationSyntax = 'role',
 ) => visualInlineSchema.nodes.doc.create(
   null,
-  toProseMirrorNodes(inline, bibliography),
+  toProseMirrorNodes(inline, bibliography, citationSyntax),
 )
 
 const escapeMystText = (value: string) => value.replace(/[\\`*_[\]{}@]/g, '\\$&')
@@ -241,7 +248,7 @@ export const serializeVisualInlineDocument = (document: ProseMirrorNode) => {
       source += formatCitation(keys, style, {
         prefix: node.attrs.prefix || undefined,
         suffix: node.attrs.suffix || undefined,
-      })
+      }, node.attrs.syntax === 'markdown' ? 'markdown' : 'role')
     }
   })
   closeTo(0)

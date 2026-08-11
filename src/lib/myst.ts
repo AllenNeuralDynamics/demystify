@@ -166,6 +166,7 @@ interface PreviewTreeNode {
 interface PreviewHtmlNode {
   type?: string
   tagName?: string
+  value?: string
   properties?: Record<string, unknown>
   children?: PreviewHtmlNode[]
 }
@@ -714,8 +715,46 @@ const resolvePreviewAssets = (html: string, assetBaseUrl?: string) => {
 }
 
 const prepareFigureCaptions = () => (tree: PreviewHtmlNode) => {
+  let figureNumber = 0
+  const hasClass = (node: PreviewHtmlNode, className: string) => {
+    const value = node.properties?.className ?? node.properties?.class
+    return Array.isArray(value) ? value.includes(className) : value === className
+  }
+  const findCaptionNumber = (
+    node: PreviewHtmlNode,
+  ): { children: PreviewHtmlNode[]; index: number } | null => {
+    const index = node.children?.findIndex((child) => hasClass(child, 'caption-number')) ?? -1
+    if (node.children && index >= 0) return { children: node.children, index }
+    for (const child of node.children ?? []) {
+      const result = findCaptionNumber(child)
+      if (result) return result
+    }
+    return null
+  }
+  const ensureCaptionNumber = (caption: PreviewHtmlNode, number: number) => {
+    const existing = findCaptionNumber(caption)
+    if (existing) {
+      const next = existing.children[existing.index + 1]
+      if (next?.type !== 'text' || !/^\s/.test(next.value ?? '')) {
+        existing.children.splice(existing.index + 1, 0, { type: 'text', value: ' ' })
+      }
+      return
+    }
+    const firstChild = caption.children?.[0]
+    const target = firstChild?.type === 'element' && firstChild.tagName === 'p'
+      ? firstChild
+      : caption
+    target.children = [{
+      type: 'element',
+      tagName: 'span',
+      properties: { className: ['caption-number'] },
+      children: [{ type: 'text', value: `Figure ${number}` }],
+    }, { type: 'text', value: ' ' }, ...(target.children ?? [])]
+  }
   const visitNode = (node: PreviewHtmlNode) => {
     if (node.type === 'element' && node.tagName === 'figure' && node.children) {
+      const numbered = hasClass(node, 'numbered')
+      if (numbered) figureNumber += 1
       const paragraphIndexes = node.children.flatMap((child, index) => {
         const className = child.properties?.className
         const classes = Array.isArray(className) ? className : [className]
@@ -757,6 +796,9 @@ const prepareFigureCaptions = () => (tree: PreviewHtmlNode) => {
           return paragraphIndexSet.has(index) ? [] : [child]
         })
       }
+      const caption = node.children.find((child) =>
+        child.type === 'element' && child.tagName === 'figcaption')
+      if (numbered && caption) ensureCaptionNumber(caption, figureNumber)
     }
     node.children?.forEach(visitNode)
   }

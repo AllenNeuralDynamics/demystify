@@ -225,7 +225,7 @@ Editable *caption*.
       }),
     ])
     expect(result.html).toContain(
-      '<figcaption data-myst-edit-id="myst-editable-1">Editable <em>caption</em>.</figcaption>',
+      '<figcaption data-myst-edit-id="myst-editable-1"><span class="caption-number">Figure 1</span> Editable <em>caption</em>.</figcaption>',
     )
   })
 
@@ -353,6 +353,33 @@ Editable **interactive caption**.
     expect(document.querySelector('figcaption [data-myst-edit-id]')).not.toBeNull()
     expect(document.querySelector('figcaption img')).toBeNull()
     expect(document.querySelector('figure > .iframe-preview img')).not.toBeNull()
+  })
+
+  it('numbers figure and iframe captions consistently with separating whitespace', () => {
+    const result = renderMyst(`:::{figure} ./figure.svg
+:label: fig-one
+
+First figure legend.
+:::
+
+:::{iframe} ./interactive/result.html
+:label: fig-two
+:placeholder: ./figure.svg
+
+Second figure legend.
+:::
+`)
+    const document = new DOMParser().parseFromString(result.html, 'text/html')
+    const captions = Array.from(document.querySelectorAll('figcaption'))
+
+    expect(result.error).toBeNull()
+    expect(captions).toHaveLength(2)
+    expect(captions.map((caption) => caption.textContent)).toEqual([
+      'Figure 1 First figure legend.',
+      'Figure 2 Second figure legend.',
+    ])
+    expect(captions.map((caption) =>
+      caption.querySelectorAll('.caption-number').length)).toEqual([1, 1])
   })
 
   it('omits page frontmatter and summarizes repository-only plugins', () => {

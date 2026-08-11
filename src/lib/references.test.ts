@@ -5,6 +5,7 @@ import {
   countCitationKeyUsages,
   createGeneratedReference,
   deleteBibliographyEntry,
+  detectCitationSyntax,
   formatCitation,
   getBibliographyPath,
   importBibliography,
@@ -154,6 +155,45 @@ describe('reference library', () => {
     expect(() => formatCitation(['smith2024'], 'parenthetical', { suffix: 'p. {4}' }))
       .toThrow('cannot contain braces')
     expect(() => formatCitation([], 'parenthetical')).toThrow('Select at least one')
+  })
+
+  it('detects and preserves Markdown citation syntax when it dominates', () => {
+    expect(detectCitationSyntax('Prior work [@smith2024].')).toBe('markdown')
+    expect(detectCitationSyntax('Prior work {cite:p}`smith2024`.')).toBe('role')
+    expect(detectCitationSyntax('No citations here.', 'markdown')).toBe('markdown')
+    expect(detectCitationSyntax(
+      '{cite:p}`first; second`. Also [@third].',
+    )).toBe('role')
+    expect(detectCitationSyntax(
+      '{cite:p}`first`. Also [@second; @third].',
+    )).toBe('markdown')
+    expect(formatCitation(
+      ['smith2024', 'jones2023'],
+      'parenthetical',
+      { prefix: 'see', suffix: 'pp. 4-6' },
+      'markdown',
+    )).toBe('[see @smith2024; @jones2023, pp. 4-6]')
+    expect(formatCitation(
+      ['smith2024'],
+      'narrative',
+      { suffix: 'p. 22' },
+      'markdown',
+    )).toBe('@smith2024 [p. 22]')
+  })
+
+  it('falls back to citation roles for unsupported Markdown narrative groups', () => {
+    expect(formatCitation(
+      ['smith2024', 'jones2023'],
+      'narrative',
+      {},
+      'markdown',
+    )).toBe('{cite:t}`smith2024; jones2023`')
+    expect(formatCitation(
+      ['smith2024'],
+      'narrative',
+      { prefix: 'see' },
+      'markdown',
+    )).toBe('{cite:t}`{see}smith2024`')
   })
 
   it('locates raw entries with nested braces without rewriting surrounding text', () => {

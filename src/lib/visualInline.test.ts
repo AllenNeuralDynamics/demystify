@@ -57,6 +57,16 @@ describe('visual inline document', () => {
       .toBe('Smith et al. (2024); missing')
   })
 
+  it('preserves Markdown citation syntax during visual serialization', () => {
+    const document = createVisualInlineDocument([{
+      type: 'citation',
+      keys: ['smith2024'],
+      style: 'parenthetical',
+    }], bibliography, 'markdown')
+
+    expect(serializeVisualInlineDocument(document)).toBe('[@smith2024]')
+  })
+
   it('matches MyST-normalized keys to mixed-case BibTeX keys', () => {
     expect(visualCitationLabel(
       ['smith2024'],
