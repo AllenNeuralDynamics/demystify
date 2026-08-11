@@ -14,7 +14,10 @@ import {
   type ReadyYjsPersistence,
   verifyDatabaseConnection,
 } from './database.js'
-import { describeCollaborationClient } from './collaboration-observability.js'
+import {
+  describeCollaborationClient,
+  describeHttpRequestCategory,
+} from './collaboration-observability.js'
 import { ApiError, githubRouter } from './github.js'
 import {
   authorizeRoomAccess,
@@ -142,9 +145,60 @@ if (!sessionSecret) {
   throw new Error('SESSION_SECRET is required in production.')
 }
 
+const diagnosticFingerprintSalt = randomUUID()
 const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
+let activeHttpRequests = 0
+app.use((request, response, next) => {
+  const startedAt = Date.now()
+  const client = describeCollaborationClient({
+    forwardedFor: request.headers['x-forwarded-for'],
+    remoteAddress: request.socket.remoteAddress,
+    userAgent: request.headers['user-agent'],
+    fingerprintSalt: diagnosticFingerprintSalt,
+  })
+  const category = describeHttpRequestCategory(request.path)
+  let reported = false
+  let settled = false
+  activeHttpRequests += 1
+
+  const longRequestTimer = setTimeout(() => {
+    if (settled) return
+    reported = true
+    console.info(JSON.stringify({
+      event: 'http_request_long_running',
+      activeHttpRequests,
+      category,
+      method: request.method,
+      durationSeconds: Math.round((Date.now() - startedAt) / 1_000),
+      ...client,
+    }))
+  }, 10_000)
+  longRequestTimer.unref()
+
+  const settle = (outcome: 'close' | 'finish') => {
+    if (settled) return
+    settled = true
+    clearTimeout(longRequestTimer)
+    activeHttpRequests -= 1
+    if (reported) {
+      console.info(JSON.stringify({
+        event: 'http_request_end',
+        activeHttpRequests,
+        category,
+        method: request.method,
+        outcome,
+        status: response.statusCode,
+        durationSeconds: Math.round((Date.now() - startedAt) / 1_000),
+        ...client,
+      }))
+    }
+  }
+  response.once('finish', () => settle('finish'))
+  response.once('close', () => settle('close'))
+  next()
+})
 app.use(express.json({ limit: '2mb' }))
 const sessionMiddleware = session({
   name: 'demystify.sid',
@@ -228,7 +282,7 @@ app.use(
 
 const server = createServer(app)
 const webSocketServer = new WebSocketServer({ noServer: true })
-const collaborationFingerprintSalt = randomUUID()
+let activeCollaborationUpgrades = 0
 
 webSocketServer.on('connection', (socket, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host}`)
@@ -281,12 +335,56 @@ server.on('upgrade', (request, socket, head) => {
     return
   }
 
+  const upgradeStartedAt = Date.now()
+  const upgradeClient = describeCollaborationClient({
+    forwardedFor: request.headers['x-forwarded-for'],
+    remoteAddress: request.socket.remoteAddress,
+    userAgent: request.headers['user-agent'],
+    fingerprintSalt: diagnosticFingerprintSalt,
+  })
+  let upgradeStage: 'authorization' | 'hydration' | 'session' = 'session'
+  let upgradeReported = false
+  let upgradeSettled = false
+  activeCollaborationUpgrades += 1
+
+  const longUpgradeTimer = setTimeout(() => {
+    if (upgradeSettled) return
+    upgradeReported = true
+    console.info(JSON.stringify({
+      event: 'collaboration_upgrade_long_running',
+      activeCollaborationUpgrades,
+      stage: upgradeStage,
+      durationSeconds: Math.round((Date.now() - upgradeStartedAt) / 1_000),
+      ...upgradeClient,
+    }))
+  }, 10_000)
+  longUpgradeTimer.unref()
+
+  const settleUpgrade = (outcome: 'aborted' | 'accepted' | 'rejected') => {
+    if (upgradeSettled) return
+    upgradeSettled = true
+    clearTimeout(longUpgradeTimer)
+    activeCollaborationUpgrades -= 1
+    if (upgradeReported) {
+      console.info(JSON.stringify({
+        event: 'collaboration_upgrade_end',
+        activeCollaborationUpgrades,
+        stage: upgradeStage,
+        outcome,
+        durationSeconds: Math.round((Date.now() - upgradeStartedAt) / 1_000),
+        ...upgradeClient,
+      }))
+    }
+  }
+  socket.once('close', () => settleUpgrade('aborted'))
+
   const response = new ServerResponse(request)
   sessionMiddleware(
     request as express.Request,
     response as unknown as express.Response,
     async (sessionError) => {
       if (sessionError) {
+        settleUpgrade('rejected')
         rejectUpgrade(socket, 500, 'Session lookup failed')
         return
       }
@@ -294,6 +392,7 @@ server.on('upgrade', (request, socket, head) => {
       let document: ReturnType<typeof getYDoc> | null = null
       let access: Awaited<ReturnType<typeof authorizeRoomAccess>> | null = null
       try {
+        upgradeStage = 'authorization'
         access = await authorizeRoomAccess(
           request as express.Request,
           roomStore,
@@ -301,6 +400,7 @@ server.on('upgrade', (request, socket, head) => {
           lifecycleOptions,
         )
         if (yjsPersistence) {
+          upgradeStage = 'hydration'
           document = getYDoc(roomName)
           await yjsPersistence.waitForHydration(document)
         }
@@ -313,6 +413,7 @@ server.on('upgrade', (request, socket, head) => {
           console.error(`Could not restore Yjs room ${roomName}:`, error)
         }
         const status = error instanceof ApiError ? error.status : 500
+        settleUpgrade('rejected')
         rejectUpgrade(
           socket,
           status,
@@ -325,14 +426,18 @@ server.on('upgrade', (request, socket, head) => {
         return
       }
 
-      if (socket.destroyed || !access) return
+      if (socket.destroyed || !access) {
+        settleUpgrade('aborted')
+        return
+      }
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        settleUpgrade('accepted')
         const connectedAt = Date.now()
         const client = describeCollaborationClient({
           forwardedFor: request.headers['x-forwarded-for'],
           remoteAddress: request.socket.remoteAddress,
           userAgent: request.headers['user-agent'],
-          fingerprintSalt: collaborationFingerprintSalt,
+          fingerprintSalt: diagnosticFingerprintSalt,
         })
         console.info(JSON.stringify({
           event: 'collaboration_socket_open',

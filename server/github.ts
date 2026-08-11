@@ -273,6 +273,27 @@ const validateBranch = (value: string, field: string) => {
 const encodeRepositoryPath = (value: string) =>
   value.split('/').map(encodeURIComponent).join('/')
 
+export const githubRequestTimeoutMs = 15_000
+
+export const fetchGitHub = async (
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs = githubRequestTimeoutMs,
+) => {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal
+  try {
+    return await fetch(input, { ...init, signal })
+  } catch (error) {
+    if (timeoutSignal.aborted && !init.signal?.aborted) {
+      throw new ApiError(504, 'GitHub did not respond in time.')
+    }
+    throw error
+  }
+}
+
 const saveSession = (request: Request) =>
   new Promise<void>((resolve, reject) => {
     request.session.save((error) => {
@@ -282,7 +303,7 @@ const saveSession = (request: Request) =>
   })
 
 const exchangeToken = async (body: Record<string, string>) => {
-  const response = await fetch('https://github.com/login/oauth/access_token', {
+  const response = await fetchGitHub('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -333,7 +354,7 @@ const githubRequest = async <Result>(
   init: RequestInit = {},
 ): Promise<Result> => {
   const accessToken = await getAccessToken(request)
-  const response = await fetch(`https://api.github.com${path}`, {
+  const response = await fetchGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
       Accept: 'application/vnd.github+json',
@@ -1426,7 +1447,7 @@ githubRouter.get('/auth/github/callback', async (request, response) => {
     code,
     redirect_uri: `${credentials.appUrl}/api/auth/github/callback`,
   })
-  const userResponse = await fetch('https://api.github.com/user', {
+  const userResponse = await fetchGitHub('https://api.github.com/user', {
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token.access_token}`,
