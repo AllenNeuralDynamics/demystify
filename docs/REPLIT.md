@@ -2,11 +2,10 @@
 
 **Last validated:** August 10, 2026
 
-**Deployed application source:** [`8824565d8964f2aea87c2ca28aa460ca6d3e6b9f`](https://github.com/AllenNeuralDynamics/demystify/commit/8824565d8964f2aea87c2ca28aa460ca6d3e6b9f)
+**Deployed application source:** [`2e0d922dbc0d90b63880de892b6eed0879484aee`](https://github.com/AllenNeuralDynamics/demystify/commit/2e0d922dbc0d90b63880de892b6eed0879484aee)
 
-**Publication status:** Online. Replit release `ebbc2fa5` was published on
-August 10, 2026, with complete request-lifecycle diagnostics and bounded
-external dependency waits.
+**Publication status:** Online. Replit release `ef0ec2e4` was published on
+August 10, 2026, with privacy-safe completion logging for every HTTP request.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,8 +33,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `8824565d8964f2aea87c2ca28aa460ca6d3e6b9f` |
-| Replit release | `ebbc2fa5` |
+| Application source | `2e0d922dbc0d90b63880de892b6eed0879484aee` |
+| Replit release | `ef0ec2e4` |
 | Cloud credits after restart smoke | 45% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -308,6 +307,11 @@ Subsequent releases narrowed the remaining activity source further:
    DeMystify.
 - All GitHub requests and PostgreSQL statements are now bounded, so an upstream
    stall cannot keep a collaboration upgrade open indefinitely.
+- Release `ef0ec2e4` initially recorded two successful, 11--13 ms application
+   `GET` requests from non-browser clients seven seconds apart during startup.
+   These are consistent with infrastructure health probes. A control-plane-free
+   observation beginning at `2026-08-11T06:19:06Z` is testing whether they recur
+   often enough to reset the Autoscale idle window.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
