@@ -2,10 +2,10 @@
 
 **Last validated:** August 10, 2026
 
-**Deployed application source:** [`312c94d44b03f5f36ba3cfe085b1307ed5899fe9`](https://github.com/AllenNeuralDynamics/demystify/commit/312c94d44b03f5f36ba3cfe085b1307ed5899fe9)
+**Deployed application source:** [`2e0d922dbc0d90b63880de892b6eed0879484aee`](https://github.com/AllenNeuralDynamics/demystify/commit/2e0d922dbc0d90b63880de892b6eed0879484aee)
 
-**Publication status:** Online. Replit release `c0e948f3` was published on
-August 10, 2026, after an explicitly approved restart.
+**Publication status:** Online. Replit release `ef0ec2e4` was published on
+August 10, 2026, with privacy-safe completion logging for every HTTP request.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -33,10 +33,10 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `312c94d44b03f5f36ba3cfe085b1307ed5899fe9` |
-| Replit release | `c0e948f3` |
+| Application source | `2e0d922dbc0d90b63880de892b6eed0879484aee` |
+| Replit release | `ef0ec2e4` |
 | Cloud credits after restart smoke | 45% used |
-| Free publication expiry | September 8, 2026 |
+| Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
 the repository's root `.replit` configuration. Subsequent releases use a guarded
@@ -45,19 +45,28 @@ tracked files, install from the lockfile, build, and require a clean tracked-tre
 comparison before Republish. The production database was initialized empty for
 the pilot and now contains the pilot's persistent state.
 
-After an earlier smoke check, the Autoscale instance remained at approximately
-2% CPU and memory for more than one hour despite zero completed HTTP requests in
-that hour and no open local production tabs. Because an unexplained long-lived
-connection or platform drain failure could continue consuming credits, the
-publication was temporarily shut down at 45% cloud-credit usage. Replit retained
-the 29.77 MB production database and reported zero database compute hours.
+After an earlier smoke check, the infrastructure graph showed approximately 2%
+CPU and memory despite zero completed HTTP requests and no open local production
+tabs. The publication was temporarily shut down at 45% cloud-credit usage while
+that infrastructure warmth was investigated. Replit later reported zero compute
+units during the socket-free diagnostic release despite the warm graph. It also
+retained the 29.77 MB production database with zero database compute hours.
+
+Replit uses request-based Autoscale billing on Cloud Run. A non-minimum idle
+instance is not kept longer than 15 minutes. Replit charges compute while
+requests are served; the underlying Cloud Run lifecycle also treats startup and
+graceful shutdown as billable instance time. During the socket-free diagnostic
+release, Replit's Resource usage panel reported zero compute units even while
+the infrastructure graph still showed a warm container. Do not infer credit
+consumption from the infrastructure graph alone.
 
 The explicitly approved restart reused that database without copying or
 recreating it. Replit's new-publish form would not attach the retained database
 automatically, so its credentials were rotated and the new `DATABASE_URL` was
 added as a masked deployment secret. A read-only query confirmed 5 room rows, 5
 Yjs update rows, and 29 session rows before publication. Continue monitoring the
-instance after idle periods; unpublish again if it remains warm without traffic.
+instance after idle periods; investigate or unpublish if Resource usage shows
+unexplained compute consumption without user traffic.
 
 ## Project Setup
 
@@ -268,7 +277,7 @@ hydration therefore ends instead of holding an Autoscale request indefinitely.
 
 ## Validation
 
-The August 10, 2026 restart from application SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
+The August 10, 2026 application release from SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
 as Replit release `c0e948f3` passed these production checks:
 
 - `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
@@ -283,6 +292,42 @@ as Replit release `c0e948f3` passed these production checks:
 - Full unit, integration, accessibility, responsive, visual, and five-project
    browser validation ran locally and in GitHub Actions before publication, not
    against Replit production.
+
+Diagnostic release `55ead814` from application SHA
+`9d1383faf79dbbf02f78e70942ad72d79404c98a` additionally established:
+
+- No collaboration socket opened after the replacement process started.
+- The previous release stopped when the diagnostic release was promoted.
+- Replit reported zero compute units during the initial socket-free idle window.
+
+Subsequent releases narrowed the remaining activity source further:
+
+- Release `c8c27642` logged no accepted collaboration socket and no HTTP request
+   open longer than 10 seconds.
+- Release `ebbc2fa5` also logged no collaboration upgrade waiting in session,
+   authorization, or hydration, ruling out a collaboration upgrade stalled in
+   any instrumented DeMystify stage.
+- All GitHub requests and PostgreSQL statements are now bounded, so an upstream
+   stall cannot keep a collaboration upgrade open indefinitely.
+- Release `ef0ec2e4` initially recorded two successful
+   `http_request_complete` events in the `application` category: `GET` requests
+   lasting 11 ms and 13 ms, seven seconds apart shortly after startup. Their
+   client metadata did not match a recognized browser family. These events are
+   consistent with platform-generated startup or publication checks, but the
+   privacy-safe fields do not identify their source and do not prove that they
+   were probes. A control-plane-free observation beginning at
+   `2026-08-11T06:19:06Z` recorded no HTTP, collaboration-upgrade, or
+   collaboration-socket event through `2026-08-11T06:34:31Z`.
+
+The release emitted no shutdown event during that traffic-free interval. A
+single health request at `2026-08-11T06:35:25Z` returned in 0.36 seconds, spent
+2 ms inside the already-running application, and produced no new startup event.
+This proves the process remained physically warm beyond the documented idle
+window even though no request reached DeMystify. Replit still reported zero
+compute units and cloud-credit usage remained at 45%. The remaining discrepancy
+is therefore platform-side instance retention or internal activity outside the
+DeMystify process, not an application traffic leak. It is not evidence of
+ongoing compute charges under the observed request-based billing state.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
@@ -327,8 +372,9 @@ all work.
 - Free development URLs work only while the workspace is active and may change
    after reopening the project.
 - The Starter publication is temporary. Keep cloud-credit monitoring active and
-   unpublish if the Autoscale instance remains warm without traffic.
-- Autoscale restarts regularly and can have a cold start after inactivity.
+   unpublish if Resource usage shows unexplained compute consumption.
+- Autoscale instances may stop after inactivity and restart on later traffic,
+   causing a cold start.
 - Replit production PostgreSQL is usage-billed, although a small pilot should
   consume little storage and compute.
 - Replit's deployment filesystem is not durable; PostgreSQL is required.
