@@ -1311,6 +1311,10 @@
   line-height: 1.45;
 }
 
+.myst-preview .caption-number {
+  font-weight: 600;
+}
+
 .myst-preview .math {
   color: #173f35;
 }

@@ -113,6 +113,57 @@ describe('MystPreview', () => {
     yDocument.destroy()
   })
 
+  it('preserves a rendered text selection before opening the visual editor', async () => {
+    const content = 'Select these words.'
+    const yDocument = new Y.Doc()
+    const text = yDocument.getText('content')
+    text.insert(0, content)
+    const onBeginEdit = vi.fn((block: {
+      from: number
+      to: number
+      value: string
+    }) => createCollaborativeTextEditAnchor(text, block.from, block.to, block.value))
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          editable
+          onBeginEdit={onBeginEdit}
+          onCommitEdit={() => 'applied'}
+        />,
+      )
+    })
+
+    const paragraph = container.querySelector<HTMLElement>('p')
+    const textNode = paragraph?.firstChild
+    expect(paragraph).not.toBeNull()
+    expect(textNode).not.toBeNull()
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.setStart(textNode as Node, 0)
+    range.setEnd(textNode as Node, 6)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+
+    await act(async () => paragraph?.click())
+    expect(selection?.toString()).toBe('Select')
+    expect(onBeginEdit).not.toHaveBeenCalled()
+    expect(container.querySelector('[aria-label="Edit paragraph"]')).toBeNull()
+
+    selection?.removeAllRanges()
+    await act(async () => paragraph?.click())
+    expect(onBeginEdit).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[aria-label="Edit paragraph"]')).not.toBeNull()
+
+    await act(async () => root.unmount())
+    container.remove()
+    yDocument.destroy()
+  })
+
   it('edits nested prose without consuming its structural markers', async () => {
     const content = `- Listed **result**.
 
@@ -148,7 +199,7 @@ ${figure}`
     expect(listParagraph?.classList).toContain('myst-editable-block')
     expect(paragraphWithText('Quoted result.')?.classList).toContain('myst-editable-block')
     expect(paragraphWithText('Note body.')?.classList).toContain('myst-editable-block')
-    expect(container.querySelector('figcaption')?.textContent).toBe('A static result.')
+    expect(container.querySelector('figcaption')?.textContent).toBe('Figure 1 A static result.')
     expect(container.querySelector('figcaption')?.classList).toContain('myst-editable-block')
 
     await act(async () => listParagraph?.click())

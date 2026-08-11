@@ -14,7 +14,11 @@ import { EditorState, type Command } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { useEffect, useRef, useState } from 'react'
 import type { MystEditableBlock } from '../lib/myst'
-import type { CitationDetails, CitationStyle } from '../lib/references'
+import type {
+  CitationDetails,
+  CitationStyle,
+  CitationSyntax,
+} from '../lib/references'
 import {
   createVisualInlineDocument,
   serializeVisualInlineDocument,
@@ -27,11 +31,13 @@ export type VisualCitationInserter = (
   style: CitationStyle,
   details?: CitationDetails,
   bibliography?: string,
+  syntax?: CitationSyntax,
 ) => void
 
 interface VisualInlineEditorProps {
   bibliography: string
   block: MystEditableBlock
+  citationSyntax?: CitationSyntax
   error?: string | null
   onCancel: () => void
   onRequestCitation: (insert: VisualCitationInserter) => void
@@ -69,6 +75,7 @@ const activeMarksForState = (state: EditorState) => {
 export const VisualInlineEditor = ({
   bibliography,
   block,
+  citationSyntax = 'role',
   error,
   onCancel,
   onRequestCitation,
@@ -112,7 +119,11 @@ export const VisualInlineEditor = ({
       return true
     }
     const state = EditorState.create({
-      doc: createVisualInlineDocument(block.inline, bibliographyRef.current),
+      doc: createVisualInlineDocument(
+        block.inline,
+        bibliographyRef.current,
+        citationSyntax,
+      ),
       plugins: [
         history(),
         keymap({
@@ -149,7 +160,7 @@ export const VisualInlineEditor = ({
       view.destroy()
       viewRef.current = null
     }
-  }, [block.id, block.inline, block.kind])
+  }, [block.id, block.inline, block.kind, citationSyntax])
 
   const runCommand = (command: Command) => {
     const view = viewRef.current
@@ -174,7 +185,7 @@ export const VisualInlineEditor = ({
     const view = viewRef.current
     if (!view) return
     const bookmark = view.state.selection.getBookmark()
-    onRequestCitation((keys, style, details, updatedBibliography) => {
+    onRequestCitation((keys, style, details, updatedBibliography, syntax) => {
       const currentView = viewRef.current
       if (!currentView) return
       let transaction = currentView.state.tr
@@ -188,6 +199,7 @@ export const VisualInlineEditor = ({
         style,
         prefix: details?.prefix ?? '',
         suffix: details?.suffix ?? '',
+        syntax: syntax ?? citationSyntax,
         label: visualCitationLabel(
           keys,
           style,

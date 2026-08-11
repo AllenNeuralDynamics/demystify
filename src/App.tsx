@@ -74,6 +74,7 @@ import {
 import { loadProfile, saveProfile } from './lib/profile'
 import { getMystOutline } from './lib/mystOutline'
 import {
+  detectCitationSyntax,
   formatCitation,
   type CitationDetails,
   type CitationStyle,
@@ -753,6 +754,7 @@ function App() {
     details: CitationDetails,
   ) => {
     try {
+      const citationSyntax = detectCitationSyntax(activeContent)
       const keys = selections.map((selection) => {
         if (selection.kind === 'existing') return selection.key
         const result = collaboration.addBibliographyReference(selection.paper)
@@ -765,9 +767,15 @@ function App() {
           style,
           details,
           collaboration.getSnapshotBibliography(),
+          citationSyntax,
         )
       }
-      else editorRef.current?.insertCitation(formatCitation(keys, style, details))
+      else editorRef.current?.insertCitation(formatCitation(
+        keys,
+        style,
+        details,
+        citationSyntax,
+      ))
       setCitationPickerOpen(false)
       setVisualCitationInserter(null)
       showNotice(`${keys.length} ${keys.length === 1 ? 'citation' : 'citations'} inserted`)
@@ -1205,22 +1213,6 @@ function App() {
               <button className="icon-button" type="button" title="Inline code" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
                 <Code2 size={17} />
               </button>
-              <span className="toolbar-divider" />
-              <button
-                ref={commentsTriggerRef}
-                className="icon-button comments-trigger"
-                type="button"
-                title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
-                disabled={!isPrimaryFile}
-                onClick={() => setCommentsOpen((open) => !open)}
-              >
-                <MessageSquare size={17} />
-                {openCommentCount > 0 && (
-                  <span className="comment-count">
-                    {openCommentCount}
-                  </span>
-                )}
-              </button>
             </div>
 
             <div className="view-switcher" aria-label="Workspace view">
@@ -1236,6 +1228,21 @@ function App() {
             </div>
 
             <div className="document-stats">
+              <button
+                ref={commentsTriggerRef}
+                className="icon-button comments-trigger"
+                type="button"
+                title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
+                disabled={!isPrimaryFile}
+                onClick={() => setCommentsOpen((open) => !open)}
+              >
+                <MessageSquare size={17} />
+                {openCommentCount > 0 && (
+                  <span className="comment-count">
+                    {openCommentCount}
+                  </span>
+                )}
+              </button>
               <span>{wordCount.toLocaleString()} words</span>
               <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving || !canManageRepository} onClick={() => void saveToGitHub()}>
                 {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}

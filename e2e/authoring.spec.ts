@@ -59,6 +59,38 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
   await expect(page.getByRole('dialog', { name: 'Publication metadata' })).toBeHidden()
 })
 
+test('preserves rendered text selection before entering visual editing', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile-'), 'Mouse selection runs in desktop engines')
+  await page.setViewportSize({ width: 1000, height: 760 })
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  await page.getByTitle('Visual editor').click()
+
+  const paragraph = page.locator('.myst-preview p.myst-editable-block').first()
+  await expect(paragraph).toBeVisible()
+  const bounds = await paragraph.boundingBox()
+  expect(bounds).not.toBeNull()
+  if (!bounds) return
+
+  const y = bounds.y + Math.min(14, bounds.height / 2)
+  await page.mouse.move(bounds.x + 10, y)
+  await page.mouse.down()
+  await page.mouse.move(Math.min(bounds.x + 150, bounds.x + bounds.width - 10), y, {
+    steps: 8,
+  })
+  await page.mouse.up()
+
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
+    .not.toBe('')
+  await expect(page.locator('.visual-prosemirror')).toHaveCount(0)
+
+  await page.evaluate(() => window.getSelection()?.removeAllRanges())
+  await paragraph.click()
+  await expect(page.getByRole('textbox', { name: 'Edit paragraph' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('textbox', { name: 'Edit paragraph' })).toBeHidden()
+})
+
 test('keeps mobile Escape ordering and focus deterministic', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const roomName = createRoomName(testInfo)

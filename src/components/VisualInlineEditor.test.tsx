@@ -60,4 +60,34 @@ describe('VisualInlineEditor', () => {
 
     await act(async () => root.unmount())
   })
+
+  it('serializes inserted citations in the manuscript citation syntax', async () => {
+    const onSave = vi.fn()
+    const onRequestCitation = vi.fn((insert: (keys: string[], style: 'parenthetical') => void) => {
+      insert(['smith2024'], 'parenthetical')
+    })
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <VisualInlineEditor
+          bibliography={bibliography}
+          block={block}
+          citationSyntax="markdown"
+          onCancel={() => undefined}
+          onRequestCitation={onRequestCitation}
+          onSave={onSave}
+        />,
+      )
+    })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[title="Cite a paper"]')?.click()
+      container.querySelector<HTMLButtonElement>('[title="Save visual edit"]')?.click()
+    })
+
+    expect(onSave.mock.calls[0][0]).toContain('[@smith2024]')
+
+    await act(async () => root.unmount())
+  })
 })

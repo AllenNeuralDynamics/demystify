@@ -21,6 +21,7 @@ import type {
   CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
 import { renderMyst, type MystEditableBlock } from '../lib/myst'
+import { detectCitationSyntax } from '../lib/references'
 import {
   VisualInlineEditor,
   type VisualCitationInserter,
@@ -80,6 +81,7 @@ export const MystPreview = memo(({
     () => new Map(preview.editableBlocks.map((block) => [block.id, block])),
     [preview.editableBlocks],
   )
+  const citationSyntax = useMemo(() => detectCitationSyntax(content), [content])
   const canEdit = editable && Boolean(onBeginEdit && onCommitEdit)
 
   useEffect(() => {
@@ -114,7 +116,7 @@ export const MystPreview = memo(({
         .forEach((element) => {
           element.classList.add('myst-editable-block')
           element.tabIndex = 0
-          element.title = 'Edit in visual view'
+          element.title = 'Drag to select; click to edit'
         })
     }
   }, [activeEdit, canEdit, preview.html])
@@ -144,6 +146,13 @@ export const MystPreview = memo(({
     const target = event.target
     if (!(target instanceof Element)) return
     const block = target.closest<HTMLElement>('[data-myst-edit-id]')
+    const selection = window.getSelection()
+    if (
+      selection &&
+      !selection.isCollapsed &&
+      previewRef.current?.contains(selection.anchorNode) &&
+      previewRef.current.contains(selection.focusNode)
+    ) return
     if (block && previewRef.current?.contains(block)) beginEditing(block)
   }
 
@@ -206,6 +215,7 @@ export const MystPreview = memo(({
         <VisualInlineEditor
           bibliography={bibliography}
           block={activeEdit.block}
+          citationSyntax={detectCitationSyntax(activeEdit.block.value, citationSyntax)}
           error={activeEdit.error}
           onCancel={cancelEditing}
           onRequestCitation={(insert) => onRequestCitation?.(insert)}

@@ -90,7 +90,9 @@ papers can be inserted as one parenthetical or narrative MyST citation, with
 optional MyST prefix and locator/suffix text. New records are deduplicated by DOI and added to a collaborative `references.bib`
 beside the bound manuscript (for example, `paper/references.bib` for
 `paper/index.md`). Existing BibTeX citation keys and source formatting are
-preserved.
+preserved. Citation insertion follows the manuscript's dominant syntax, using
+Markdown/Pandoc `@key` forms or MyST `{cite:*}` roles as appropriate; combinations
+that Markdown cannot represent safely fall back to roles.
 
 Select **References** to search and inspect the whole library, import or export
 standard BibTeX, edit one raw entry, remove uncited entries, or merge unused DOI
