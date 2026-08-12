@@ -1,12 +1,13 @@
 # Replit Pilot
 
-**Last validated:** August 11, 2026
+**Last validated:** August 12, 2026
 
-**Deployed application source:** [`82b3fd010a603f2335c3e452edd2cb8853becee1`](https://github.com/AllenNeuralDynamics/demystify/commit/82b3fd010a603f2335c3e452edd2cb8853becee1)
+**Deployed application source:** [`0c89cf744f5a792140e1c664eee5dec096be0727`](https://github.com/AllenNeuralDynamics/demystify/commit/0c89cf744f5a792140e1c664eee5dec096be0727)
 
-**Publication status:** Online. Replit release `d7dc25c7` was published on
-August 11, 2026, with the responsive, visual-selection, figure-label, and
-citation-style feedback fixes.
+**Publication status:** Online. Replit release `3f72b6f5` was published on
+August 12, 2026, with attributed Source and Visual suggestions, threaded
+discussion, maintainer decisions, GitHub review records, and server-enforced
+Suggestion-role update boundaries.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -27,16 +28,16 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 11, 2026 |
+| Publication | Online; updated August 12, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `82b3fd010a603f2335c3e452edd2cb8853becee1` |
-| Replit release | `d7dc25c7` |
-| Cloud credits after restart smoke | 45% used |
+| Application source | `0c89cf744f5a792140e1c664eee5dec096be0727` |
+| Replit release | `3f72b6f5` |
+| Cloud credits after release smoke | 46% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -341,6 +342,33 @@ The August 11, 2026 feedback release `d7dc25c7` from application SHA
 - Local and protected GitHub validation passed 167 unit/server tests, authenticated
    collaboration integration, lint, build and bundle budgets, dependency audit,
    and 44 executed Playwright checks across desktop and mobile projects.
+
+The August 12, 2026 attributed-suggestions release `3f72b6f5` from application
+SHA `0c89cf744f5a792140e1c664eee5dec096be0727` passed these release checks:
+
+- Protected pull request #15 passed strict required `validate` and `browser`
+   checks before merging to `main`.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=0c89cf744f5a792140e1c664eee5dec096be0727` before republish.
+- Replit reported success for Provision, Security checks, Build, Bundle, and
+   Promote. Autoscale remained 2 vCPU / 4 GiB with one maximum machine, and the
+   retained production database remained connected; no development-database copy
+   or destructive migration was selected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-DsC-CAHm.js`, which contains the Source and Visual
+   attributed-suggestion implementations. The HTML retained
+   `noindex, nofollow, noarchive`, and `robots.txt` continued to disallow all
+   crawlers.
+- The live anonymous shell loaded with the expected unauthenticated room claim
+   (`401`). At 1100x800 and 390x844 viewports, the workspace and toolbar remained
+   inside the viewport with no horizontal overflow, and Source/Split/Visual
+   controls remained available.
+- Local and protected validation passed 177 unit/server tests, authenticated
+   collaboration integration, lint, build and bundle budgets, dependency audit,
+   and 46 executed Playwright checks across Chromium, Firefox, WebKit, Mobile
+   Chrome, and Mobile Safari, with 49 intentional project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
