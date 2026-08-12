@@ -59,6 +59,46 @@ const createSuggestion = (document: Y.Doc, id = 'suggestion-1') => {
   }
 }
 
+const createRangeSuggestion = (
+  document: Y.Doc,
+  input: {
+    after: string
+    authorName: string
+    from: number
+    id: string
+    to: number
+  },
+) => {
+  const text = document.getText('content')
+  const before = text.toString().slice(input.from, input.to)
+  return {
+    id: input.id,
+    authorId: input.authorName.toLowerCase().replaceAll(' ', '-'),
+    authorName: input.authorName,
+    authorColor: '#a64b36',
+    body: 'Suggested edit',
+    createdAt: '2026-08-12T01:00:00.000Z',
+    resolved: false,
+    anchor: {
+      version: 1,
+      start: encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(text, input.from, 0),
+      ),
+      end: encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(text, input.to, -1),
+      ),
+      quote: before,
+    },
+    suggestion: {
+      kind: before ? input.after ? 'replace' : 'delete' : 'insert',
+      filePath: 'manuscript.md',
+      before,
+      after: input.after,
+      status: 'pending',
+    },
+  }
+}
+
 describe('read-only Yjs messages', () => {
   it('allows presence and sync requests needed to load the room', () => {
     expect(isReadOnlyWebSocketMessageAllowed(message(1))).toBe(true)
@@ -83,6 +123,56 @@ describe('suggestion-mode Yjs messages', () => {
     expect(isCollaboratorWebSocketMessageAllowed(message(1), document)).toBe(true)
     expect(isCollaboratorWebSocketMessageAllowed(message(0, 0), document)).toBe(true)
     expect(isCollaboratorWebSocketMessageAllowed(suggestionUpdate, document)).toBe(true)
+    document.destroy()
+  })
+
+  it('allows source-fragment, insertion, and successive alternatives', () => {
+    const document = new Y.Doc()
+    const source = '# Draft\n\nA manuscript should be inspectable.\n'
+    document.getText('content').insert(0, source)
+    const from = source.indexOf('inspectable')
+    const to = from + 'inspectable'.length
+    const first = createRangeSuggestion(document, {
+      id: 'source-suggestion-1',
+      authorName: 'First Reviewer',
+      from,
+      to,
+      after: 'reviewable',
+    })
+    const firstUpdate = updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set(first.id, first)
+    })
+    expect(isCollaboratorWebSocketMessageAllowed(firstUpdate, document)).toBe(true)
+    Y.applyUpdate(document, (() => {
+      const candidate = new Y.Doc()
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
+      const stateVector = Y.encodeStateVector(document)
+      candidate.getMap('comments').set(first.id, first)
+      const update = Y.encodeStateAsUpdate(candidate, stateVector)
+      candidate.destroy()
+      return update
+    })())
+
+    const second = createRangeSuggestion(document, {
+      id: 'source-suggestion-2',
+      authorName: 'Second Reviewer',
+      from,
+      to,
+      after: 'reviewable and attributed',
+    })
+    const insertion = createRangeSuggestion(document, {
+      id: 'source-insertion-1',
+      authorName: 'Third Reviewer',
+      from: source.length,
+      to: source.length,
+      after: '\nInserted proposal.',
+    })
+    expect(isCollaboratorWebSocketMessageAllowed(updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set(second.id, second)
+    }), document)).toBe(true)
+    expect(isCollaboratorWebSocketMessageAllowed(updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set(insertion.id, insertion)
+    }), document)).toBe(true)
     document.destroy()
   })
 

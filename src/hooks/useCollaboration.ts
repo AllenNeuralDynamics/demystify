@@ -371,7 +371,10 @@ export const useCollaboration = (
       session.document,
       session.text,
       comment.anchor,
-      { recoverQuote: !comment.suggestion },
+      {
+        allowEmpty: comment.suggestion?.kind === 'insert',
+        recoverQuote: !comment.suggestion,
+      },
     )
   }, [session])
 
@@ -692,7 +695,10 @@ export const useCollaboration = (
       session.document,
       text,
       comment.anchor,
-      { recoverQuote: false },
+      {
+        allowEmpty: suggestion.kind === 'insert',
+        recoverQuote: false,
+      },
     )
     if (
       !location ||
@@ -720,14 +726,45 @@ export const useCollaboration = (
       anchor,
       suggestion.after,
     )
-    session.comments.set(comment.id, {
-      ...comment,
-      resolved: result === 'applied',
-      suggestion: {
-        ...suggestion,
-        ...(result === 'applied' ? decisionDetails : {}),
-        status: result === 'applied' ? 'accepted' : 'conflicted',
-      },
+    session.document.transact(() => {
+      session.comments.set(comment.id, {
+        ...comment,
+        resolved: result === 'applied',
+        suggestion: {
+          ...suggestion,
+          ...(result === 'applied' ? decisionDetails : {}),
+          status: result === 'applied' ? 'accepted' : 'conflicted',
+        },
+      })
+      if (result !== 'applied') return
+      for (const [otherId, otherComment] of session.comments.entries()) {
+        const otherSuggestion = otherComment.suggestion
+        if (
+          otherId === comment.id ||
+          !otherComment.anchor ||
+          otherSuggestion?.status !== 'pending' ||
+          otherSuggestion.filePath !== suggestion.filePath
+        ) continue
+        const otherLocation = resolveCommentAnchor(
+          session.document,
+          text,
+          otherComment.anchor,
+          {
+            allowEmpty: otherSuggestion.kind === 'insert',
+            recoverQuote: false,
+          },
+        )
+        if (
+          otherLocation &&
+          !otherLocation.orphaned &&
+          otherLocation.quote === otherSuggestion.before
+        ) continue
+        session.comments.set(otherId, {
+          ...otherComment,
+          resolved: false,
+          suggestion: { ...otherSuggestion, status: 'conflicted' },
+        })
+      }
     })
     return result
   }, [profile, readOnly, session])

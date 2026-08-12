@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  PencilLine,
   Redo2,
   RefreshCw,
   Reply,
@@ -172,6 +173,10 @@ function App() {
     shareDialogOpen ||
     githubDialogOpen
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
+  const [sourceDraftPreview, setSourceDraftPreview] = useState<{
+    filePath: string
+    content: string
+  } | null>(null)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
@@ -226,7 +231,8 @@ function App() {
   const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
-  const isSourceReadOnly = isReadOnly || isSuggestionMode
+  const isSourceReadOnly = isReadOnly
+  const isStructuredEditorReadOnly = isReadOnly || isSuggestionMode
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
@@ -265,6 +271,13 @@ function App() {
   const activeContent = isPrimaryFile
     ? collaboration.content
     : collaboration.projectFiles[activeFilePath] ?? ''
+  const activeSourceDraftPreview = isSuggestionMode &&
+    sourceDraftPreview?.filePath === activeFilePath
+    ? sourceDraftPreview.content
+    : null
+  const displayedContent = activeSourceDraftPreview !== null
+    ? activeSourceDraftPreview
+    : activeContent
   const activeAssetBaseUrl = repositoryBinding
     ? getRepositoryAssetBaseUrl({ ...repositoryBinding, path: activeFilePath })
     : undefined
@@ -274,8 +287,8 @@ function App() {
       isMystSourcePath(path) ? [fileContent] : []),
   ].join('\n'), [collaboration.content, collaboration.projectFiles])
   const activeOutline = useMemo(
-    () => isActiveMystSource ? getMystOutline(activeContent) : [],
-    [activeContent, isActiveMystSource],
+    () => isActiveMystSource ? getMystOutline(displayedContent) : [],
+    [displayedContent, isActiveMystSource],
   )
   const sharedComments = collaboration.comments
   const initializeBibliography = collaboration.initializeBibliography
@@ -344,15 +357,16 @@ function App() {
   )
 
   const title = useMemo(
-    () => getDocumentTitle(activeContent),
-    [activeContent],
+    () => getDocumentTitle(displayedContent),
+    [displayedContent],
   )
   const wordCount = useMemo(
-    () => activeContent.trim()
-      ? activeContent.trim().split(/\s+/).length
+    () => displayedContent.trim()
+      ? displayedContent.trim().split(/\s+/).length
       : 0,
-    [activeContent],
+    [displayedContent],
   )
+
   const openCommentCount = useMemo(
     () => sharedComments.filter((comment) => !comment.resolved).length,
     [sharedComments],
@@ -748,6 +762,22 @@ function App() {
         ? 'The source changed around this suggestion. Review the latest text before deciding.'
         : 'This suggestion is no longer available.',
     )
+  }
+
+  const reviseSuggestion = (comment: SharedComment) => {
+    const suggestion = comment.suggestion
+    const location = commentLocations.get(comment.id)
+    if (!isSuggestionMode || !suggestion || !location || location.orphaned) return
+    setView('split')
+    setCommentsOpen(false)
+    window.requestAnimationFrame(() => {
+      const started = editorRef.current?.beginSuggestionRevision(
+        location.from,
+        location.to,
+        suggestion.after,
+      )
+      if (!started) showNotice('This suggestion can no longer be revised against the current source.')
+    })
   }
 
   const openCommentThread = (commentId: string) => {
@@ -1222,8 +1252,8 @@ function App() {
                   {isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
                     : github.session?.user
-                      ? 'Your GitHub identity labels comments and proposed Visual edits. The manuscript changes only when a maintainer accepts them.'
-                      : 'Visual prose edits become proposals for a maintainer to accept or reject. Connect GitHub to identify your contributions.'}
+                      ? 'Your GitHub identity labels comments and Source or Visual proposals. Canonical MyST changes only when a maintainer accepts one.'
+                      : 'Source and Visual edits become proposals for a maintainer to accept or reject. Connect GitHub to identify your contributions.'}
                 </span>
               </div>
               {roomAccess.review && (
@@ -1253,7 +1283,7 @@ function App() {
                 className="citation-trigger"
                 type="button"
                 title="Cite a paper"
-                disabled={isSourceReadOnly || !isActiveMystSource}
+                disabled={isStructuredEditorReadOnly || !isActiveMystSource}
                 onClick={() => {
                   setVisualCitationInserter(null)
                   setCitationPickerOpen(true)
@@ -1338,7 +1368,33 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
+                  onProposeSourceEdit={(replacement) => {
+                    const anchor = collaboration.beginTextEdit(
+                      replacement.from,
+                      replacement.to,
+                      replacement.before,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                    if (!anchor) return { result: 'conflict' as const }
+                    const proposal = collaboration.createTextSuggestion(
+                      anchor,
+                      replacement.after,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                    if (proposal.suggestionId) {
+                      setActiveCommentId(proposal.suggestionId)
+                      setCommentsOpen(true)
+                      showNotice('Source suggestion ready for review')
+                    }
+                    return proposal
+                  }}
+                  onSourceDraftChange={(draft) => setSourceDraftPreview(
+                    draft === null ? null : { filePath: activeFilePath, content: draft },
+                  )}
                   readOnly={isSourceReadOnly}
+                  suggestionMode={isSuggestionMode && isActiveMystSource}
                   suggestionHighlights={sourceSuggestions}
                 />
               ) : shareSession.error ? (
@@ -1363,12 +1419,12 @@ function App() {
                 <MystPreview
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
-                  content={activeContent}
+                  content={displayedContent}
                   editable={
                     !isReadOnly &&
                     collaboration.isSynced &&
                     isActiveMystSource &&
-                    (!isSuggestionMode || isPrimaryFile)
+                    (!isSuggestionMode || (isPrimaryFile && activeSourceDraftPreview === null))
                   }
                   projectFiles={collaboration.projectFiles}
                   sourcePath={activeFilePath}
@@ -1588,10 +1644,14 @@ function App() {
                       </div>
                       <div className="comment-actions">
                         {comment.suggestion ? (
-                          isMaintainer && (
+                          isSuggestionMode && comment.suggestion.status === 'pending' ? (
+                            <button type="button" onClick={() => reviseSuggestion(comment)}>
+                              <PencilLine size={13} /> Revise
+                            </button>
+                          ) : isMaintainer && (
                             comment.suggestion.status === 'pending' ||
                             comment.suggestion.status === 'conflicted'
-                          ) && (
+                          ) ? (
                             <div className="suggestion-actions">
                               <button type="button" onClick={() => decideSuggestion(comment, 'reject')}>
                                 <X size={13} /> Reject
@@ -1601,7 +1661,7 @@ function App() {
                                 {comment.suggestion.status === 'conflicted' ? 'Retry accept' : 'Accept'}
                               </button>
                             </div>
-                          )
+                          ) : null
                         ) : (
                           <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
                             <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
@@ -1660,7 +1720,7 @@ function App() {
         <ReferenceManager
           bibliography={collaboration.bibliography}
           manuscript={projectManuscriptContent}
-          readOnly={isSourceReadOnly}
+          readOnly={isStructuredEditorReadOnly}
           onApply={collaboration.commitBibliographyEdit}
           onClose={() => setReferenceManagerOpen(false)}
         />
@@ -1678,7 +1738,7 @@ function App() {
             projectFiles={collaboration.projectFiles}
             projectSource={collaboration.mystConfig}
             projectPath={collaboration.mystConfigPath}
-            readOnly={isSourceReadOnly}
+            readOnly={isStructuredEditorReadOnly}
             onApply={(input) => collaboration.commitPublicationMetadata({
               ...input,
               pagePath: activeFilePath,

@@ -114,12 +114,48 @@ export const MystPreview = memo(({
     nextPreview.innerHTML = preview.html
     morphdom(previewElement, nextPreview, { childrenOnly: true })
 
+    const suggestionsByBlock = new Map<string, {
+      block: MystEditableBlock
+      suggestions: Array<MystPreviewSuggestion & {
+        renderedAfter: string
+        renderBeforeBlock: boolean
+      }>
+    }>()
     for (const suggestion of suggestions) {
-      const block = preview.editableBlocks.find((candidate) =>
-        candidate.from === suggestion.from &&
-        candidate.to === suggestion.to &&
-        candidate.value === suggestion.before)
+      const matchingBlock = preview.editableBlocks.find((candidate) =>
+        candidate.from <= suggestion.from &&
+        candidate.to >= suggestion.to &&
+        candidate.value.slice(
+          suggestion.from - candidate.from,
+          suggestion.to - candidate.from,
+        ) === suggestion.before)
+      const block = matchingBlock ?? (
+        suggestion.from === suggestion.to && !suggestion.before
+          ? ([...preview.editableBlocks]
+              .reverse()
+              .find((candidate) => candidate.to <= suggestion.from) ??
+            preview.editableBlocks.find((candidate) => candidate.from >= suggestion.from))
+          : undefined
+      )
       if (!block) continue
+      const renderBeforeBlock = suggestion.from === suggestion.to &&
+        !suggestion.before &&
+        suggestion.from <= block.from
+      const relativeFrom = Math.max(0, Math.min(block.value.length, suggestion.from - block.from))
+      const relativeTo = Math.max(relativeFrom, Math.min(
+        block.value.length,
+        suggestion.to - block.from,
+      ))
+      const renderedAfter = suggestion.from === suggestion.to &&
+        (renderBeforeBlock || suggestion.from >= block.to)
+        ? suggestion.after
+        : `${block.value.slice(0, relativeFrom)}${suggestion.after}${block.value.slice(relativeTo)}`
+      const group = suggestionsByBlock.get(block.id) ?? { block, suggestions: [] }
+      group.suggestions.push({ ...suggestion, renderedAfter, renderBeforeBlock })
+      suggestionsByBlock.set(block.id, group)
+    }
+
+    for (const { block, suggestions: blockSuggestions } of suggestionsByBlock.values()) {
       const target = Array.from(
         previewElement.querySelectorAll<HTMLElement>('[data-myst-edit-id]'),
       ).find((element) => element.dataset.mystEditId === block.id)
@@ -136,42 +172,62 @@ export const MystPreview = memo(({
         : null
       const deletion = document.createElement('del')
       deletion.className = 'myst-suggestion-deletion'
+      deletion.dataset.mystSuggestionId = blockSuggestions[0].id
+      deletion.tabIndex = 0
+      deletion.setAttribute('role', 'button')
       originalNodes.forEach((node) => deletion.append(node))
+      const insertionGroup = blockSuggestions.every((suggestion) => !suggestion.before)
 
-      const insertion = document.createElement('ins')
-      insertion.className = 'myst-suggestion-insertion'
-      const renderedReplacement = renderMyst(suggestion.after, {
-        assetBaseUrl,
-        bibliography,
-        projectFiles,
-        sourcePath,
+      const alternatives = blockSuggestions.map((suggestion) => {
+        const option = document.createElement('span')
+        option.className = 'myst-suggestion-option'
+        option.dataset.mystSuggestionId = suggestion.id
+        option.style.setProperty('--myst-suggestion-color', suggestion.authorColor)
+        option.tabIndex = 0
+        option.setAttribute('role', 'button')
+        option.title = `Suggested by ${suggestion.authorName}; open review discussion`
+        option.setAttribute(
+          'aria-label',
+          `Suggested edit by ${suggestion.authorName}. Press Enter to open the review discussion.`,
+        )
+
+        const insertion = document.createElement('ins')
+        insertion.className = 'myst-suggestion-insertion'
+        const renderedReplacement = renderMyst(suggestion.renderedAfter, {
+          assetBaseUrl,
+          bibliography,
+          projectFiles,
+          sourcePath,
+        })
+        const replacementTemplate = document.createElement('template')
+        replacementTemplate.innerHTML = renderedReplacement.html
+        const replacementBlock = replacementTemplate.content.querySelector<HTMLElement>(
+          '[data-myst-edit-id]',
+        )
+        if (replacementBlock) insertion.append(...Array.from(replacementBlock.childNodes))
+        else insertion.textContent = suggestion.renderedAfter
+
+        const author = document.createElement('span')
+        author.className = 'myst-suggestion-author'
+        author.textContent = suggestion.authorName
+        option.append(insertion, author)
+        return option
       })
-      const replacementTemplate = document.createElement('template')
-      replacementTemplate.innerHTML = renderedReplacement.html
-      const replacementBlock = replacementTemplate.content.querySelector<HTMLElement>(
-        '[data-myst-edit-id]',
+      const beforeAlternatives = alternatives.filter(
+        (_, index) => blockSuggestions[index].renderBeforeBlock,
       )
-      if (replacementBlock) insertion.append(...Array.from(replacementBlock.childNodes))
-      else insertion.textContent = suggestion.after
-
-      const author = document.createElement('span')
-      author.className = 'myst-suggestion-author'
-      author.textContent = suggestion.authorName
+      const afterAlternatives = alternatives.filter(
+        (_, index) => !blockSuggestions[index].renderBeforeBlock,
+      )
       target.replaceChildren(
         ...(captionNumber ? [captionNumber, captionGap ?? document.createTextNode(' ')] : []),
-        deletion,
-        ...(suggestion.after ? [document.createTextNode(' '), insertion] : []),
-        author,
+        ...beforeAlternatives.flatMap((alternative) => [alternative, document.createTextNode(' ')]),
+        ...(insertionGroup ? originalNodes : [deletion]),
+        ...afterAlternatives.flatMap((alternative) => [document.createTextNode(' '), alternative]),
       )
       target.classList.add('myst-inline-suggestion')
-      target.dataset.mystSuggestionId = suggestion.id
-      target.style.setProperty('--myst-suggestion-color', suggestion.authorColor)
-      target.tabIndex = 0
-      target.title = `Suggested by ${suggestion.authorName}; open review discussion`
-      target.setAttribute(
-        'aria-label',
-        `Suggested edit by ${suggestion.authorName}. Press Enter to open the review discussion.`,
-      )
+      target.style.setProperty('--myst-suggestion-color', blockSuggestions[0].authorColor)
+      target.title = 'Select a change to review it; press F2 to suggest another edit.'
     }
 
     previewElement
@@ -188,7 +244,6 @@ export const MystPreview = memo(({
       previewElement
         .querySelectorAll<HTMLElement>('[data-myst-edit-id]')
         .forEach((element) => {
-          if (element.dataset.mystSuggestionId) return
           element.classList.add('myst-editable-block')
           element.tabIndex = 0
           element.title = 'Drag to select; click to edit'
@@ -249,13 +304,12 @@ export const MystPreview = memo(({
   const handlePreviewKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' && event.key !== 'F2') return
     const target = event.target
-    if (
-      target instanceof HTMLElement &&
-      target.dataset.mystSuggestionId &&
-      event.key === 'Enter'
-    ) {
+    const suggestion = target instanceof Element
+      ? target.closest<HTMLElement>('[data-myst-suggestion-id]')
+      : null
+    if (suggestion?.dataset.mystSuggestionId && event.key === 'Enter') {
       event.preventDefault()
-      onSuggestionClick?.(target.dataset.mystSuggestionId)
+      onSuggestionClick?.(suggestion.dataset.mystSuggestionId)
       return
     }
     if (!(target instanceof HTMLElement) || !target.matches('[data-myst-edit-id]')) return

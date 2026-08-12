@@ -85,4 +85,66 @@ describe('CollaborativeEditor', () => {
     yDocument.destroy()
     container.remove()
   })
+
+  it('submits a local source draft without mutating canonical Y.Text', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => ({
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    const source = '# Draft\n\nOriginal claim.'
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, source)
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const onProposeSourceEdit = vi.fn(() => ({
+      result: 'applied' as const,
+      suggestionId: 'source-suggestion',
+    }))
+    const onSourceDraftChange = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <CollaborativeEditor
+          sharedText={sharedText}
+          provider={provider}
+          suggestionMode
+          onProposeSourceEdit={onProposeSourceEdit}
+          onSourceDraftChange={onSourceDraftChange}
+        />,
+      )
+    })
+
+    const editor = container.querySelector<HTMLElement>('.cm-content')
+    await act(async () => {
+      if (!editor) return
+      editor.textContent = '# Draft\n\nRevised claim.'
+      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+    })
+    expect(sharedText.toString()).toBe(source)
+    expect(container.textContent).toContain('Drafting a source proposal')
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('.source-suggestion-draft-actions .primary')
+        ?.click()
+    })
+    expect(onProposeSourceEdit).toHaveBeenCalled()
+    expect(sharedText.toString()).toBe(source)
+
+    await act(async () => root.unmount())
+    awareness.destroy()
+    yDocument.destroy()
+    container.remove()
+  })
 })

@@ -9,11 +9,17 @@ import {
   type DecorationSet,
 } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { yCollab } from 'y-codemirror.next'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import { getCommentRange } from '../lib/commentAnchors'
+import {
+  getTextReplacement,
+  rebaseTextDraft,
+  type CollaborativeTextEditResult,
+  type TextReplacement,
+} from '../lib/collaborativeTextEdit'
 import { getCitationInsertion } from '../lib/citationInsertion'
 import {
   fillSnippetSelection,
@@ -43,11 +49,18 @@ interface CollaborativeEditorProps {
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
+  onProposeSourceEdit?: (replacement: TextReplacement) => {
+    result: CollaborativeTextEditResult
+    suggestionId?: string
+  }
+  onSourceDraftChange?: (draft: string | null) => void
   readOnly?: boolean
+  suggestionMode?: boolean
   suggestionHighlights?: SourceSuggestionHighlight[]
 }
 
 export interface CollaborativeEditorHandle {
+  beginSuggestionRevision: (from: number, to: number, replacement: string) => boolean
   undo: () => void
   redo: () => void
   wrapSelection: (before: string, after?: string) => void
@@ -137,25 +150,36 @@ const commentHighlightField = StateField.define<DecorationSet>({
           ].filter(Boolean).join(' '),
           attributes: { 'data-comment-id': highlight.id },
         }).range(highlight.from, highlight.to))
-      const suggestionDecorations = effect.value.suggestions.flatMap((suggestion) => {
-        if (suggestion.to <= suggestion.from) return []
-        return [
-          Decoration.mark({
-            class: [
-              'cm-suggestion-deletion',
-              suggestion.active ? 'is-active' : '',
-            ].filter(Boolean).join(' '),
-            attributes: {
-              'data-comment-id': suggestion.id,
-              title: `Suggested deletion by ${suggestion.authorName}`,
-            },
-          }).range(suggestion.from, suggestion.to),
-          Decoration.widget({
-            widget: new SuggestionWidget(suggestion),
-            side: 1,
-          }).range(suggestion.to),
-        ]
+      const suggestionGroups = new Map<string, SourceSuggestionHighlight[]>()
+      effect.value.suggestions.forEach((suggestion) => {
+        const key = `${suggestion.from}:${suggestion.to}`
+        const group = suggestionGroups.get(key) ?? []
+        group.push(suggestion)
+        suggestionGroups.set(key, group)
       })
+      const suggestionDecorations = Array.from(suggestionGroups.values())
+        .flatMap((suggestions) => {
+          const first = suggestions[0]
+          if (!first || first.to < first.from) return []
+          const deletion = first.to > first.from
+            ? [Decoration.mark({
+                class: [
+                  'cm-suggestion-deletion',
+                  suggestions.some((suggestion) => suggestion.active) ? 'is-active' : '',
+                ].filter(Boolean).join(' '),
+                attributes: {
+                  'data-comment-id': first.id,
+                  title: `Suggested deletion with ${suggestions.length} proposed replacement${suggestions.length === 1 ? '' : 's'}`,
+                },
+              }).range(first.from, first.to)]
+            : []
+          const proposals = suggestions.map((suggestion, index) =>
+            Decoration.widget({
+              widget: new SuggestionWidget(suggestion),
+              side: index + 1,
+            }).range(suggestion.to))
+          return [...deletion, ...proposals]
+        })
       return Decoration.set(
         [...commentDecorations, ...suggestionDecorations],
         true,
@@ -274,18 +298,36 @@ export const CollaborativeEditor = forwardRef<
   provider,
   commentHighlights = [],
   onCommentClick,
+  onProposeSourceEdit,
+  onSourceDraftChange,
   readOnly = false,
+  suggestionMode = false,
   suggestionHighlights = [],
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const draftBaseRef = useRef(sharedText.toString())
+  const draftDirtyRef = useRef(false)
+  const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
+  const onProposeSourceEditRef = useRef(onProposeSourceEdit)
+  const onSourceDraftChangeRef = useRef(onSourceDraftChange)
   const readOnlyRef = useRef(readOnly)
   const readOnlyCompartmentRef = useRef(new Compartment())
+  const [draftDirty, setDraftDirty] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   useEffect(() => {
     onCommentClickRef.current = onCommentClick
   }, [onCommentClick])
+
+  useEffect(() => {
+    onProposeSourceEditRef.current = onProposeSourceEdit
+  }, [onProposeSourceEdit])
+
+  useEffect(() => {
+    onSourceDraftChangeRef.current = onSourceDraftChange
+  }, [onSourceDraftChange])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -330,18 +372,66 @@ export const CollaborativeEditor = forwardRef<
             return true
           },
         }),
-        yCollab(sharedText, provider.awareness, { undoManager }),
+        ...(suggestionMode
+          ? [EditorView.updateListener.of((update) => {
+              if (!update.docChanged || syncingDraftRef.current) return
+              draftDirtyRef.current = true
+              setDraftDirty(true)
+              setDraftError(null)
+              onSourceDraftChangeRef.current?.(update.state.doc.toString())
+            })]
+          : [yCollab(sharedText, provider.awareness, { undoManager })]),
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
     viewRef.current = view
+    draftBaseRef.current = sharedText.toString()
+    draftDirtyRef.current = false
+    setDraftDirty(false)
+    setDraftError(null)
+    onSourceDraftChangeRef.current?.(null)
+
+    const syncCanonicalSource = () => {
+      if (!suggestionMode) return
+      const canonical = sharedText.toString()
+      if (draftDirtyRef.current) {
+        if (canonical === draftBaseRef.current) return
+        const rebasedDraft = rebaseTextDraft(
+          draftBaseRef.current,
+          view.state.doc.toString(),
+          canonical,
+        )
+        if (rebasedDraft === null) {
+          setDraftError('The manuscript changed in the same source range. Discard and reopen the latest source before proposing.')
+          return
+        }
+        syncingDraftRef.current = true
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: rebasedDraft },
+        })
+        syncingDraftRef.current = false
+        draftBaseRef.current = canonical
+        setDraftError(null)
+        onSourceDraftChangeRef.current?.(rebasedDraft)
+        return
+      }
+      draftBaseRef.current = canonical
+      if (view.state.doc.toString() === canonical) return
+      syncingDraftRef.current = true
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: canonical },
+      })
+      syncingDraftRef.current = false
+    }
+    sharedText.observe(syncCanonicalSource)
 
     return () => {
+      sharedText.unobserve(syncCanonicalSource)
       view.destroy()
       undoManager.destroy()
       viewRef.current = null
     }
-  }, [provider, sharedText])
+  }, [provider, sharedText, suggestionMode])
 
   useEffect(() => {
     readOnlyRef.current = readOnly
@@ -357,12 +447,37 @@ export const CollaborativeEditor = forwardRef<
     viewRef.current?.dispatch({
       effects: setReviewDecorations.of({
         comments: commentHighlights,
-        suggestions: suggestionHighlights,
+        suggestions: suggestionMode && draftDirty ? [] : suggestionHighlights,
       }),
     })
-  }, [commentHighlights, suggestionHighlights])
+  }, [commentHighlights, draftDirty, suggestionHighlights, suggestionMode])
 
   useImperativeHandle(ref, () => ({
+    beginSuggestionRevision: (from, to, replacement) => {
+      const view = viewRef.current
+      if (
+        !view ||
+        !suggestionMode ||
+        from < 0 ||
+        to < from ||
+        to > sharedText.length
+      ) return false
+      const canonical = sharedText.toString()
+      const draft = `${canonical.slice(0, from)}${replacement}${canonical.slice(to)}`
+      syncingDraftRef.current = true
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: draft },
+        selection: { anchor: from, head: from + replacement.length },
+      })
+      syncingDraftRef.current = false
+      draftBaseRef.current = canonical
+      draftDirtyRef.current = true
+      setDraftDirty(true)
+      setDraftError(null)
+      onSourceDraftChangeRef.current?.(draft)
+      view.focus()
+      return true
+    },
     undo: () => {
       if (viewRef.current && !readOnlyRef.current) undo(viewRef.current)
     },
@@ -442,7 +557,70 @@ export const CollaborativeEditor = forwardRef<
     focus: () => viewRef.current?.focus(),
   }))
 
-  return <div className="collaborative-editor" ref={containerRef} />
+  const resetSourceDraft = () => {
+    const view = viewRef.current
+    if (!view) return
+    const canonical = sharedText.toString()
+    syncingDraftRef.current = true
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: canonical },
+      selection: { anchor: 0 },
+    })
+    syncingDraftRef.current = false
+    draftBaseRef.current = canonical
+    draftDirtyRef.current = false
+    setDraftDirty(false)
+    setDraftError(null)
+    onSourceDraftChangeRef.current?.(null)
+    view.focus()
+  }
+
+  const submitSourceDraft = () => {
+    const view = viewRef.current
+    if (!view || !suggestionMode || !onProposeSourceEditRef.current) return
+    const canonical = sharedText.toString()
+    if (canonical !== draftBaseRef.current) {
+      setDraftError('The manuscript changed while you were drafting. Discard and reopen the latest source before proposing.')
+      return
+    }
+    const replacement = getTextReplacement(draftBaseRef.current, view.state.doc.toString())
+    if (!replacement) {
+      resetSourceDraft()
+      return
+    }
+    const proposal = onProposeSourceEditRef.current(replacement)
+    if (proposal.result !== 'applied' || !proposal.suggestionId) {
+      setDraftError(
+        proposal.result === 'conflict'
+          ? 'The source changed before this proposal could be anchored.'
+          : 'Source suggestions are not available for this document.',
+      )
+      return
+    }
+    resetSourceDraft()
+  }
+
+  return (
+    <div className={`collaborative-editor ${suggestionMode ? 'source-suggestion-mode' : ''}`}>
+      <div className="collaborative-editor-host" ref={containerRef} />
+      {suggestionMode && (
+        <div className="source-suggestion-draft" role="status">
+          <div>
+            <strong>{draftDirty ? 'Drafting a source proposal' : 'Suggesting in Source'}</strong>
+            <span>{draftError ?? 'Your typing stays local until you propose it; canonical MyST remains unchanged.'}</span>
+          </div>
+          {draftDirty && (
+            <div className="source-suggestion-draft-actions">
+              <button type="button" onClick={resetSourceDraft}>Discard</button>
+              <button className="primary" type="button" disabled={Boolean(draftError)} onClick={submitSourceDraft}>
+                Propose changes
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 })
 
 CollaborativeEditor.displayName = 'CollaborativeEditor'
