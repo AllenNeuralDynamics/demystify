@@ -47,7 +47,7 @@ describe('ShareDialog', () => {
       .map((element) => element.textContent)
     expect(roleNames).toEqual(['Maintainer', 'Suggestion mode', 'Viewer'])
     expect(container.textContent).toContain('The link grants no authority by itself')
-    expect(container.textContent).toContain('changes stay here until a maintainer accepts and publishes them')
+    expect(container.textContent).toContain('source changes only when a maintainer accepts a proposal')
     expect(container.textContent).toContain('Editing and publishing are disabled')
     expect(container.querySelector('[aria-label="Maintainer link"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="Suggestion link expiration"]')).not.toBeNull()

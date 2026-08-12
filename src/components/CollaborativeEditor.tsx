@@ -2,7 +2,12 @@ import { redo, undo } from '@codemirror/commands'
 import { snippet } from '@codemirror/autocomplete'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
-import { Decoration, EditorView, type DecorationSet } from '@codemirror/view'
+import {
+  Decoration,
+  EditorView,
+  WidgetType,
+  type DecorationSet,
+} from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { yCollab } from 'y-codemirror.next'
@@ -23,12 +28,23 @@ export interface CommentHighlight {
   active: boolean
 }
 
+export interface SourceSuggestionHighlight {
+  id: string
+  from: number
+  to: number
+  after: string
+  authorName: string
+  authorColor: string
+  active: boolean
+}
+
 interface CollaborativeEditorProps {
   sharedText: Y.Text
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
   readOnly?: boolean
+  suggestionHighlights?: SourceSuggestionHighlight[]
 }
 
 export interface CollaborativeEditorHandle {
@@ -43,25 +59,105 @@ export interface CollaborativeEditorHandle {
   focus: () => void
 }
 
-const setCommentHighlights = StateEffect.define<CommentHighlight[]>()
+interface ReviewDecorations {
+  comments: CommentHighlight[]
+  suggestions: SourceSuggestionHighlight[]
+}
+
+const setReviewDecorations = StateEffect.define<ReviewDecorations>()
+
+class SuggestionWidget extends WidgetType {
+  private readonly suggestion: SourceSuggestionHighlight
+
+  constructor(suggestion: SourceSuggestionHighlight) {
+    super()
+    this.suggestion = suggestion
+  }
+
+  eq(other: SuggestionWidget) {
+    return JSON.stringify(this.suggestion) === JSON.stringify(other.suggestion)
+  }
+
+  toDOM() {
+    const wrapper = document.createElement('span')
+    wrapper.className = [
+      'cm-suggestion-proposal',
+      this.suggestion.active ? 'is-active' : '',
+    ].filter(Boolean).join(' ')
+    wrapper.dataset.commentId = this.suggestion.id
+    wrapper.tabIndex = 0
+    wrapper.setAttribute('role', 'button')
+    wrapper.setAttribute(
+      'aria-label',
+      `Proposed source by ${this.suggestion.authorName}. Press Enter to open the review discussion.`,
+    )
+    wrapper.title = `Suggested by ${this.suggestion.authorName}; open review discussion`
+    wrapper.style.setProperty('--cm-suggestion-color', this.suggestion.authorColor)
+    wrapper.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      event.stopPropagation()
+      wrapper.click()
+    })
+
+    const prefix = document.createElement('span')
+    prefix.className = 'cm-suggestion-prefix'
+    prefix.textContent = this.suggestion.after ? '+' : 'delete'
+    prefix.setAttribute('aria-hidden', 'true')
+
+    const source = document.createElement('span')
+    source.className = 'cm-suggestion-source'
+    source.textContent = this.suggestion.after || 'Delete without replacement'
+
+    const author = document.createElement('span')
+    author.className = 'cm-suggestion-author'
+    author.textContent = this.suggestion.authorName
+
+    wrapper.append(prefix, source, author)
+    return wrapper
+  }
+
+  ignoreEvent() {
+    return false
+  }
+}
 
 const commentHighlightField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update: (decorations, transaction) => {
     for (const effect of transaction.effects) {
-      if (!effect.is(setCommentHighlights)) continue
-      return Decoration.set(
-        effect.value
-          .filter((highlight) => highlight.to > highlight.from)
-          .sort((first, second) => first.from - second.from)
-          .map((highlight) => Decoration.mark({
+      if (!effect.is(setReviewDecorations)) continue
+      const commentDecorations = effect.value.comments
+        .filter((highlight) => highlight.to > highlight.from)
+        .map((highlight) => Decoration.mark({
+          class: [
+            'cm-comment-anchor',
+            highlight.resolved ? 'is-resolved' : '',
+            highlight.active ? 'is-active' : '',
+          ].filter(Boolean).join(' '),
+          attributes: { 'data-comment-id': highlight.id },
+        }).range(highlight.from, highlight.to))
+      const suggestionDecorations = effect.value.suggestions.flatMap((suggestion) => {
+        if (suggestion.to <= suggestion.from) return []
+        return [
+          Decoration.mark({
             class: [
-              'cm-comment-anchor',
-              highlight.resolved ? 'is-resolved' : '',
-              highlight.active ? 'is-active' : '',
+              'cm-suggestion-deletion',
+              suggestion.active ? 'is-active' : '',
             ].filter(Boolean).join(' '),
-            attributes: { 'data-comment-id': highlight.id },
-          }).range(highlight.from, highlight.to)),
+            attributes: {
+              'data-comment-id': suggestion.id,
+              title: `Suggested deletion by ${suggestion.authorName}`,
+            },
+          }).range(suggestion.from, suggestion.to),
+          Decoration.widget({
+            widget: new SuggestionWidget(suggestion),
+            side: 1,
+          }).range(suggestion.to),
+        ]
+      })
+      return Decoration.set(
+        [...commentDecorations, ...suggestionDecorations],
         true,
       )
     }
@@ -117,12 +213,70 @@ const editorTheme = EditorView.theme({
     background: '#e7ebe8',
     borderBottomColor: '#8b948f',
   },
+  '.cm-suggestion-deletion': {
+    background: '#fff1ee',
+    borderBottom: '2px solid #a64b36',
+    color: '#725b55',
+    cursor: 'pointer',
+    textDecoration: 'line-through',
+    textDecorationColor: '#a64b36',
+    textDecorationThickness: '1.5px',
+  },
+  '.cm-suggestion-deletion.is-active': {
+    background: '#ffe3dc',
+  },
+  '.cm-suggestion-proposal': {
+    display: 'inline',
+    marginLeft: '7px',
+    padding: '1px 3px',
+    borderBottom: '2px solid var(--cm-suggestion-color, #16705d)',
+    background: '#eaf7f1',
+    color: '#202723',
+    cursor: 'pointer',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  '.cm-suggestion-proposal.is-active': {
+    outline: '2px solid var(--cm-suggestion-color, #16705d)',
+    outlineOffset: '2px',
+  },
+  '.cm-suggestion-proposal:focus': {
+    outline: '2px solid var(--cm-suggestion-color, #16705d)',
+    outlineOffset: '2px',
+  },
+  '.cm-suggestion-prefix': {
+    marginRight: '4px',
+    color: 'var(--cm-suggestion-color, #16705d)',
+    fontWeight: '600',
+  },
+  '.cm-suggestion-source': {
+    color: '#185b49',
+  },
+  '.cm-suggestion-author': {
+    display: 'inline-block',
+    marginLeft: '6px',
+    padding: '0 4px',
+    border: '1px solid var(--cm-suggestion-color, #16705d)',
+    borderRadius: '3px',
+    color: 'var(--cm-suggestion-color, #16705d)',
+    fontFamily: '"IBM Plex Sans", sans-serif',
+    fontSize: '9px',
+    fontWeight: '600',
+    lineHeight: '1.4',
+  },
 })
 
 export const CollaborativeEditor = forwardRef<
   CollaborativeEditorHandle,
   CollaborativeEditorProps
->(({ sharedText, provider, commentHighlights = [], onCommentClick, readOnly = false }, ref) => {
+>(({
+  sharedText,
+  provider,
+  commentHighlights = [],
+  onCommentClick,
+  readOnly = false,
+  suggestionHighlights = [],
+}, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onCommentClickRef = useRef(onCommentClick)
@@ -164,6 +318,17 @@ export const CollaborativeEditor = forwardRef<
             onCommentClickRef.current?.(commentId)
             return true
           },
+          keydown: (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return false
+            const target = event.target
+            if (!(target instanceof HTMLElement)) return false
+            const proposal = target.closest<HTMLElement>('.cm-suggestion-proposal')
+            const commentId = proposal?.dataset.commentId
+            if (!commentId) return false
+            event.preventDefault()
+            onCommentClickRef.current?.(commentId)
+            return true
+          },
         }),
         yCollab(sharedText, provider.awareness, { undoManager }),
       ],
@@ -190,9 +355,12 @@ export const CollaborativeEditor = forwardRef<
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: setCommentHighlights.of(commentHighlights),
+      effects: setReviewDecorations.of({
+        comments: commentHighlights,
+        suggestions: suggestionHighlights,
+      }),
     })
-  }, [commentHighlights])
+  }, [commentHighlights, suggestionHighlights])
 
   useImperativeHandle(ref, () => ({
     undo: () => {

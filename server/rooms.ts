@@ -21,6 +21,7 @@ import {
   upsertRepositoryPullRequestComment,
   upsertRepositoryPullRequestCommentReply,
   type RepositoryPullRequest,
+  type RepositoryPullRequestCommentInput,
 } from './github.js'
 
 export interface RoomBinding {
@@ -231,6 +232,14 @@ const readText = (value: unknown, field: string) => {
 const readCommentText = (value: unknown, field: string, maxLength: number) => {
   const parsed = readText(value, field).trim()
   if (!parsed) throw new ApiError(400, `${field} is required.`)
+  if (parsed.length > maxLength) {
+    throw new ApiError(400, `${field} must be ${maxLength} characters or fewer.`)
+  }
+  return parsed
+}
+
+const readCommentSource = (value: unknown, field: string, maxLength: number) => {
+  const parsed = readText(value, field)
   if (parsed.length > maxLength) {
     throw new ApiError(400, `${field} must be ${maxLength} characters or fewer.`)
   }
@@ -1281,6 +1290,56 @@ export const createRoomRouter = (
         quote: readCommentText(rawAnchor.quote, 'anchor.quote', 20_000),
       }
     }
+    const rawSuggestion = request.body.suggestion
+    let suggestion: RepositoryPullRequestCommentInput['suggestion']
+    if (rawSuggestion !== undefined) {
+      if (!rawSuggestion || typeof rawSuggestion !== 'object') {
+        throw new ApiError(400, 'suggestion must describe a proposed edit.')
+      }
+      const kind = rawSuggestion.kind
+      const status = rawSuggestion.status
+      if (kind !== 'insert' && kind !== 'delete' && kind !== 'replace') {
+        throw new ApiError(400, 'suggestion.kind must be insert, delete, or replace.')
+      }
+      if (
+        status !== 'pending' &&
+        status !== 'accepted' &&
+        status !== 'rejected' &&
+        status !== 'conflicted'
+      ) {
+        throw new ApiError(400, 'suggestion.status is invalid.')
+      }
+      const before = readCommentSource(rawSuggestion.before, 'suggestion.before', 60_000)
+      const after = readCommentSource(rawSuggestion.after, 'suggestion.after', 60_000)
+      if (
+        (kind === 'insert' && (before || !after)) ||
+        (kind === 'delete' && (!before || after)) ||
+        (kind === 'replace' && (!before || !after))
+      ) {
+        throw new ApiError(400, 'suggestion text does not match its edit kind.')
+      }
+      const decidedByName = rawSuggestion.decidedByName === undefined
+        ? undefined
+        : readCommentText(rawSuggestion.decidedByName, 'suggestion.decidedByName', 100)
+      const decidedAt = rawSuggestion.decidedAt === undefined
+        ? undefined
+        : readCommentText(rawSuggestion.decidedAt, 'suggestion.decidedAt', 100)
+      const decided = status === 'accepted' || status === 'rejected'
+      if (decided !== request.body.resolved) {
+        throw new ApiError(400, 'resolved must match the suggestion decision status.')
+      }
+      if (decided && (!decidedByName || !decidedAt || Number.isNaN(Date.parse(decidedAt)))) {
+        throw new ApiError(400, 'decided suggestions require a valid decision identity and time.')
+      }
+      suggestion = {
+        kind,
+        before,
+        after,
+        status,
+        ...(decidedByName ? { decidedByName } : {}),
+        ...(decidedAt ? { decidedAt } : {}),
+      }
+    }
 
     const mirrorKey = `${roomName}:${commentId}`
     const previousMirror = commentMirrorQueues.get(mirrorKey) ?? Promise.resolve()
@@ -1295,6 +1354,7 @@ export const createRoomRouter = (
         authorName,
         body,
         resolved: request.body.resolved,
+        ...(suggestion ? { suggestion } : {}),
         ...(anchor ? { anchor } : {}),
       },
     ))

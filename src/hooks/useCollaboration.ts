@@ -19,6 +19,7 @@ import {
 import {
   applyCollaborativeTextEdit,
   createCollaborativeTextEditAnchor,
+  resolveCollaborativeTextEditAnchor,
   type CollaborativeTextEditAnchor,
   type CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
@@ -38,6 +39,19 @@ export interface Collaborator extends CollaboratorProfile {
   clientId: number
 }
 
+export type SharedSuggestionStatus = 'pending' | 'accepted' | 'rejected' | 'conflicted'
+
+export interface SharedSuggestion {
+  kind: 'insert' | 'delete' | 'replace'
+  filePath: string
+  before: string
+  after: string
+  status: SharedSuggestionStatus
+  decidedAt?: string
+  decidedById?: string
+  decidedByName?: string
+}
+
 export interface SharedComment {
   id: string
   authorId: string
@@ -47,8 +61,10 @@ export interface SharedComment {
   createdAt: string
   resolved: boolean
   anchor?: CommentAnchor
+  suggestion?: SharedSuggestion
   github?: PullRequestCommentMirror & {
     resolved: boolean
+    suggestionStatus?: SharedSuggestionStatus
   }
 }
 
@@ -322,7 +338,7 @@ export const useCollaboration = (
   }
 
   const toggleComment = (comment: SharedComment) => {
-    if (readOnly) return
+    if (readOnly || comment.suggestion) return
     session?.comments.set(comment.id, { ...comment, resolved: !comment.resolved })
   }
 
@@ -330,12 +346,13 @@ export const useCollaboration = (
     commentId: string,
     mirror: PullRequestCommentMirror,
     resolved: boolean,
+    suggestionStatus?: SharedSuggestionStatus,
   ) => {
     const comment = session?.comments.get(commentId)
     if (!session || readOnly || !comment) return
     session.comments.set(commentId, {
       ...comment,
-      github: { ...mirror, resolved },
+      github: { ...mirror, resolved, ...(suggestionStatus ? { suggestionStatus } : {}) },
     })
   }, [readOnly, session])
 
@@ -350,7 +367,12 @@ export const useCollaboration = (
 
   const resolveAnchor = useCallback((comment: SharedComment) => {
     if (!session || !comment.anchor) return null
-    return resolveCommentAnchor(session.document, session.text, comment.anchor)
+    return resolveCommentAnchor(
+      session.document,
+      session.text,
+      comment.anchor,
+      { recoverQuote: !comment.suggestion },
+    )
   }, [session])
 
   const applyGitHubCommentSync = useCallback((sync: PullRequestCommentSync) => {
@@ -365,6 +387,7 @@ export const useCollaboration = (
       for (const resolution of sync.resolutions) {
         const comment = session.comments.get(resolution.threadId)
         if (!comment) continue
+        if (comment.suggestion) continue
         if (comment.github && comment.github.resolved !== comment.resolved) continue
         session.comments.set(resolution.threadId, {
           ...comment,
@@ -595,6 +618,120 @@ export const useCollaboration = (
     )
   }, [readOnly, session])
 
+  const createTextSuggestion = useCallback((
+    anchor: CollaborativeTextEditAnchor,
+    replacement: string,
+    path: string,
+    primaryPath: string,
+  ): { result: CollaborativeTextEditResult; suggestionId?: string } => {
+    if (!session || readOnly) return { result: 'unavailable' }
+    const text = path === primaryPath ? session.text : session.projectFiles.get(path)
+    if (!text) return { result: 'unavailable' }
+    const normalizedReplacement = replacement.replace(/\r\n?/g, '\n')
+    if (normalizedReplacement === anchor.expectedText) return { result: 'applied' }
+    const resolution = resolveCollaborativeTextEditAnchor(session.document, text, anchor)
+    if (typeof resolution === 'string') return { result: resolution }
+
+    const id = crypto.randomUUID()
+    session.comments.set(id, {
+      id,
+      authorId: profile.id,
+      authorName: profile.name,
+      authorColor: profile.color,
+      body: 'Suggested edit',
+      createdAt: new Date().toISOString(),
+      resolved: false,
+      anchor: createCommentAnchor(text, resolution.from, resolution.to),
+      suggestion: {
+        kind: normalizedReplacement
+          ? anchor.expectedText
+            ? 'replace'
+            : 'insert'
+          : 'delete',
+        filePath: path,
+        before: anchor.expectedText,
+        after: normalizedReplacement,
+        status: 'pending',
+      },
+    })
+    return { result: 'applied', suggestionId: id }
+  }, [profile, readOnly, session])
+
+  const decideTextSuggestion = useCallback((
+    suggestionId: string,
+    decision: 'accept' | 'reject',
+    primaryPath: string,
+  ): CollaborativeTextEditResult => {
+    if (!session || readOnly) return 'unavailable'
+    const comment = session.comments.get(suggestionId)
+    const suggestion = comment?.suggestion
+    if (!comment || !comment.anchor || !suggestion) return 'unavailable'
+    if (suggestion.status === 'accepted' || suggestion.status === 'rejected') {
+      return 'unavailable'
+    }
+
+    const decisionDetails = {
+      decidedAt: new Date().toISOString(),
+      decidedById: profile.id,
+      decidedByName: profile.name,
+    }
+    if (decision === 'reject') {
+      session.comments.set(comment.id, {
+        ...comment,
+        resolved: true,
+        suggestion: { ...suggestion, ...decisionDetails, status: 'rejected' },
+      })
+      return 'applied'
+    }
+
+    const text = suggestion.filePath === primaryPath
+      ? session.text
+      : session.projectFiles.get(suggestion.filePath)
+    if (!text) return 'unavailable'
+    const location = resolveCommentAnchor(
+      session.document,
+      text,
+      comment.anchor,
+      { recoverQuote: false },
+    )
+    if (
+      !location ||
+      location.orphaned ||
+      location.quote !== suggestion.before
+    ) {
+      session.comments.set(comment.id, {
+        ...comment,
+        resolved: false,
+        suggestion: { ...suggestion, status: 'conflicted' },
+      })
+      return 'conflict'
+    }
+
+    const anchor = createCollaborativeTextEditAnchor(
+      text,
+      location.from,
+      location.to,
+      suggestion.before,
+    )
+    if (!anchor) return 'conflict'
+    const result = applyCollaborativeTextEdit(
+      session.document,
+      text,
+      anchor,
+      suggestion.after,
+    )
+    session.comments.set(comment.id, {
+      ...comment,
+      resolved: result === 'applied',
+      suggestion: {
+        ...suggestion,
+        ...(result === 'applied' ? decisionDetails : {}),
+        status: result === 'applied' ? 'accepted' : 'conflicted',
+      },
+    })
+    return result
+  }, [profile, readOnly, session])
+
   const getSnapshotContent = () => {
     if (!session) return content
     return serializeSourceText(
@@ -652,6 +789,8 @@ export const useCollaboration = (
     resolveAnchor,
     beginTextEdit,
     commitTextEdit,
+    createTextSuggestion,
+    decideTextSuggestion,
     replaceContent,
     initializeBibliography,
     replaceBibliography,

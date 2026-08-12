@@ -66,4 +66,24 @@ describe('comment anchors', () => {
       orphaned: false,
     })
   })
+
+  it('does not relocate a strict suggestion anchor to repeated text', () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Target paragraph.')
+    const anchor = createCommentAnchor(text, 0, text.length)
+
+    text.delete(0, text.length)
+    text.insert(0, 'Preface\n\nTarget paragraph.')
+
+    expect(resolveCommentAnchor(
+      document,
+      text,
+      anchor,
+      { recoverQuote: false },
+    )).toMatchObject({
+      quote: '',
+      orphaned: true,
+    })
+  })
 })
