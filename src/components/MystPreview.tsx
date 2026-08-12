@@ -41,6 +41,18 @@ interface MystPreviewProps {
   ) => CollaborativeTextEditResult
   onEditError?: (message: string) => void
   onRequestCitation?: (insert: VisualCitationInserter) => void
+  onSuggestionClick?: (suggestionId: string) => void
+  suggestions?: MystPreviewSuggestion[]
+}
+
+export interface MystPreviewSuggestion {
+  id: string
+  from: number
+  to: number
+  before: string
+  after: string
+  authorName: string
+  authorColor: string
 }
 
 interface ActiveVisualEdit {
@@ -63,6 +75,8 @@ export const MystPreview = memo(({
   onCommitEdit,
   onEditError,
   onRequestCitation,
+  onSuggestionClick,
+  suggestions = [],
 }: MystPreviewProps) => {
   const previewRef = useRef<HTMLElement>(null)
   const deferredContent = useDeferredValue(content)
@@ -100,6 +114,66 @@ export const MystPreview = memo(({
     nextPreview.innerHTML = preview.html
     morphdom(previewElement, nextPreview, { childrenOnly: true })
 
+    for (const suggestion of suggestions) {
+      const block = preview.editableBlocks.find((candidate) =>
+        candidate.from === suggestion.from &&
+        candidate.to === suggestion.to &&
+        candidate.value === suggestion.before)
+      if (!block) continue
+      const target = Array.from(
+        previewElement.querySelectorAll<HTMLElement>('[data-myst-edit-id]'),
+      ).find((element) => element.dataset.mystEditId === block.id)
+      if (!target) continue
+
+      const originalNodes = Array.from(target.childNodes)
+      const captionNumber = originalNodes[0] instanceof HTMLElement &&
+        originalNodes[0].classList.contains('caption-number')
+        ? originalNodes.shift()
+        : null
+      const captionGap = captionNumber && originalNodes[0]?.nodeType === Node.TEXT_NODE &&
+        /^\s*$/.test(originalNodes[0].textContent ?? '')
+        ? originalNodes.shift()
+        : null
+      const deletion = document.createElement('del')
+      deletion.className = 'myst-suggestion-deletion'
+      originalNodes.forEach((node) => deletion.append(node))
+
+      const insertion = document.createElement('ins')
+      insertion.className = 'myst-suggestion-insertion'
+      const renderedReplacement = renderMyst(suggestion.after, {
+        assetBaseUrl,
+        bibliography,
+        projectFiles,
+        sourcePath,
+      })
+      const replacementTemplate = document.createElement('template')
+      replacementTemplate.innerHTML = renderedReplacement.html
+      const replacementBlock = replacementTemplate.content.querySelector<HTMLElement>(
+        '[data-myst-edit-id]',
+      )
+      if (replacementBlock) insertion.append(...Array.from(replacementBlock.childNodes))
+      else insertion.textContent = suggestion.after
+
+      const author = document.createElement('span')
+      author.className = 'myst-suggestion-author'
+      author.textContent = suggestion.authorName
+      target.replaceChildren(
+        ...(captionNumber ? [captionNumber, captionGap ?? document.createTextNode(' ')] : []),
+        deletion,
+        ...(suggestion.after ? [document.createTextNode(' '), insertion] : []),
+        author,
+      )
+      target.classList.add('myst-inline-suggestion')
+      target.dataset.mystSuggestionId = suggestion.id
+      target.style.setProperty('--myst-suggestion-color', suggestion.authorColor)
+      target.tabIndex = 0
+      target.title = `Suggested by ${suggestion.authorName}; open review discussion`
+      target.setAttribute(
+        'aria-label',
+        `Suggested edit by ${suggestion.authorName}. Press Enter to open the review discussion.`,
+      )
+    }
+
     previewElement
       .querySelectorAll<HTMLElement>('.math-display, .math-inline')
       .forEach((element) => {
@@ -114,12 +188,23 @@ export const MystPreview = memo(({
       previewElement
         .querySelectorAll<HTMLElement>('[data-myst-edit-id]')
         .forEach((element) => {
+          if (element.dataset.mystSuggestionId) return
           element.classList.add('myst-editable-block')
           element.tabIndex = 0
           element.title = 'Drag to select; click to edit'
         })
     }
-  }, [activeEdit, canEdit, preview.html])
+  }, [
+    activeEdit,
+    assetBaseUrl,
+    bibliography,
+    canEdit,
+    preview.editableBlocks,
+    preview.html,
+    projectFiles,
+    sourcePath,
+    suggestions,
+  ])
 
   useEffect(() => {
     if (!canEdit && activeEdit) setActiveEdit(null)
@@ -145,6 +230,11 @@ export const MystPreview = memo(({
   const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target
     if (!(target instanceof Element)) return
+    const suggestion = target.closest<HTMLElement>('[data-myst-suggestion-id]')
+    if (suggestion?.dataset.mystSuggestionId) {
+      onSuggestionClick?.(suggestion.dataset.mystSuggestionId)
+      return
+    }
     const block = target.closest<HTMLElement>('[data-myst-edit-id]')
     const selection = window.getSelection()
     if (
@@ -159,6 +249,15 @@ export const MystPreview = memo(({
   const handlePreviewKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' && event.key !== 'F2') return
     const target = event.target
+    if (
+      target instanceof HTMLElement &&
+      target.dataset.mystSuggestionId &&
+      event.key === 'Enter'
+    ) {
+      event.preventDefault()
+      onSuggestionClick?.(target.dataset.mystSuggestionId)
+      return
+    }
     if (!(target instanceof HTMLElement) || !target.matches('[data-myst-edit-id]')) return
     event.preventDefault()
     beginEditing(target)

@@ -113,6 +113,90 @@ describe('MystPreview', () => {
     yDocument.destroy()
   })
 
+  it('shows pending suggestions inline and opens their review thread', async () => {
+    const content = '# Draft\n\nOriginal *claim*.'
+    const onSuggestionClick = vi.fn()
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          editable
+          onBeginEdit={() => null}
+          onCommitEdit={() => 'applied'}
+          onSuggestionClick={onSuggestionClick}
+          suggestions={[{
+            id: 'suggestion-1',
+            from: content.indexOf('Original'),
+            to: content.length,
+            before: 'Original *claim*.',
+            after: 'Revised **claim**.',
+            authorName: 'Ada Reviewer',
+            authorColor: '#a64b36',
+          }]}
+        />,
+      )
+    })
+
+    const paragraph = container.querySelector<HTMLElement>('[data-myst-suggestion-id]')
+    expect(paragraph?.classList).toContain('myst-inline-suggestion')
+    expect(paragraph?.classList).not.toContain('myst-editable-block')
+    expect(paragraph?.querySelector('del em')?.textContent).toBe('claim')
+    expect(paragraph?.querySelector('ins strong')?.textContent).toBe('claim')
+    expect(paragraph?.querySelector('.myst-suggestion-author')?.textContent)
+      .toBe('Ada Reviewer')
+    expect(paragraph?.getAttribute('aria-label')).toContain('Ada Reviewer')
+
+    await act(async () => paragraph?.click())
+    expect(onSuggestionClick).toHaveBeenCalledWith('suggestion-1')
+    expect(container.querySelector('[aria-label="Edit paragraph"]')).toBeNull()
+
+    await act(async () => {
+      paragraph?.dispatchEvent(new KeyboardEvent('keydown', {
+        bubbles: true,
+        key: 'Enter',
+      }))
+    })
+    expect(onSuggestionClick).toHaveBeenCalledTimes(2)
+
+    await act(async () => root.unmount())
+  })
+
+  it('keeps figure numbering outside an inline caption suggestion', async () => {
+    const content = figure.trim()
+    const caption = 'A static result.'
+    const from = content.indexOf(caption)
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          suggestions={[{
+            id: 'caption-suggestion',
+            from,
+            to: from + caption.length,
+            before: caption,
+            after: 'A revised result.',
+            authorName: 'Lin Reviewer',
+            authorColor: '#27628d',
+          }]}
+        />,
+      )
+    })
+
+    const captionElement = container.querySelector('figcaption')
+    expect(captionElement?.querySelector(':scope > .caption-number')?.textContent)
+      .toBe('Figure 1')
+    expect(captionElement?.querySelector('del .caption-number')).toBeNull()
+    expect(captionElement?.querySelector('ins')?.textContent).toBe('A revised result.')
+
+    await act(async () => root.unmount())
+  })
+
   it('preserves a rendered text selection before opening the visual editor', async () => {
     const content = 'Select these words.'
     const yDocument = new Y.Doc()

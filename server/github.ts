@@ -153,6 +153,14 @@ export interface RepositoryPullRequestCommentInput {
   authorName: string
   body: string
   resolved: boolean
+  suggestion?: {
+    kind: 'insert' | 'delete' | 'replace'
+    before: string
+    after: string
+    status: 'pending' | 'accepted' | 'rejected' | 'conflicted'
+    decidedAt?: string
+    decidedByName?: string
+  }
   anchor?: {
     startLine: number
     endLine: number
@@ -1043,6 +1051,9 @@ const formatPullRequestComment = (
   includeAnchor: boolean,
 ) => {
   const status = comment.resolved ? 'Resolved' : 'Open'
+  const suggestionStatus = comment.suggestion
+    ? `${comment.suggestion.status.charAt(0).toUpperCase()}${comment.suggestion.status.slice(1)}`
+    : null
   const anchorContext = includeAnchor && comment.anchor
     ? [
         `[${target.path}:${comment.anchor.startLine}-${comment.anchor.endLine}](` +
@@ -1055,10 +1066,32 @@ const formatPullRequestComment = (
           .join('\n'),
       ].join('\n\n')
     : null
+  const suggestionDiff = comment.suggestion
+    ? [
+        ...(comment.suggestion.before
+          ? comment.suggestion.before.split('\n').map((line) => `- ${line}`)
+          : []),
+        ...(comment.suggestion.after
+          ? comment.suggestion.after.split('\n').map((line) => `+ ${line}`)
+          : []),
+      ].join('\n')
+    : null
+  const suggestionContext = comment.suggestion
+    ? [
+        `### DeMystify suggestion - ${suggestionStatus}`,
+        `<pre><code>${escapeHtml(suggestionDiff ?? '')}</code></pre>`,
+        comment.suggestion.decidedByName
+          ? `<sub>${suggestionStatus} by ${escapeHtml(comment.suggestion.decidedByName)}` +
+            `${comment.suggestion.decidedAt ? ` at ${escapeHtml(comment.suggestion.decidedAt)}` : ''}</sub>`
+          : null,
+      ].filter(Boolean).join('\n\n')
+    : null
   return [
     anchorContext,
-    comment.body,
-    `<sub>DeMystify comment by ${escapeHtml(comment.authorName)} - ${status}</sub>`,
+    suggestionContext ?? comment.body,
+    comment.suggestion
+      ? `<sub>DeMystify suggestion by ${escapeHtml(comment.authorName)} - ${suggestionStatus}</sub>`
+      : `<sub>DeMystify comment by ${escapeHtml(comment.authorName)} - ${status}</sub>`,
     getCommentMarker(comment.id),
   ].filter(Boolean).join('\n\n')
 }

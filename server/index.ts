@@ -26,7 +26,10 @@ import {
   RoomStore,
   validateRoomName,
 } from './rooms.js'
-import { setupReadOnlyAwareWebSocket } from './read-only-websocket.js'
+import {
+  isCollaboratorWebSocketMessageAllowed,
+  setupReadOnlyAwareWebSocket,
+} from './read-only-websocket.js'
 
 const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
@@ -79,6 +82,7 @@ await roomStore.initialize()
 const readOnlyRooms = new Set<string>()
 const testReadOnlyRooms = new Set<string>()
 const readOnlyGuestSockets = new WeakSet<WebSocket>()
+const collaboratorGuestSockets = new WeakSet<WebSocket>()
 const guestConnectionsByCapability = new Map<string, Set<WebSocket>>()
 const viewerExpiryTimers = new WeakMap<WebSocket, NodeJS.Timeout>()
 
@@ -219,6 +223,12 @@ app.get('/api/health', (_request, response) => {
 })
 if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_AUTH === '1') {
   app.post('/api/test/session', (request, response, next) => {
+    const liveTestAccessToken = process.env.ENABLE_LIVE_GITHUB_TEST === '1'
+      ? process.env.TEST_GITHUB_TOKEN?.trim()
+      : undefined
+    if (process.env.ENABLE_LIVE_GITHUB_TEST === '1' && !liveTestAccessToken) {
+      throw new ApiError(503, 'The live GitHub test token is not configured.')
+    }
     const id =
       typeof request.body.id === 'number' && Number.isSafeInteger(request.body.id)
         ? request.body.id
@@ -228,7 +238,7 @@ if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_AUTH === '1') {
         ? request.body.login.trim()
         : 'integration-test'
     request.session.github = {
-      accessToken: 'test-token',
+      accessToken: liveTestAccessToken ?? 'test-token',
       user: {
         id,
         login,
@@ -302,6 +312,8 @@ webSocketServer.on('connection', (socket, request) => {
       readOnlyRooms.has(roomName) ||
       testReadOnlyRooms.has(roomName),
     (guardedSocket) => setupWSConnection(guardedSocket, request, { docName: roomName }),
+    (data) => !collaboratorGuestSockets.has(socket) ||
+      isCollaboratorWebSocketMessageAllowed(data, getYDoc(roomName)),
   )
 })
 
@@ -456,6 +468,7 @@ server.on('upgrade', (request, socket, head) => {
         })
         if (access.role !== 'editor') {
           if (access.role === 'viewer') readOnlyGuestSockets.add(webSocket)
+          if (access.role === 'collaborator') collaboratorGuestSockets.add(webSocket)
           const key = capabilityKey(roomName, access.role)
           const connections = guestConnectionsByCapability.get(key) ?? new Set()
           connections.add(webSocket)

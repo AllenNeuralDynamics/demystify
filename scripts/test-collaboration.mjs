@@ -458,9 +458,37 @@ try {
   await waitForSync(collaboratorProvider)
   let collaboratorText = collaboratorDocument.getText('content')
   await waitForText(collaboratorText, expectedText)
-  const guestExpectedText = `${expectedText} guest-edited`
-  const guestEditReceived = waitForText(secondText, guestExpectedText)
-  const guestEditVisibleToViewer = waitForText(viewerText, guestExpectedText)
+  const guestSuggestionId = crypto.randomUUID()
+  const guestSuggestion = {
+    id: guestSuggestionId,
+    authorId: 'guest:integration-test',
+    authorName: 'Guest scientist',
+    authorColor: '#8a4337',
+    body: 'Suggested edit',
+    createdAt: new Date().toISOString(),
+    resolved: false,
+    anchor: {
+      version: 1,
+      start: Buffer.from(Y.encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(collaboratorText, 0, 0),
+      )).toString('base64'),
+      end: Buffer.from(Y.encodeRelativePosition(
+        Y.createRelativePositionFromTypeIndex(
+          collaboratorText,
+          collaboratorText.length,
+          -1,
+        ),
+      )).toString('base64'),
+      quote: expectedText,
+    },
+    suggestion: {
+      kind: 'replace',
+      filePath: 'paper.md',
+      before: expectedText,
+      after: `${expectedText} editor-accepted`,
+      status: 'pending',
+    },
+  }
   const guestCommentId = crypto.randomUUID()
   const guestComment = {
     id: guestCommentId,
@@ -471,11 +499,21 @@ try {
     createdAt: new Date().toISOString(),
     resolved: false,
   }
+  const guestSuggestionReceived = waitForComment(firstComments, guestSuggestionId)
   const guestCommentReceived = waitForComment(firstComments, guestCommentId)
-  collaboratorText.insert(collaboratorText.length, ' guest-edited')
-  collaboratorDocument.getMap('comments').set(guestCommentId, guestComment)
-  await Promise.all([guestEditReceived, guestEditVisibleToViewer, guestCommentReceived])
+  collaboratorDocument.transact(() => {
+    collaboratorDocument.getMap('comments').set(guestSuggestionId, guestSuggestion)
+    collaboratorDocument.getMap('comments').set(guestCommentId, guestComment)
+  })
+  await Promise.all([guestSuggestionReceived, guestCommentReceived])
+  assert.deepEqual(firstComments.get(guestSuggestionId), guestSuggestion)
   assert.deepEqual(firstComments.get(guestCommentId), guestComment)
+
+  collaboratorText.insert(collaboratorText.length, ' guest-edit-blocked')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(secondText.toString(), expectedText)
+  assert.equal(viewerText.toString(), expectedText)
+
   collaboratorProvider.destroy()
   collaboratorDocument.destroy()
   collaboratorDocument = new Y.Doc()
@@ -485,12 +523,26 @@ try {
   })
   await waitForSync(collaboratorProvider)
   collaboratorText = collaboratorDocument.getText('content')
-  await waitForText(collaboratorText, guestExpectedText)
-  const editorExpectedText = `${guestExpectedText} editor-accepted`
+  await waitForText(collaboratorText, expectedText)
+  const editorExpectedText = `${expectedText} editor-accepted`
   const editorReceived = waitForText(secondText, editorExpectedText)
   const viewerReceived = waitForText(viewerText, editorExpectedText)
   const collaboratorReceived = waitForText(collaboratorText, editorExpectedText)
-  firstText.insert(firstText.length, ' editor-accepted')
+  firstDocument.transact(() => {
+    firstText.delete(0, firstText.length)
+    firstText.insert(0, editorExpectedText)
+    firstComments.set(guestSuggestionId, {
+      ...guestSuggestion,
+      resolved: true,
+      suggestion: {
+        ...guestSuggestion.suggestion,
+        status: 'accepted',
+        decidedAt: new Date().toISOString(),
+        decidedById: 'github:1',
+        decidedByName: 'Integration test',
+      },
+    })
+  })
   await Promise.all([editorReceived, viewerReceived, collaboratorReceived])
 
   const collaboratorDisconnected = waitForStatus(collaboratorProvider, 'disconnected')
@@ -532,7 +584,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized users rejected; maintainers and suggestion-mode editors converged; viewers stayed read-only.')
+  console.log('Unauthorized writes rejected; maintainers accepted attributed suggestions; viewers stayed read-only.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()

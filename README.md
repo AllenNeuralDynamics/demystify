@@ -9,14 +9,15 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 ## Features
 
 - Simultaneous conflict-free editing with Yjs and WebSockets
-- Live collaborator cursors, presence, and shared comments
+- Live collaborator cursors, presence, and anchored review discussions
+- Attributed Visual suggestions with before/after text, maintainer accept/reject, and conflict detection
 - Debounced JavaScript MyST preview with safe HTML, repository figures, static iframe placeholders, AuthorshipExtractor rosters, tables, and KaTeX math
 - LevelDB-backed local persistence and PostgreSQL-backed production persistence
 - GitHub App OAuth with HTTP-only server sessions
 - Repository browsing and MyST file loading
 - Explicit snapshots to a `demystify/...` branch
 - One persisted draft pull request per room, created by the first snapshot
-- Revocable Suggestion links with configurable expiration for room editing without repository access
+- Revocable Suggestion links with configurable expiration for proposing edits without repository access
 - Revocable view-only links with configurable expiration that do not require a GitHub account
 - Responsive source, split, and preview modes
 
@@ -77,10 +78,11 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 3. Choose **Open file** to load it for all current collaborators, or **Bind current draft** to create/update that path.
 4. Select **Save to GitHub** to snapshot the live document onto its stable `demystify/<room>` branch and create its draft pull request.
 5. Later snapshots update the same branch and pull request. Open **PR #...** from the workspace or repository dialog to review it in GitHub.
-6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it.
-7. Comments created before the PR exists remain queued until the first changed snapshot. Changed lines become native GitHub review threads; unchanged lines fall back to marked PR conversation comments with path, lines, and quoted context.
-8. Replies and native review-thread resolution synchronize in both directions while the room is active. DeMystify polls GitHub on focus and every 60 seconds while the page has recent activity.
-9. Closing or merging the PR archives the room. Text, comments, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
+6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it. Suggestion participants can instead edit rendered prose to create an attributed before/after proposal without changing canonical source.
+7. Maintainers discuss, accept, or reject each proposal. Acceptance uses the original Yjs-relative range and exact source text; a concurrent source change marks the proposal conflicted rather than overwriting it.
+8. Comments and suggestions created before the PR exists remain queued until the first changed snapshot. Changed lines can become native GitHub review threads; other records fall back to marked PR conversation comments. Suggestion records retain proposer, decision, before/after text, replies, and hidden idempotency markers.
+9. Replies and native review-thread resolution synchronize in both directions while the room is active. DeMystify polls GitHub on focus and every 60 seconds while the page has recent activity.
+10. Closing or merging the PR archives the room. Text, comments, suggestions, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
 ## Citations And Visual Editing
 
@@ -109,6 +111,18 @@ preserving their surrounding MyST markers. Captions attached to sandboxed iframe
 placeholders remain editable as ordinary MyST prose. Tables, math and code blocks,
 directive settings, marked multiline blocks, and unsupported inline MyST remain
 rendered but read-only, so source syntax is never silently flattened.
+
+For invited Suggestion participants, Visual edits to primary-file headings,
+prose, and captions create pending review records instead of mutating MyST.
+Each record carries proposer identity, before/after source, an anchored reply
+thread, and a maintainer decision. Pending deletions and insertions render
+directly in both the Visual manuscript and Source editor with the proposer's
+color and name; selecting either inline change opens its discussion and decision
+controls in Review. Source,
+references, metadata, and project
+files remain read-only for that role. The WebSocket gateway validates incoming
+Suggestion updates against a shadow Yjs document and accepts only review records,
+replies, presence, and ordinary comment resolution.
 
 When a bibliography is present, **Save to GitHub** creates the manuscript blob,
 the managed `.bib` blob, one Git tree, and one commit before advancing the room
@@ -156,10 +170,10 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 The **Share** dialog presents three explicit roles:
 
 - **Maintainer:** a GitHub-authenticated repository writer. Maintainers edit the room, bind repositories, manage sharing, save snapshots, update the draft pull request, and mirror queued comments to GitHub. The shareable Maintainer URL is the plain room URL: it carries no capability and grants access only after GitHub verifies write permission to the bound repository.
-- **Suggestion mode:** an invited person with a revocable Suggestion link edits live manuscript files, references, metadata, and DeMystify comments without repository or publishing access. Links may expire after 7, 30, or 90 days, or have no expiration. Changes remain in DeMystify until a maintainer deliberately publishes the shared state. GitHub sign-in is optional but recommended; new presence and comments then use `Name (@handle)` attribution while the room remains in Suggestion mode. Comments remain durable in Yjs/PostgreSQL and queue until a maintainer mirrors them to the pull request.
+- **Suggestion mode:** an invited person with a revocable Suggestion link can comment and propose edits to rendered headings, prose, and captions in the primary MyST file without repository access. Proposed insertion/deletion markup and attribution stay visible in both Visual and Source; selecting either surface opens the Review discussion. Canonical source changes only when a maintainer accepts a proposal; rejected and conflicted proposals remain in review history. Links may expire after 7, 30, or 90 days, or have no expiration. GitHub sign-in is optional but recommended so presence, comments, proposals, and replies use `Name (@handle)` attribution.
 - **Viewer:** anyone with a separately revocable viewer link using the same expiration options. Viewers receive live text, preview, comments, and presence but cannot modify room state.
 
-Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes. Suggestion-mode WebSockets may submit Yjs updates; viewer WebSockets accept only awareness and initial synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.
+Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes. Suggestion-mode WebSockets accept only presence, synchronization, valid new comments or pending suggestions, replies, and ordinary comment resolution; canonical source/configuration/reference updates and suggestion decisions are rejected. Viewer WebSockets accept only awareness and initial synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.
 
 ## Architecture
 
@@ -216,7 +230,7 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - The browser preview is a fast reading aid, not an authoritative publication build. It renders the open file after a short pause, resolves committed public-repository figures, substitutes static iframe placeholders, and provides a data-backed static fallback for AuthorshipExtractor. Remote plugin code, custom site styles, generated assets, and interactive figures remain the responsibility of repository CI and the full MyST build.
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
-- Suggestion/tracked-change mode is not implemented yet.
+- Attributed suggestions currently cover Visual edits to headings, supported prose, and captions in the primary MyST file. Arbitrary source-editor tracked changes, insertions outside an editable block, and secondary-file suggestions are not implemented yet.
 - Each bound room owns one primary manuscript path, its discovered project sources, one working branch, and one pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - An actively used collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Idle suspension limits forgotten-tab cost, but sustained external collaboration still needs an explicit cloud budget and monitoring.

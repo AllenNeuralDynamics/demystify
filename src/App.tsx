@@ -17,8 +17,10 @@ import {
   Italic,
   LoaderCircle,
   MessageSquare,
+  Minus,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Redo2,
   RefreshCw,
   Reply,
@@ -45,6 +47,7 @@ import './App.css'
 import {
   CollaborativeEditor,
   type CollaborativeEditorHandle,
+  type SourceSuggestionHighlight,
 } from './components/CollaborativeEditor'
 import { CitationPicker, type CitationSelection } from './components/CitationPicker'
 import { GitHubDialog } from './components/GitHubDialog'
@@ -52,6 +55,7 @@ import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
 import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
+import type { MystPreviewSuggestion } from './components/MystPreview'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
@@ -222,6 +226,7 @@ function App() {
   const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
+  const isSourceReadOnly = isReadOnly || isSuggestionMode
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
@@ -296,7 +301,7 @@ function App() {
   const commentHighlights = useMemo(
     () => isPrimaryFile ? sharedComments.flatMap((comment) => {
       const location = commentLocations.get(comment.id)
-      return location && !location.orphaned
+      return !comment.suggestion && location && !location.orphaned
         ? [{
             id: comment.id,
             from: location.from,
@@ -307,6 +312,35 @@ function App() {
         : []
     }) : [],
     [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
+  )
+  const inlineSuggestions = useMemo<MystPreviewSuggestion[]>(
+    () => isPrimaryFile ? sharedComments.flatMap((comment) => {
+      const location = commentLocations.get(comment.id)
+      return comment.suggestion?.status === 'pending' && location && !location.orphaned
+        ? [{
+            id: comment.id,
+            from: location.from,
+            to: location.to,
+            before: comment.suggestion.before,
+            after: comment.suggestion.after,
+            authorName: comment.authorName,
+            authorColor: comment.authorColor,
+          }]
+        : []
+    }) : [],
+    [commentLocations, isPrimaryFile, sharedComments],
+  )
+  const sourceSuggestions = useMemo<SourceSuggestionHighlight[]>(
+    () => inlineSuggestions.map((suggestion) => ({
+      id: suggestion.id,
+      from: suggestion.from,
+      to: suggestion.to,
+      after: suggestion.after,
+      authorName: suggestion.authorName,
+      authorColor: suggestion.authorColor,
+      active: activeCommentId === suggestion.id,
+    })),
+    [activeCommentId, inlineSuggestions],
   )
 
   const title = useMemo(
@@ -492,8 +526,17 @@ function App() {
     if (!reviewNumber || !canMirrorGitHub) return
 
     for (const comment of sharedComments) {
-      if (comment.github?.resolved === comment.resolved) continue
-      const version = `${reviewNumber}:${comment.resolved}:${comment.body}`
+      if (
+        comment.github?.resolved === comment.resolved &&
+        (!comment.suggestion || comment.github.suggestionStatus === comment.suggestion.status)
+      ) continue
+      const version = [
+        reviewNumber,
+        comment.resolved,
+        comment.body,
+        comment.suggestion?.status,
+        comment.suggestion?.decidedAt,
+      ].join(':')
       if (commentSyncAttempts.current.get(comment.id) === version) continue
       commentSyncAttempts.current.set(comment.id, version)
       const location = resolveCommentAnchor(comment)
@@ -502,16 +545,33 @@ function App() {
         ...comment,
         githubCommentId: comment.github?.id,
         githubMode: comment.github?.mode,
-        anchor: location && !location.orphaned
+        anchor: (
+          !comment.suggestion ||
+          comment.suggestion.status === 'pending' ||
+          comment.suggestion.status === 'conflicted'
+        ) && location && !location.orphaned
           ? {
               startLine: location.startLine,
               endLine: location.endLine,
               quote: location.quote,
             }
           : undefined,
+        suggestion: comment.suggestion && {
+          kind: comment.suggestion.kind,
+          before: comment.suggestion.before,
+          after: comment.suggestion.after,
+          status: comment.suggestion.status,
+          decidedAt: comment.suggestion.decidedAt,
+          decidedByName: comment.suggestion.decidedByName,
+        },
       })
         .then((mirror) => {
-          applyCommentMirror(comment.id, mirror, comment.resolved)
+          applyCommentMirror(
+            comment.id,
+            mirror,
+            comment.resolved,
+            comment.suggestion?.status,
+          )
           setCommentSyncErrors((current) => {
             if (!(comment.id in current)) return current
             const next = { ...current }
@@ -670,6 +730,24 @@ function App() {
     const draft = replyDrafts[comment.id] ?? ''
     if (!collaboration.addCommentReply(comment.id, draft)) return
     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
+  }
+
+  const decideSuggestion = (comment: SharedComment, decision: 'accept' | 'reject') => {
+    if (!isMaintainer || !comment.suggestion) return
+    const result = collaboration.decideTextSuggestion(
+      comment.id,
+      decision,
+      primaryFilePath,
+    )
+    if (result === 'applied') {
+      showNotice(decision === 'accept' ? 'Suggestion accepted' : 'Suggestion rejected')
+      return
+    }
+    showNotice(
+      result === 'conflict'
+        ? 'The source changed around this suggestion. Review the latest text before deciding.'
+        : 'This suggestion is no longer available.',
+    )
   }
 
   const openCommentThread = (commentId: string) => {
@@ -1144,8 +1222,8 @@ function App() {
                   {isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
                     : github.session?.user
-                      ? 'Your GitHub identity labels new comments and live suggestions. A maintainer publishes accepted changes and mirrors queued comments to GitHub.'
-                      : 'Edits stay in DeMystify until a maintainer publishes them. Connect GitHub to identify new comments and live suggestions.'}
+                      ? 'Your GitHub identity labels comments and proposed Visual edits. The manuscript changes only when a maintainer accepts them.'
+                      : 'Visual prose edits become proposals for a maintainer to accept or reject. Connect GitHub to identify your contributions.'}
                 </span>
               </div>
               {roomAccess.review && (
@@ -1157,15 +1235,15 @@ function App() {
           ) : null}
           <div className="editor-toolbar">
             <div className="formatting-tools" aria-label="Authoring tools">
-              <button className="icon-button" type="button" title="Undo" disabled={isReadOnly} onClick={() => editorRef.current?.undo()}>
+              <button className="icon-button" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
                 <Undo2 size={17} />
               </button>
-              <button className="icon-button" type="button" title="Redo" disabled={isReadOnly} onClick={() => editorRef.current?.redo()}>
+              <button className="icon-button" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
                 <Redo2 size={17} />
               </button>
               <span className="toolbar-divider" />
               <MystInsertMenu
-                disabled={isReadOnly || !isActiveMystSource}
+                disabled={isSourceReadOnly || !isActiveMystSource}
                 onInsert={(pattern) => editorRef.current?.insertSnippet(
                   pattern.template,
                   pattern.selectedTextPlaceholder,
@@ -1175,7 +1253,7 @@ function App() {
                 className="citation-trigger"
                 type="button"
                 title="Cite a paper"
-                disabled={isReadOnly || !isActiveMystSource}
+                disabled={isSourceReadOnly || !isActiveMystSource}
                 onClick={() => {
                   setVisualCitationInserter(null)
                   setCitationPickerOpen(true)
@@ -1204,13 +1282,13 @@ function App() {
                 <span>Metadata</span>
               </button>
               <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Bold" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
+              <button className="icon-button" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
               </button>
-              <button className="icon-button" type="button" title="Italic" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
+              <button className="icon-button" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
                 <Italic size={17} />
               </button>
-              <button className="icon-button" type="button" title="Inline code" disabled={isReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
+              <button className="icon-button" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
                 <Code2 size={17} />
               </button>
             </div>
@@ -1260,7 +1338,8 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
-                  readOnly={isReadOnly}
+                  readOnly={isSourceReadOnly}
+                  suggestionHighlights={sourceSuggestions}
                 />
               ) : shareSession.error ? (
                 <div className="pane-loading">{shareSession.error}</div>
@@ -1285,7 +1364,12 @@ function App() {
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
                   content={activeContent}
-                  editable={!isReadOnly && collaboration.isSynced && isActiveMystSource}
+                  editable={
+                    !isReadOnly &&
+                    collaboration.isSynced &&
+                    isActiveMystSource &&
+                    (!isSuggestionMode || isPrimaryFile)
+                  }
                   projectFiles={collaboration.projectFiles}
                   sourcePath={activeFilePath}
                   onBeginEdit={(block) => collaboration.beginTextEdit(
@@ -1295,17 +1379,35 @@ function App() {
                     activeFilePath,
                     primaryFilePath,
                   )}
-                  onCommitEdit={(anchor, replacement) => collaboration.commitTextEdit(
-                    anchor,
-                    replacement,
-                    activeFilePath,
-                    primaryFilePath,
-                  )}
+                  onCommitEdit={(anchor, replacement) => {
+                    if (!isSuggestionMode) {
+                      return collaboration.commitTextEdit(
+                        anchor,
+                        replacement,
+                        activeFilePath,
+                        primaryFilePath,
+                      )
+                    }
+                    const proposal = collaboration.createTextSuggestion(
+                      anchor,
+                      replacement,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                    if (proposal.suggestionId) {
+                      setActiveCommentId(proposal.suggestionId)
+                      setCommentsOpen(true)
+                      showNotice('Suggestion ready for review')
+                    }
+                    return proposal.result
+                  }}
                   onEditError={showNotice}
+                  onSuggestionClick={openCommentThread}
                   onRequestCitation={(insert) => {
                     setVisualCitationInserter(() => insert)
                     setCitationPickerOpen(true)
                   }}
+                  suggestions={inlineSuggestions}
                 />
               </Suspense>
             </section>
@@ -1314,7 +1416,7 @@ function App() {
               <aside className="comments-panel" aria-label="Comments">
                 <div className="comments-heading">
                   <div>
-                    <strong>Comments</strong>
+                    <strong>Review</strong>
                     <span title={commentPollError ?? undefined}>
                       {openCommentCount} open
                       {commentPollError ? ' | GitHub sync retrying' : ''}
@@ -1351,7 +1453,7 @@ function App() {
                   {collaboration.comments.length === 0 ? (
                     <div className="comments-empty">
                       <MessageSquare size={20} />
-                      <span>No comments yet</span>
+                      <span>No comments or suggestions yet</span>
                     </div>
                   ) : collaboration.comments.map((comment) => {
                     const location = commentLocations.get(comment.id)
@@ -1360,7 +1462,7 @@ function App() {
                     )
                     return (
                     <article
-                      className={`comment ${comment.resolved ? 'resolved' : ''} ${activeCommentId === comment.id ? 'active' : ''}`}
+                      className={`comment ${comment.suggestion ? 'suggestion-thread' : ''} ${comment.resolved ? 'resolved' : ''} ${activeCommentId === comment.id ? 'active' : ''}`}
                       key={comment.id}
                     >
                       <div className="comment-meta">
@@ -1383,7 +1485,42 @@ function App() {
                       ) : (
                         <div className="comment-document-context">Document comment</div>
                       )}
-                      <p>{comment.body}</p>
+                      {comment.suggestion ? (
+                        <div className={`suggestion-change is-${comment.suggestion.status}`}>
+                          <div className="suggestion-heading">
+                            <strong>
+                              {comment.suggestion.status === 'pending'
+                                ? 'Suggested edit'
+                                : comment.suggestion.status === 'accepted'
+                                  ? 'Accepted edit'
+                                  : comment.suggestion.status === 'rejected'
+                                    ? 'Rejected edit'
+                                    : 'Conflicted edit'}
+                            </strong>
+                            <span>{comment.suggestion.status}</span>
+                          </div>
+                          {comment.suggestion.before && (
+                            <div className="suggestion-line removed">
+                              <Minus size={13} aria-hidden="true" />
+                              <del>{comment.suggestion.before}</del>
+                            </div>
+                          )}
+                          {comment.suggestion.after && (
+                            <div className="suggestion-line added">
+                              <Plus size={13} aria-hidden="true" />
+                              <ins>{comment.suggestion.after}</ins>
+                            </div>
+                          )}
+                          {comment.suggestion.decidedByName && (
+                            <small>
+                              {comment.suggestion.status === 'accepted' ? 'Accepted' : 'Rejected'} by{' '}
+                              {comment.suggestion.decidedByName}
+                            </small>
+                          )}
+                        </div>
+                      ) : (
+                        <p>{comment.body}</p>
+                      )}
                       {replies.length > 0 && (
                         <div className="comment-replies">
                           {replies.map((message) => (
@@ -1450,9 +1587,26 @@ function App() {
                         </button>
                       </div>
                       <div className="comment-actions">
-                        <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
-                          <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
-                        </button>
+                        {comment.suggestion ? (
+                          isMaintainer && (
+                            comment.suggestion.status === 'pending' ||
+                            comment.suggestion.status === 'conflicted'
+                          ) && (
+                            <div className="suggestion-actions">
+                              <button type="button" onClick={() => decideSuggestion(comment, 'reject')}>
+                                <X size={13} /> Reject
+                              </button>
+                              <button className="accept" type="button" onClick={() => decideSuggestion(comment, 'accept')}>
+                                <Check size={13} />
+                                {comment.suggestion.status === 'conflicted' ? 'Retry accept' : 'Accept'}
+                              </button>
+                            </div>
+                          )
+                        ) : (
+                          <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
+                            <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
+                          </button>
+                        )}
                         <div className="comment-github-state">
                           {comment.github && (
                             <a
@@ -1506,7 +1660,7 @@ function App() {
         <ReferenceManager
           bibliography={collaboration.bibliography}
           manuscript={projectManuscriptContent}
-          readOnly={isReadOnly}
+          readOnly={isSourceReadOnly}
           onApply={collaboration.commitBibliographyEdit}
           onClose={() => setReferenceManagerOpen(false)}
         />
@@ -1524,7 +1678,7 @@ function App() {
             projectFiles={collaboration.projectFiles}
             projectSource={collaboration.mystConfig}
             projectPath={collaboration.mystConfigPath}
-            readOnly={isReadOnly}
+            readOnly={isSourceReadOnly}
             onApply={(input) => collaboration.commitPublicationMetadata({
               ...input,
               pagePath: activeFilePath,

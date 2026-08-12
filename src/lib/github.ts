@@ -381,6 +381,14 @@ export const mirrorRoomComment = (
     authorName: string
     body: string
     resolved: boolean
+    suggestion?: {
+      kind: 'insert' | 'delete' | 'replace'
+      before: string
+      after: string
+      status: 'pending' | 'accepted' | 'rejected' | 'conflicted'
+      decidedAt?: string
+      decidedByName?: string
+    }
     anchor?: {
       startLine: number
       endLine: number
@@ -398,6 +406,7 @@ export const mirrorRoomComment = (
         authorName: comment.authorName,
         body: comment.body,
         resolved: comment.resolved,
+        suggestion: comment.suggestion,
         anchor: comment.anchor,
       }),
     },

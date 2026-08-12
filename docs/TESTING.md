@@ -94,6 +94,14 @@ Use a standalone personal repository that is not a GitHub fork:
 9. Verify that both head and base belong to the standalone repository.
 10. Close the PR and delete the test branch or repository when finished.
 
+For a local live-GitHub test without copying an OAuth secret into `.env`, run a
+separate test server bound to localhost with `NODE_ENV=test`,
+`ENABLE_TEST_AUTH=1`, `ENABLE_LIVE_GITHUB_TEST=1`, and
+`TEST_GITHUB_TOKEN="$(gh auth token)"`. The token remains in the server process
+environment and is never returned to the browser. Use only a disposable
+standalone personal repository, unique persistence paths, and dedicated ports;
+never enable this route in a shared or deployed environment.
+
 Before deleting the branch, refresh its room and verify it becomes read-only. Confirm snapshot and comment mutation requests return `409`, stale WebSocket edits do not reach another client, and **Start next revision** opens a new room bound to the same manuscript without creating a branch until its first snapshot.
 
 ## Viewer Link Test
@@ -114,11 +122,11 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 
 ## Suggestion Link Test
 
-1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar and manuscript, Visual, metadata, references, and DeMystify comment editing are available without GitHub.
-2. Connect a GitHub account that lacks repository write permission. Verify the room remains in Suggestion mode and the account name plus handle label new presence and comments.
-3. Add manuscript text and a comment. Verify both converge to a maintainer and viewer, while a viewer write still does not reach either editor.
+1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar; source, metadata, and references are read-only; comments and supported primary-file Visual prose edits remain available.
+2. Connect a GitHub account that lacks repository write permission. Verify the room remains in Suggestion mode and the account name plus handle label new presence, comments, suggestions, and replies.
+3. Propose a Visual edit. Verify the maintainer receives attributed before/after text in both Source and Visual while canonical `Y.Text` remains unchanged. Activate either surface to open Review, reply from both sessions, then accept and verify the source converges and both pending overlays disappear. Repeat with Reject and with a concurrent maintainer edit that must produce a conflict.
 4. Verify the contributor cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
-5. With no maintainer connected, verify the comment remains queued. Reconnect a maintainer and verify the comment mirrors to the pull request with the contributor identity in its DeMystify attribution line.
+5. With no maintainer connected, verify review records remain queued. Reconnect a maintainer and verify comments, suggestion state, decisions, and replies mirror once to the pull request with contributor attribution.
 6. Rotate or revoke the Suggestion link. Confirm Suggestion sockets disconnect while active viewer and maintainer sockets remain connected.
 
 ## Required Checks

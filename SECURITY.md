@@ -6,6 +6,14 @@ DeMystify is not yet approved for confidential or regulated manuscripts. Maintai
 
 Maintainer repository-permission revocation is enforced on the next room claim, HTTP mutation, or WebSocket reconnect. An already established maintainer socket is not continuously reauthorized, so the controlled pilot must use short infrastructure timeouts and treat reconnect authorization as the live-editing revocation boundary. Rotating, revoking, or expiring a sharing capability invalidates its guest sessions and closes sockets using that role.
 
+Suggestion participants cannot submit canonical manuscript, bibliography,
+configuration, reference, metadata, or project-file changes. The WebSocket
+gateway applies each proposed Yjs update to a shadow document and permits only
+valid new pending suggestions, comments, replies, ordinary comment resolution,
+presence, and synchronization. Existing suggestions and their decisions are
+immutable to that role. Maintainers alone apply accepted edits to canonical
+source and mirror review records to GitHub.
+
 ## Reporting
 
 Report suspected vulnerabilities privately through GitHub's **Security → Report a vulnerability** feature, which is enabled for this repository. Do not include secrets, private manuscripts, or exploit details in a public issue.
@@ -23,6 +31,6 @@ Public deployment requires:
 
 - Durable shared persistence and session storage
 - CSRF, rate-limit, and security-header review
-- Sandboxed repository preview builds
+- Repository-owned GitHub Actions publication builds and least-privilege status integration
 - Audit logging and dependency monitoring
 - A documented incident and data-retention process

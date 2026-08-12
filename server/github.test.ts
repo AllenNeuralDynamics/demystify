@@ -427,6 +427,81 @@ describe('upsertRepositoryPullRequestComment', () => {
     expect(body).toContain('<!-- demystify-comment:comment-1 -->')
   })
 
+  it('creates an escaped, attributed suggestion record', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({
+        id: 102,
+        html_url: 'https://github.com/researcher/paper/pull/17#issuecomment-102',
+        body: 'Suggestion',
+        updated_at: '2026-08-08T05:00:00Z',
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await upsertRepositoryPullRequestComment(request, target, 17, {
+      id: 'suggestion-1',
+      authorName: 'Review Contributor',
+      body: 'Suggested edit',
+      resolved: false,
+      suggestion: {
+        kind: 'replace',
+        before: 'Old <claim>',
+        after: 'Clearer claim',
+        status: 'pending',
+      },
+    })
+
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body).body as string
+    expect(body).toContain('### DeMystify suggestion - Pending')
+    expect(body).toContain('- Old &lt;claim&gt;')
+    expect(body).toContain('+ Clearer claim')
+    expect(body).not.toContain('Old <claim>')
+    expect(body).toContain('DeMystify suggestion by Review Contributor - Pending')
+    expect(body).toContain('<!-- demystify-comment:suggestion-1 -->')
+  })
+
+  it('updates a suggestion with its acceptance decision', async () => {
+    const marker = '<!-- demystify-comment:suggestion-1 -->'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        id: 102,
+        html_url: 'https://github.com/researcher/paper/pull/17#issuecomment-102',
+        body: `Pending suggestion\n\n${marker}`,
+        updated_at: '2026-08-08T05:00:00Z',
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        id: 102,
+        html_url: 'https://github.com/researcher/paper/pull/17#issuecomment-102',
+        body: `Accepted suggestion\n\n${marker}`,
+        updated_at: '2026-08-08T05:01:00Z',
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await upsertRepositoryPullRequestComment(request, target, 17, {
+      id: 'suggestion-1',
+      githubCommentId: 102,
+      authorName: 'Review Contributor',
+      body: 'Suggested edit',
+      resolved: true,
+      suggestion: {
+        kind: 'replace',
+        before: 'Old claim',
+        after: 'Clearer claim',
+        status: 'accepted',
+        decidedByName: 'Maintainer',
+        decidedAt: '2026-08-08T05:01:00.000Z',
+      },
+    })
+
+    expect(fetchMock.mock.calls[1][1].method).toBe('PATCH')
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body).body as string
+    expect(body).toContain('### DeMystify suggestion - Accepted')
+    expect(body).toContain('Accepted by Maintainer at 2026-08-08T05:01:00.000Z')
+    expect(body).toContain('DeMystify suggestion by Review Contributor - Accepted')
+  })
+
   it('updates the marked comment when its resolution changes', async () => {
     const marker = '<!-- demystify-comment:comment-1 -->'
     const fetchMock = vi
