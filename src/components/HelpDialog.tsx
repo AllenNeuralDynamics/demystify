@@ -72,7 +72,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
 
         <div className="help-comment-note">
           <MessageSquareText size={17} />
-          <p>Select source text before commenting, or use a Suggestion link to propose a rendered prose edit. Pending changes remain visible and attributed in both Source and Visual; select one to open its replies and maintainer decision controls. Queued review records mirror to the pull request.</p>
+          <p>Select source text before commenting, or use a Suggestion link to draft a Source or Visual proposal. Split previews local Source drafts; pending alternatives remain visible and attributed in both Source and Visual. Select one to open its replies and maintainer decision controls. Queued review records mirror to the pull request.</p>
         </div>
       </section>
     </div>

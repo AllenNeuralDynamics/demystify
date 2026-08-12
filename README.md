@@ -113,14 +113,20 @@ directive settings, marked multiline blocks, and unsupported inline MyST remain
 rendered but read-only, so source syntax is never silently flattened.
 
 For invited Suggestion participants, Visual edits to primary-file headings,
-prose, and captions create pending review records instead of mutating MyST.
+prose, and captions and explicit Source proposals for open MyST files create
+pending review records instead of mutating canonical MyST.
 Each record carries proposer identity, before/after source, an anchored reply
 thread, and a maintainer decision. Pending deletions and insertions render
 directly in both the Visual manuscript and Source editor with the proposer's
 color and name; selecting either inline change opens its discussion and decision
-controls in Review. Source,
-references, metadata, and project
-files remain read-only for that role. The WebSocket gateway validates incoming
+controls in Review. A Source edit remains a local draft until **Propose change**;
+Split and Visual preview that draft without broadcasting it. Incoming canonical
+changes rebase a non-overlapping draft, while an overlap stops submission rather
+than overwriting either edit. Pending blocks remain editable, so different
+reviewers can submit independent alternatives or revise an existing proposal;
+accepting one marks alternatives whose anchors it invalidates as conflicted.
+References, metadata, YAML project files, publishing, and maintainer decisions
+remain read-only for that role. The WebSocket gateway validates incoming
 Suggestion updates against a shadow Yjs document and accepts only review records,
 replies, presence, and ordinary comment resolution.
 
@@ -170,7 +176,7 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 The **Share** dialog presents three explicit roles:
 
 - **Maintainer:** a GitHub-authenticated repository writer. Maintainers edit the room, bind repositories, manage sharing, save snapshots, update the draft pull request, and mirror queued comments to GitHub. The shareable Maintainer URL is the plain room URL: it carries no capability and grants access only after GitHub verifies write permission to the bound repository.
-- **Suggestion mode:** an invited person with a revocable Suggestion link can comment and propose edits to rendered headings, prose, and captions in the primary MyST file without repository access. Proposed insertion/deletion markup and attribution stay visible in both Visual and Source; selecting either surface opens the Review discussion. Canonical source changes only when a maintainer accepts a proposal; rejected and conflicted proposals remain in review history. Links may expire after 7, 30, or 90 days, or have no expiration. GitHub sign-in is optional but recommended so presence, comments, proposals, and replies use `Name (@handle)` attribution.
+- **Suggestion mode:** an invited person with a revocable Suggestion link can comment, draft explicit Source proposals for MyST files, and propose edits to rendered headings, prose, and captions in the primary file without repository access. Split previews local Source drafts; proposed insertion/deletion markup and attribution stay visible in both Visual and Source, and selecting either surface opens the Review discussion. Canonical source changes only when a maintainer accepts a proposal. Concurrent alternatives remain independent, while rejected and conflicted proposals remain in review history. Links may expire after 7, 30, or 90 days, or have no expiration. GitHub sign-in is optional but recommended so presence, comments, proposals, and replies use `Name (@handle)` attribution.
 - **Viewer:** anyone with a separately revocable viewer link using the same expiration options. Viewers receive live text, preview, comments, and presence but cannot modify room state.
 
 Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes. Suggestion-mode WebSockets accept only presence, synchronization, valid new comments or pending suggestions, replies, and ordinary comment resolution; canonical source/configuration/reference updates and suggestion decisions are rejected. Viewer WebSockets accept only awareness and initial synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.

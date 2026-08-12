@@ -140,26 +140,129 @@ describe('MystPreview', () => {
       )
     })
 
-    const paragraph = container.querySelector<HTMLElement>('[data-myst-suggestion-id]')
+    const paragraph = container.querySelector<HTMLElement>('.myst-inline-suggestion')
+    const proposal = container.querySelector<HTMLElement>('.myst-suggestion-option')
     expect(paragraph?.classList).toContain('myst-inline-suggestion')
-    expect(paragraph?.classList).not.toContain('myst-editable-block')
     expect(paragraph?.querySelector('del em')?.textContent).toBe('claim')
     expect(paragraph?.querySelector('ins strong')?.textContent).toBe('claim')
     expect(paragraph?.querySelector('.myst-suggestion-author')?.textContent)
       .toBe('Ada Reviewer')
-    expect(paragraph?.getAttribute('aria-label')).toContain('Ada Reviewer')
+    expect(proposal?.getAttribute('aria-label')).toContain('Ada Reviewer')
 
-    await act(async () => paragraph?.click())
+    await act(async () => proposal?.click())
     expect(onSuggestionClick).toHaveBeenCalledWith('suggestion-1')
     expect(container.querySelector('[aria-label="Edit paragraph"]')).toBeNull()
 
     await act(async () => {
-      paragraph?.dispatchEvent(new KeyboardEvent('keydown', {
+      proposal?.dispatchEvent(new KeyboardEvent('keydown', {
         bubbles: true,
         key: 'Enter',
       }))
     })
     expect(onSuggestionClick).toHaveBeenCalledTimes(2)
+
+    await act(async () => root.unmount())
+  })
+
+  it('shows concurrent alternatives against one canonical block', async () => {
+    const content = 'Original claim.'
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          suggestions={[
+            {
+              id: 'suggestion-a',
+              from: 0,
+              to: content.length,
+              before: content,
+              after: 'Reviewer A claim.',
+              authorName: 'Reviewer A',
+              authorColor: '#a64b36',
+            },
+            {
+              id: 'suggestion-b',
+              from: 0,
+              to: content.length,
+              before: content,
+              after: 'Reviewer B claim.',
+              authorName: 'Reviewer B',
+              authorColor: '#27628d',
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(container.querySelectorAll('.myst-suggestion-deletion')).toHaveLength(1)
+    expect(container.querySelectorAll('.myst-suggestion-option')).toHaveLength(2)
+    expect(container.textContent).toContain('Reviewer A claim.')
+    expect(container.textContent).toContain('Reviewer B claim.')
+    expect(container.textContent).toContain('Reviewer A')
+    expect(container.textContent).toContain('Reviewer B')
+
+    await act(async () => root.unmount())
+  })
+
+  it('projects a source-only insertion into the preceding Visual block', async () => {
+    const content = 'Existing paragraph.'
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          suggestions={[{
+            id: 'insertion-1',
+            from: content.length,
+            to: content.length,
+            before: '',
+            after: '\n\nInserted paragraph.',
+            authorName: 'Source Reviewer',
+            authorColor: '#a64b36',
+          }]}
+        />,
+      )
+    })
+
+    expect(container.querySelector('.myst-suggestion-option')?.textContent)
+      .toContain('Inserted paragraph.')
+    expect(container.querySelector('.myst-suggestion-author')?.textContent)
+      .toBe('Source Reviewer')
+
+    await act(async () => root.unmount())
+  })
+
+  it('projects a document-start insertion before the first Visual block', async () => {
+    const content = 'Existing paragraph.'
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          suggestions={[{
+            id: 'insertion-at-start',
+            from: 0,
+            to: 0,
+            before: '',
+            after: 'Inserted opening.\n\n',
+            authorName: 'Opening Reviewer',
+            authorColor: '#27628d',
+          }]}
+        />,
+      )
+    })
+
+    const annotatedBlock = container.querySelector('.myst-inline-suggestion')
+    expect(annotatedBlock?.textContent).toContain('Inserted opening.')
+    expect(annotatedBlock?.textContent?.indexOf('Inserted opening.'))
+      .toBeLessThan(annotatedBlock?.textContent?.indexOf('Existing paragraph.') ?? -1)
 
     await act(async () => root.unmount())
   })

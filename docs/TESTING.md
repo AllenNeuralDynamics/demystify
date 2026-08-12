@@ -122,12 +122,15 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 
 ## Suggestion Link Test
 
-1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar; source, metadata, and references are read-only; comments and supported primary-file Visual prose edits remain available.
+1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar; MyST Source accepts a local draft while metadata, references, YAML project files, publishing, and decisions remain read-only. Confirm supported primary-file Visual prose edits and comments remain available.
 2. Connect a GitHub account that lacks repository write permission. Verify the room remains in Suggestion mode and the account name plus handle label new presence, comments, suggestions, and replies.
-3. Propose a Visual edit. Verify the maintainer receives attributed before/after text in both Source and Visual while canonical `Y.Text` remains unchanged. Activate either surface to open Review, reply from both sessions, then accept and verify the source converges and both pending overlays disappear. Repeat with Reject and with a concurrent maintainer edit that must produce a conflict.
-4. Verify the contributor cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
-5. With no maintainer connected, verify review records remain queued. Reconnect a maintainer and verify comments, suggestion state, decisions, and replies mirror once to the pull request with contributor attribution.
-6. Rotate or revoke the Suggestion link. Confirm Suggestion sockets disconnect while active viewer and maintainer sockets remain connected.
+3. Propose a Visual edit. Verify the maintainer receives attributed before/after text in both Source and Visual while canonical `Y.Text` remains unchanged. Activate either surface to open Review, reply from both sessions, then accept and verify the source converges and both pending overlays disappear. Repeat with Reject.
+4. Draft in Source and switch to Split. Verify Visual previews the local draft, another session cannot see it, and canonical `Y.Text` remains unchanged until **Propose change**. Verify insertion, deletion, and replacement proposals.
+5. While a Source draft is open, apply a non-overlapping canonical edit and verify the draft rebases. Apply an overlapping edit and verify submission stops without overwriting either version.
+6. Have two reviewers propose alternatives for the same paragraph, including one reviewer using **Revise** on a pending proposal. Verify every alternative remains independently attributed and selectable in Source, Visual, and Review. Accept one and verify invalidated siblings become conflicted.
+7. Verify the contributor cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
+8. With no maintainer connected, verify review records remain queued. Reconnect a maintainer and verify comments, suggestion state, decisions, and replies mirror once to the pull request with contributor attribution.
+9. Rotate or revoke the Suggestion link. Confirm Suggestion sockets disconnect while active viewer and maintainer sockets remain connected.
 
 ## Required Checks
 

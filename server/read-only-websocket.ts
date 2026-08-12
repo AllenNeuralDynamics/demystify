@@ -82,7 +82,8 @@ const resolveAnchorQuote = (
     anchorValue.version !== 1 ||
     !hasText(anchorValue.start, 20_000) ||
     !hasText(anchorValue.end, 20_000) ||
-    !hasText(anchorValue.quote, 60_000)
+    typeof anchorValue.quote !== 'string' ||
+    anchorValue.quote.length > 60_000
   ) return null
   try {
     const text = document.getText('content')
@@ -98,7 +99,7 @@ const resolveAnchorQuote = (
     const from = Math.min(start.index, end.index)
     const to = Math.max(start.index, end.index)
     const quote = text.toString().slice(from, to)
-    return quote === anchorValue.quote ? quote : null
+    return quote === anchorValue.quote ? { quote } : null
   } catch {
     return null
   }
@@ -106,10 +107,10 @@ const resolveAnchorQuote = (
 
 const isValidNewSuggestion = (
   value: Record<string, unknown>,
-  anchorQuote: string | null,
+  anchorResult: { quote: string } | null,
 ) => {
   const suggestion = value.suggestion
-  if (!isRecord(suggestion) || !anchorQuote) return false
+  if (!isRecord(suggestion) || !anchorResult) return false
   if (
     suggestion.status !== 'pending' ||
     suggestion.decidedAt !== undefined ||
@@ -121,8 +122,9 @@ const isValidNewSuggestion = (
   ) return false
   const before = suggestion.before as string
   const after = suggestion.after as string
-  if (before !== anchorQuote || before === after) return false
+  if (before !== anchorResult.quote || before === after) return false
   return (
+    (suggestion.kind === 'insert' && !before && Boolean(after)) ||
     (suggestion.kind === 'replace' && Boolean(before) && Boolean(after)) ||
     (suggestion.kind === 'delete' && Boolean(before) && !after)
   )
@@ -141,11 +143,11 @@ const isValidNewComment = (
     value.resolved !== false ||
     value.github !== undefined
   ) return false
-  const anchorQuote = value.anchor === undefined
+  const anchorResult = value.anchor === undefined
     ? null
     : resolveAnchorQuote(document, value.anchor)
-  if (value.anchor !== undefined && !anchorQuote) return false
-  return value.suggestion === undefined || isValidNewSuggestion(value, anchorQuote)
+  if (value.anchor !== undefined && !anchorResult) return false
+  return value.suggestion === undefined || isValidNewSuggestion(value, anchorResult)
 }
 
 const withoutResolved = (value: Record<string, unknown>) => {

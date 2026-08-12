@@ -79,7 +79,7 @@ export const resolveCommentAnchor = (
   document: Y.Doc,
   text: Y.Text,
   anchor: CommentAnchor,
-  options: { recoverQuote?: boolean } = {},
+  options: { allowEmpty?: boolean; recoverQuote?: boolean } = {},
 ): CommentSourceRange | null => {
   try {
     const start = Y.createAbsolutePositionFromRelativePosition(
@@ -96,6 +96,16 @@ export const resolveCommentAnchor = (
     const from = Math.min(start.index, end.index)
     const to = Math.max(start.index, end.index)
     const quote = source.slice(from, to)
+    if (options.allowEmpty && !anchor.quote && from === to) {
+      return {
+        from,
+        to,
+        quote: '',
+        startLine: getLineNumber(source, from),
+        endLine: getLineNumber(source, from),
+        orphaned: false,
+      }
+    }
     if ((from === to || !quote.trim()) && options.recoverQuote !== false) {
       const restoredFrom = anchor.quote ? source.indexOf(anchor.quote) : -1
       const quoteIsUnique = restoredFrom >= 0 &&

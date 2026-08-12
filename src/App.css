@@ -949,9 +949,72 @@
 }
 
 .collaborative-editor,
-.collaborative-editor > .cm-editor {
+.collaborative-editor-host,
+.collaborative-editor-host > .cm-editor {
   width: 100%;
   height: 100%;
+}
+
+.collaborative-editor.source-suggestion-mode {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.source-suggestion-draft {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 7px 14px;
+  border-top: 1px solid var(--line);
+  background: #f7faf8;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.source-suggestion-draft strong,
+.source-suggestion-draft span {
+  display: block;
+}
+
+.source-suggestion-draft strong {
+  color: var(--green-dark);
+  font-size: 10px;
+}
+
+.source-suggestion-draft span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.source-suggestion-draft-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.source-suggestion-draft-actions button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.source-suggestion-draft-actions .primary {
+  border-color: var(--green);
+  background: var(--green);
+  color: white;
+}
+
+.source-suggestion-draft-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .pane-loading {
@@ -1055,7 +1118,6 @@
 }
 
 .myst-preview .myst-inline-suggestion {
-  cursor: pointer;
   outline: 1px solid transparent;
   outline-offset: 4px;
 }
@@ -1074,6 +1136,16 @@
   border-bottom: 2px solid var(--myst-suggestion-color, #16705d);
   text-decoration-color: var(--myst-suggestion-color, #16705d);
   text-decoration-thickness: 1.5px;
+}
+
+.myst-preview .myst-suggestion-option {
+  display: inline;
+  cursor: pointer;
+}
+
+.myst-preview .myst-suggestion-option:focus-visible {
+  outline: 2px solid var(--myst-suggestion-color, #16705d);
+  outline-offset: 2px;
 }
 
 .myst-preview .myst-suggestion-deletion {

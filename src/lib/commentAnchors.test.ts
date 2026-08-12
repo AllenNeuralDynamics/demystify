@@ -86,4 +86,23 @@ describe('comment anchors', () => {
       orphaned: true,
     })
   })
+
+  it('resolves a zero-width insertion anchor without marking it orphaned', () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Before after')
+    const anchor = createCommentAnchor(text, 7, 7)
+
+    expect(resolveCommentAnchor(
+      document,
+      text,
+      anchor,
+      { allowEmpty: true, recoverQuote: false },
+    )).toMatchObject({
+      from: 7,
+      to: 7,
+      quote: '',
+      orphaned: false,
+    })
+  })
 })
