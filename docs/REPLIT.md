@@ -2,12 +2,13 @@
 
 **Last validated:** August 12, 2026
 
-**Deployed application source:** [`0c89cf744f5a792140e1c664eee5dec096be0727`](https://github.com/AllenNeuralDynamics/demystify/commit/0c89cf744f5a792140e1c664eee5dec096be0727)
+**Deployed application source:** [`427cf1e544d2eff288b75e762eb7b5e35b8c039c`](https://github.com/AllenNeuralDynamics/demystify/commit/427cf1e544d2eff288b75e762eb7b5e35b8c039c)
 
-**Publication status:** Online. Replit release `3f72b6f5` was published on
-August 12, 2026, with attributed Source and Visual suggestions, threaded
-discussion, maintainer decisions, GitHub review records, and server-enforced
-Suggestion-role update boundaries.
+**Publication status:** Online. Replit release `72b622a5` was published on
+August 12, 2026, with composable Source, Split, and Visual suggestions,
+concurrent alternatives, successive reviewer revisions, safe draft rebasing,
+threaded decisions, GitHub review records, and server-enforced Suggestion-role
+update boundaries.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -35,8 +36,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `0c89cf744f5a792140e1c664eee5dec096be0727` |
-| Replit release | `3f72b6f5` |
+| Application source | `427cf1e544d2eff288b75e762eb7b5e35b8c039c` |
+| Replit release | `72b622a5` |
 | Cloud credits after release smoke | 46% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -369,6 +370,32 @@ SHA `0c89cf744f5a792140e1c664eee5dec096be0727` passed these release checks:
    collaboration integration, lint, build and bundle budgets, dependency audit,
    and 46 executed Playwright checks across Chromium, Firefox, WebKit, Mobile
    Chrome, and Mobile Safari, with 49 intentional project-specific skips.
+
+The August 12, 2026 composable-suggestions release `72b622a5` from application
+SHA `427cf1e544d2eff288b75e762eb7b5e35b8c039c` passed these release checks:
+
+- Protected pull request #17 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=427cf1e544d2eff288b75e762eb7b5e35b8c039c` before republish.
+- The destructive development-to-production database copy remained disabled.
+   Replit reported success for Provision, Security checks, Build, Bundle, and
+   Promote. Autoscale remained 2 vCPU / 4 GiB with one maximum machine, and the
+   retained production database remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-CLsWXs48.js`, which contains local Source drafting,
+   explicit proposal submission, overlap conflict handling, and successive
+   revision controls. Crawler exclusion remained enabled.
+- The live anonymous shell loaded with its expected unauthenticated room claims.
+   At 1560 px desktop and 390x844 mobile viewports, the document had no
+   horizontal overflow, page exceptions, or server `5xx` responses.
+- Local and protected validation passed 187 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 52 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
+   project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
