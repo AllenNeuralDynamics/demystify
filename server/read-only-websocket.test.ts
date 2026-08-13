@@ -33,7 +33,11 @@ const updateMessage = (
 const encodeRelativePosition = (position: Y.RelativePosition) =>
   Buffer.from(Y.encodeRelativePosition(position)).toString('base64')
 
-const createSuggestion = (document: Y.Doc, id = 'suggestion-1') => {
+const createSuggestion = (
+  document: Y.Doc,
+  id = 'suggestion-1',
+  supersedes: string[] = [],
+) => {
   const text = document.getText('content')
   return {
     id,
@@ -54,6 +58,7 @@ const createSuggestion = (document: Y.Doc, id = 'suggestion-1') => {
       filePath: 'paper.md',
       before: text.toString(),
       after: 'Proposed paragraph.',
+      ...(supersedes.length > 0 ? { supersedes } : {}),
       status: 'pending',
     },
   }
@@ -66,6 +71,7 @@ const createRangeSuggestion = (
     authorName: string
     from: number
     id: string
+    supersedes?: string[]
     to: number
   },
 ) => {
@@ -94,6 +100,7 @@ const createRangeSuggestion = (
       filePath: 'manuscript.md',
       before,
       after: input.after,
+      ...(input.supersedes ? { supersedes: input.supersedes } : {}),
       status: 'pending',
     },
   }
@@ -159,6 +166,7 @@ describe('suggestion-mode Yjs messages', () => {
       from,
       to,
       after: 'reviewable and attributed',
+      supersedes: [first.id],
     })
     const insertion = createRangeSuggestion(document, {
       id: 'source-insertion-1',
@@ -172,6 +180,49 @@ describe('suggestion-mode Yjs messages', () => {
     }), document)).toBe(true)
     expect(isCollaboratorWebSocketMessageAllowed(updateMessage(document, (candidate) => {
       candidate.getMap('comments').set(insertion.id, insertion)
+    }), document)).toBe(true)
+    document.destroy()
+  })
+
+  it('blocks revision lineage that does not reference a matching pending suggestion', () => {
+    const document = new Y.Doc()
+    document.getText('content').insert(0, 'Original paragraph.')
+    const suggestion = createSuggestion(
+      document,
+      'suggestion-2',
+      ['missing-suggestion'],
+    )
+
+    expect(isCollaboratorWebSocketMessageAllowed(updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set('suggestion-2', suggestion)
+    }), document)).toBe(false)
+    document.destroy()
+  })
+
+  it('allows a paragraph revision to supersede a contained source fragment', () => {
+    const document = new Y.Doc()
+    const source = 'The live preview remains inspectable.'
+    document.getText('content').insert(0, source)
+    const fragmentFrom = source.indexOf('preview')
+    const fragment = createRangeSuggestion(document, {
+      id: 'fragment-suggestion',
+      authorName: 'Source Reviewer',
+      from: fragmentFrom,
+      to: fragmentFrom + 'preview'.length,
+      after: 'browser preview',
+    })
+    document.getMap('comments').set(fragment.id, fragment)
+    const paragraph = createRangeSuggestion(document, {
+      id: 'paragraph-revision',
+      authorName: 'Visual Reviewer',
+      from: 0,
+      to: source.length,
+      after: 'The live browser preview remains directly editable.',
+      supersedes: [fragment.id],
+    })
+
+    expect(isCollaboratorWebSocketMessageAllowed(updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set(paragraph.id, paragraph)
     }), document)).toBe(true)
     document.destroy()
   })

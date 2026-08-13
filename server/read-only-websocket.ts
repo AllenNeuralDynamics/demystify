@@ -99,7 +99,7 @@ const resolveAnchorQuote = (
     const from = Math.min(start.index, end.index)
     const to = Math.max(start.index, end.index)
     const quote = text.toString().slice(from, to)
-    return quote === anchorValue.quote ? { quote } : null
+    return quote === anchorValue.quote ? { from, to, quote } : null
   } catch {
     return null
   }
@@ -107,7 +107,9 @@ const resolveAnchorQuote = (
 
 const isValidNewSuggestion = (
   value: Record<string, unknown>,
-  anchorResult: { quote: string } | null,
+  anchorResult: { from: number; to: number; quote: string } | null,
+  existingComments: Yjs.Map<unknown>,
+  document: Yjs.Doc,
 ) => {
   const suggestion = value.suggestion
   if (!isRecord(suggestion) || !anchorResult) return false
@@ -123,6 +125,28 @@ const isValidNewSuggestion = (
   const before = suggestion.before as string
   const after = suggestion.after as string
   if (before !== anchorResult.quote || before === after) return false
+  const supersedes = suggestion.supersedes
+  if (supersedes !== undefined) {
+    if (
+      !Array.isArray(supersedes) ||
+      supersedes.length === 0 ||
+      supersedes.length > 100 ||
+      new Set(supersedes).size !== supersedes.length
+    ) return false
+    for (const supersededId of supersedes) {
+      if (typeof supersededId !== 'string' || !commentIdPattern.test(supersededId)) return false
+      const superseded = existingComments.get(supersededId)
+      if (!isRecord(superseded) || !isRecord(superseded.suggestion)) return false
+      const supersededAnchor = resolveAnchorQuote(document, superseded.anchor)
+      if (
+        !supersededAnchor ||
+        superseded.suggestion.status !== 'pending' ||
+        superseded.suggestion.filePath !== suggestion.filePath ||
+        supersededAnchor.from < anchorResult.from ||
+        supersededAnchor.to > anchorResult.to
+      ) return false
+    }
+  }
   return (
     (suggestion.kind === 'insert' && !before && Boolean(after)) ||
     (suggestion.kind === 'replace' && Boolean(before) && Boolean(after)) ||
@@ -134,6 +158,7 @@ const isValidNewComment = (
   document: Yjs.Doc,
   id: string,
   value: unknown,
+  existingComments: Yjs.Map<unknown>,
 ) => {
   if (!commentIdPattern.test(id) || !isRecord(value)) return false
   if (
@@ -147,7 +172,8 @@ const isValidNewComment = (
     ? null
     : resolveAnchorQuote(document, value.anchor)
   if (value.anchor !== undefined && !anchorResult) return false
-  return value.suggestion === undefined || isValidNewSuggestion(value, anchorResult)
+  return value.suggestion === undefined ||
+    isValidNewSuggestion(value, anchorResult, existingComments, document)
 }
 
 const withoutResolved = (value: Record<string, unknown>) => {
@@ -172,7 +198,7 @@ const commentsAreAllowed = (current: Yjs.Doc, candidate: Yjs.Doc) => {
     ) return false
   }
   for (const [id, value] of after.entries()) {
-    if (!before.has(id) && !isValidNewComment(candidate, id, value)) return false
+    if (!before.has(id) && !isValidNewComment(candidate, id, value, before)) return false
   }
   return after.size >= before.size
 }

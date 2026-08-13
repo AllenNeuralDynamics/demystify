@@ -79,6 +79,11 @@ import {
 import { loadProfile, saveProfile } from './lib/profile'
 import { getMystOutline } from './lib/mystOutline'
 import {
+  getProjectedSuggestionReplacement,
+  mapProjectedRange,
+  projectPendingSuggestions,
+} from './lib/suggestionProjection'
+import {
   detectCitationSyntax,
   formatCitation,
   type CitationDetails,
@@ -177,6 +182,7 @@ function App() {
     filePath: string
     content: string
   } | null>(null)
+  const visualSuggestionSupersedesRef = useRef<string[]>([])
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
@@ -231,7 +237,6 @@ function App() {
   const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
-  const isSourceReadOnly = isReadOnly
   const isStructuredEditorReadOnly = isReadOnly || isSuggestionMode
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
@@ -266,18 +271,12 @@ function App() {
     : primaryFilePath
   const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
+  const isSourceReadOnly = isReadOnly || (isSuggestionMode && !isPrimaryFile)
   const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
     ?? collaboration.sharedText
   const activeContent = isPrimaryFile
     ? collaboration.content
     : collaboration.projectFiles[activeFilePath] ?? ''
-  const activeSourceDraftPreview = isSuggestionMode &&
-    sourceDraftPreview?.filePath === activeFilePath
-    ? sourceDraftPreview.content
-    : null
-  const displayedContent = activeSourceDraftPreview !== null
-    ? activeSourceDraftPreview
-    : activeContent
   const activeAssetBaseUrl = repositoryBinding
     ? getRepositoryAssetBaseUrl({ ...repositoryBinding, path: activeFilePath })
     : undefined
@@ -286,10 +285,6 @@ function App() {
     ...Object.entries(collaboration.projectFiles).flatMap(([path, fileContent]) =>
       isMystSourcePath(path) ? [fileContent] : []),
   ].join('\n'), [collaboration.content, collaboration.projectFiles])
-  const activeOutline = useMemo(
-    () => isActiveMystSource ? getMystOutline(displayedContent) : [],
-    [displayedContent, isActiveMystSource],
-  )
   const sharedComments = collaboration.comments
   const initializeBibliography = collaboration.initializeBibliography
   const initializeMystConfig = collaboration.initializeMystConfig
@@ -326,22 +321,64 @@ function App() {
     }) : [],
     [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
   )
+  const primarySuggestionProjection = useMemo(
+    () => projectPendingSuggestions(
+      collaboration.content,
+      sharedComments.flatMap((comment) => {
+        const location = commentLocations.get(comment.id)
+        return comment.suggestion && location && !location.orphaned
+          ? [{
+              id: comment.id,
+              active: comment.suggestion.status === 'pending',
+              from: location.from,
+              to: location.to,
+              before: comment.suggestion.before,
+              after: comment.suggestion.after,
+              createdAt: comment.createdAt,
+              supersedes: comment.suggestion.supersedes,
+            }]
+          : []
+      }),
+    ),
+    [collaboration.content, commentLocations, sharedComments],
+  )
+  const activeSuggestionProjection = useMemo(
+    () => isPrimaryFile
+      ? primarySuggestionProjection
+      : projectPendingSuggestions(activeContent, []),
+    [activeContent, isPrimaryFile, primarySuggestionProjection],
+  )
+  const suggestionBaseContent = isSuggestionMode && isActiveMystSource
+    ? activeSuggestionProjection.content
+    : activeContent
+  const activeSourceDraftPreview = isSuggestionMode &&
+    sourceDraftPreview?.filePath === activeFilePath
+    ? sourceDraftPreview.content
+    : null
+  const displayedContent = activeSourceDraftPreview ?? suggestionBaseContent
+  const activeOutline = useMemo(
+    () => isActiveMystSource ? getMystOutline(displayedContent) : [],
+    [displayedContent, isActiveMystSource],
+  )
+  const currentSuggestionIds = useMemo(
+    () => new Set(primarySuggestionProjection.suggestions.map((suggestion) => suggestion.id)),
+    [primarySuggestionProjection.suggestions],
+  )
+  const inactiveSuggestionIds = primarySuggestionProjection.hiddenIds
   const inlineSuggestions = useMemo<MystPreviewSuggestion[]>(
-    () => isPrimaryFile ? sharedComments.flatMap((comment) => {
-      const location = commentLocations.get(comment.id)
-      return comment.suggestion?.status === 'pending' && location && !location.orphaned
-        ? [{
-            id: comment.id,
-            from: location.from,
-            to: location.to,
-            before: comment.suggestion.before,
-            after: comment.suggestion.after,
-            authorName: comment.authorName,
-            authorColor: comment.authorColor,
-          }]
-        : []
+    () => isPrimaryFile ? primarySuggestionProjection.suggestions.flatMap((suggestion) => {
+      const comment = sharedComments.find((candidate) => candidate.id === suggestion.id)
+      return comment ? [{
+        id: suggestion.id,
+        from: suggestion.from,
+        to: suggestion.to,
+        before: suggestion.before,
+        after: suggestion.after,
+        authorName: comment.authorName,
+        authorColor: comment.authorColor,
+      }] : []
     }) : [],
-    [commentLocations, isPrimaryFile, sharedComments],
+    [isPrimaryFile, primarySuggestionProjection.suggestions, sharedComments],
   )
   const sourceSuggestions = useMemo<SourceSuggestionHighlight[]>(
     () => inlineSuggestions.map((suggestion) => ({
@@ -748,6 +785,10 @@ function App() {
 
   const decideSuggestion = (comment: SharedComment, decision: 'accept' | 'reject') => {
     if (!isMaintainer || !comment.suggestion) return
+    if (inactiveSuggestionIds.has(comment.id)) {
+      showNotice('A newer revision replaced this version. Review the current proposal instead.')
+      return
+    }
     const result = collaboration.decideTextSuggestion(
       comment.id,
       decision,
@@ -766,17 +807,14 @@ function App() {
 
   const reviseSuggestion = (comment: SharedComment) => {
     const suggestion = comment.suggestion
-    const location = commentLocations.get(comment.id)
-    if (!isSuggestionMode || !suggestion || !location || location.orphaned) return
+    const projected = primarySuggestionProjection.suggestions.find(
+      (candidate) => candidate.id === comment.id,
+    )
+    if (!isSuggestionMode || !suggestion || !projected) return
     setView('split')
     setCommentsOpen(false)
     window.requestAnimationFrame(() => {
-      const started = editorRef.current?.beginSuggestionRevision(
-        location.from,
-        location.to,
-        suggestion.after,
-      )
-      if (!started) showNotice('This suggestion can no longer be revised against the current source.')
+      editorRef.current?.revealRange(projected.projectedFrom, projected.projectedTo)
     })
   }
 
@@ -1368,7 +1406,15 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
-                  onProposeSourceEdit={(replacement) => {
+                  onProposeSourceEdit={(draft) => {
+                    const projected = getProjectedSuggestionReplacement(
+                      activeSuggestionProjection,
+                      draft,
+                    )
+                    if (!projected || projected === 'conflict') {
+                      return { result: projected === 'conflict' ? 'conflict' : 'unavailable' }
+                    }
+                    const { replacement, supersedes } = projected
                     const anchor = collaboration.beginTextEdit(
                       replacement.from,
                       replacement.to,
@@ -1382,6 +1428,7 @@ function App() {
                       replacement.after,
                       activeFilePath,
                       primaryFilePath,
+                      supersedes,
                     )
                     if (proposal.suggestionId) {
                       setActiveCommentId(proposal.suggestionId)
@@ -1394,8 +1441,9 @@ function App() {
                     draft === null ? null : { filePath: activeFilePath, content: draft },
                   )}
                   readOnly={isSourceReadOnly}
-                  suggestionMode={isSuggestionMode && isActiveMystSource}
-                  suggestionHighlights={sourceSuggestions}
+                  suggestionBaseContent={suggestionBaseContent}
+                  suggestionMode={isSuggestionMode && isActiveMystSource && isPrimaryFile}
+                  suggestionHighlights={isSuggestionMode ? [] : sourceSuggestions}
                 />
               ) : shareSession.error ? (
                 <div className="pane-loading">{shareSession.error}</div>
@@ -1428,13 +1476,32 @@ function App() {
                   }
                   projectFiles={collaboration.projectFiles}
                   sourcePath={activeFilePath}
-                  onBeginEdit={(block) => collaboration.beginTextEdit(
-                    block.from,
-                    block.to,
-                    block.value,
-                    activeFilePath,
-                    primaryFilePath,
-                  )}
+                  onBeginEdit={(block) => {
+                    visualSuggestionSupersedesRef.current = []
+                    if (!isSuggestionMode) {
+                      return collaboration.beginTextEdit(
+                        block.from,
+                        block.to,
+                        block.value,
+                        activeFilePath,
+                        primaryFilePath,
+                      )
+                    }
+                    const projected = mapProjectedRange(
+                      activeSuggestionProjection,
+                      block.from,
+                      block.to,
+                    )
+                    if (projected === 'conflict') return null
+                    visualSuggestionSupersedesRef.current = projected.supersedes
+                    return collaboration.beginTextEdit(
+                      projected.replacement.from,
+                      projected.replacement.to,
+                      projected.replacement.before,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                  }}
                   onCommitEdit={(anchor, replacement) => {
                     if (!isSuggestionMode) {
                       return collaboration.commitTextEdit(
@@ -1449,7 +1516,9 @@ function App() {
                       replacement,
                       activeFilePath,
                       primaryFilePath,
+                      visualSuggestionSupersedesRef.current,
                     )
+                    visualSuggestionSupersedesRef.current = []
                     if (proposal.suggestionId) {
                       setActiveCommentId(proposal.suggestionId)
                       setCommentsOpen(true)
@@ -1463,7 +1532,7 @@ function App() {
                     setVisualCitationInserter(() => insert)
                     setCitationPickerOpen(true)
                   }}
-                  suggestions={inlineSuggestions}
+                  suggestions={isSuggestionMode ? [] : inlineSuggestions}
                 />
               </Suspense>
             </section>
@@ -1516,6 +1585,8 @@ function App() {
                     const replies = collaboration.commentMessages.filter(
                       (message) => message.threadId === comment.id,
                     )
+                    const isEarlierRevision = comment.suggestion?.status === 'pending' &&
+                      inactiveSuggestionIds.has(comment.id)
                     return (
                     <article
                       className={`comment ${comment.suggestion ? 'suggestion-thread' : ''} ${comment.resolved ? 'resolved' : ''} ${activeCommentId === comment.id ? 'active' : ''}`}
@@ -1542,10 +1613,12 @@ function App() {
                         <div className="comment-document-context">Document comment</div>
                       )}
                       {comment.suggestion ? (
-                        <div className={`suggestion-change is-${comment.suggestion.status}`}>
+                        <div className={`suggestion-change is-${isEarlierRevision ? 'superseded' : comment.suggestion.status}`}>
                           <div className="suggestion-heading">
                             <strong>
-                              {comment.suggestion.status === 'pending'
+                              {isEarlierRevision
+                                ? 'Earlier revision'
+                                : comment.suggestion.status === 'pending'
                                 ? 'Suggested edit'
                                 : comment.suggestion.status === 'accepted'
                                   ? 'Accepted edit'
@@ -1553,7 +1626,7 @@ function App() {
                                     ? 'Rejected edit'
                                     : 'Conflicted edit'}
                             </strong>
-                            <span>{comment.suggestion.status}</span>
+                            <span>{isEarlierRevision ? 'superseded' : comment.suggestion.status}</span>
                           </div>
                           {comment.suggestion.before && (
                             <div className="suggestion-line removed">
@@ -1644,14 +1717,16 @@ function App() {
                       </div>
                       <div className="comment-actions">
                         {comment.suggestion ? (
-                          isSuggestionMode && comment.suggestion.status === 'pending' ? (
+                          isSuggestionMode &&
+                          comment.suggestion.status === 'pending' &&
+                          currentSuggestionIds.has(comment.id) ? (
                             <button type="button" onClick={() => reviseSuggestion(comment)}>
                               <PencilLine size={13} /> Revise
                             </button>
                           ) : isMaintainer && (
                             comment.suggestion.status === 'pending' ||
                             comment.suggestion.status === 'conflicted'
-                          ) ? (
+                          ) && !isEarlierRevision ? (
                             <div className="suggestion-actions">
                               <button type="button" onClick={() => decideSuggestion(comment, 'reject')}>
                                 <X size={13} /> Reject

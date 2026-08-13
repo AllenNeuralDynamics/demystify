@@ -100,6 +100,8 @@ describe('CollaborativeEditor', () => {
       toJSON: () => ({}),
     })
     const source = '# Draft\n\nOriginal claim.'
+    const currentProposal = '# Draft\n\nCurrent proposed claim.'
+    const revisedProposal = '# Draft\n\nRevised current claim.'
     const yDocument = new Y.Doc()
     const sharedText = yDocument.getText('content')
     sharedText.insert(0, source)
@@ -120,6 +122,7 @@ describe('CollaborativeEditor', () => {
           sharedText={sharedText}
           provider={provider}
           suggestionMode
+          suggestionBaseContent={currentProposal}
           onProposeSourceEdit={onProposeSourceEdit}
           onSourceDraftChange={onSourceDraftChange}
         />,
@@ -127,9 +130,11 @@ describe('CollaborativeEditor', () => {
     })
 
     const editor = container.querySelector<HTMLElement>('.cm-content')
+    expect(editor?.textContent).toContain('Current proposed claim.')
+    expect(editor?.textContent).not.toContain('Original claim.')
     await act(async () => {
       if (!editor) return
-      editor.textContent = '# Draft\n\nRevised claim.'
+      editor.textContent = revisedProposal
       editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
     })
     expect(sharedText.toString()).toBe(source)
@@ -139,7 +144,24 @@ describe('CollaborativeEditor', () => {
       container.querySelector<HTMLButtonElement>('.source-suggestion-draft-actions .primary')
         ?.click()
     })
-    expect(onProposeSourceEdit).toHaveBeenCalled()
+    expect(onProposeSourceEdit).toHaveBeenCalledWith(revisedProposal)
+    expect(sharedText.toString()).toBe(source)
+
+    const sharedFollowUp = '# Draft\n\nShared follow-up claim.'
+    await act(async () => {
+      root.render(
+        <CollaborativeEditor
+          sharedText={sharedText}
+          provider={provider}
+          suggestionMode
+          suggestionBaseContent={sharedFollowUp}
+          onProposeSourceEdit={onProposeSourceEdit}
+          onSourceDraftChange={onSourceDraftChange}
+        />,
+      )
+    })
+    expect(container.querySelector<HTMLElement>('.cm-content')?.textContent)
+      .toContain('Shared follow-up claim.')
     expect(sharedText.toString()).toBe(source)
 
     await act(async () => root.unmount())

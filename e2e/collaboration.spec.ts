@@ -293,7 +293,7 @@ test('overlapping Source and Visual edits stop without overwriting either draft'
     await page.getByRole('textbox', { name: 'Edit paragraph' }).fill(remoteReplacement)
     await page.getByTitle('Save visual edit').click()
 
-    await expect(reviewer.getByText('The manuscript changed in the same source range.'))
+    await expect(reviewer.getByText('The current proposal changed in the same source range.'))
       .toBeVisible()
     await expect(reviewer.getByRole('button', { name: 'Propose changes' })).toBeDisabled()
     await expect(reviewer.locator('.myst-preview')).toContainText(localReplacement)
@@ -308,15 +308,15 @@ test('overlapping Source and Visual edits stop without overwriting either draft'
   }
 })
 
-test('different reviewers can revise one pending paragraph successively', async ({ browser, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'Successive multi-reviewer proposal runs once')
+test('different reviewers edit one current proposal across Source and Visual', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Cross-mode proposal revision runs once')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
   const original = 'A manuscript should be as inspectable as the analysis behind it.'
   const firstProposal = 'The manuscript should expose each analytical decision in context.'
   const revisedProposal = 'The manuscript should expose each analytical decision, reviewer, and source revision in context.'
-  const revisedFragment = ', reviewer, and source revision'
+  const finalProposal = 'The manuscript should expose each analytical decision, reviewer, source revision, and supporting evidence in context.'
 
   const openReviewer = async (name: string, id: string) => {
     const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
@@ -345,52 +345,59 @@ test('different reviewers can revise one pending paragraph successively', async 
     await first.reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(firstProposal)
     await first.reviewer.getByTitle('Save visual edit').click()
 
-    await second.reviewer.getByTitle('Visual editor').click()
-    const firstOption = second.reviewer.locator('.myst-suggestion-option')
-      .filter({ hasText: firstProposal })
-    await expect(firstOption).toBeVisible()
-    await firstOption.click()
-    const firstThread = second.reviewer.locator('.comment.suggestion-thread')
-      .filter({ hasText: firstProposal })
-    await firstThread.getByRole('button', { name: 'Revise', exact: true }).click()
+    await expect(second.reviewer.locator('.myst-suggestion-option')).toHaveCount(0)
     const sourceDraft = second.reviewer.getByRole('textbox', { name: 'MyST source' })
     await expect(sourceDraft).toContainText(firstProposal)
-    await second.reviewer.keyboard.type(revisedProposal)
+    await sourceDraft.fill(sampleManuscript.replace(original, revisedProposal))
     await expect(second.reviewer.locator('.myst-preview')).toContainText(revisedProposal)
+    await expect(second.reviewer.locator('.myst-preview')).not.toContainText(firstProposal)
     await second.reviewer.getByRole('button', { name: 'Propose changes' }).click()
+
+    await second.reviewer.getByTitle('Visual editor').click()
+    const currentParagraph = second.reviewer.locator('.myst-preview p.myst-editable-block')
+      .filter({ hasText: revisedProposal })
+    await currentParagraph.focus()
+    await currentParagraph.press('F2')
+    await second.reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(finalProposal)
+    await second.reviewer.getByTitle('Save visual edit').click()
+    await second.reviewer.getByTitle('Source only').click()
+    await expect(second.reviewer.getByRole('textbox', { name: 'MyST source' }))
+      .toContainText(finalProposal)
+    await expect(second.reviewer.getByRole('textbox', { name: 'MyST source' }))
+      .not.toContainText(revisedProposal)
 
     await page.getByTitle('Open comments').click()
     await expect(page.locator('.comment.suggestion-thread').filter({ hasText: firstProposal }))
-      .toBeVisible()
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: revisedFragment }))
-      .toBeVisible()
+      .toContainText('Earlier revision')
+    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: revisedProposal }))
+      .toContainText('Earlier revision')
+    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: finalProposal }))
+      .toContainText('Suggested edit')
     await page.getByTitle('Close comments').click()
     await page.getByTitle('Visual editor').click()
     const alternatives = page.locator('.myst-suggestion-option')
-    await expect(alternatives).toHaveCount(2)
-    await expect(alternatives.filter({ hasText: firstProposal })).toContainText('First Reviewer')
-    await expect(alternatives.filter({ hasText: revisedProposal })).toContainText('Second Reviewer')
+    await expect(alternatives).toHaveCount(1)
+    await expect(alternatives).toContainText(finalProposal)
+    await expect(alternatives).toContainText('Second Reviewer')
+    await expect(page.locator('.myst-preview')).not.toContainText(firstProposal)
+    await expect(page.locator('.myst-preview')).not.toContainText(revisedProposal)
 
-    await alternatives.filter({ hasText: revisedProposal }).click()
+    await alternatives.click()
     const revisedThread = page.locator('.comment.suggestion-thread').filter({
       has: page.getByText('Second Reviewer', { exact: true }),
-    })
+    }).filter({ hasText: finalProposal })
     await revisedThread.getByRole('button', { name: 'Accept', exact: true }).click()
     await expect(revisedThread).toContainText('Accepted edit')
-    const staleThread = page.locator('.comment.suggestion-thread').filter({
-      has: page.getByText('First Reviewer', { exact: true }),
-    })
-    await expect(staleThread).toContainText('Conflicted edit')
     await page.getByTitle('Visual editor').click()
-    await expect(page.locator('.myst-preview')).toContainText(revisedProposal)
+    await expect(page.locator('.myst-preview')).toContainText(finalProposal)
   } finally {
     await first.context.close()
     await second.context.close()
   }
 })
 
-test('two reviewers can propose concurrent alternatives for the same paragraph', async ({ browser, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'Concurrent same-range proposals run once')
+test('concurrent same-range proposals project one current version', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Concurrent current-version projection runs once')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
@@ -427,14 +434,18 @@ test('two reviewers can propose concurrent alternatives for the same paragraph',
       second.reviewer.getByTitle('Save visual edit').click(),
     ])
     await page.getByTitle('Visual editor').click()
-    await expect(page.locator('.myst-suggestion-option')).toHaveCount(2)
-    await expect(page.locator('.myst-suggestion-option').filter({ hasText: firstText }))
-      .toContainText('Reviewer A')
-    await expect(page.locator('.myst-suggestion-option').filter({ hasText: secondText }))
-      .toContainText('Reviewer B')
+    const currentProposal = page.locator('.myst-suggestion-option')
+    await expect(currentProposal).toHaveCount(1)
+    const currentText = await currentProposal.locator('.myst-suggestion-insertion').innerText()
+    expect([firstText, secondText]).toContain(currentText)
     await page.getByTitle('Source only').click()
     await expect(page.locator('.cm-suggestion-deletion')).toHaveCount(1)
-    await expect(page.locator('.cm-suggestion-proposal')).toHaveCount(2)
+    await expect(page.locator('.cm-suggestion-proposal')).toHaveCount(1)
+    await page.getByTitle('Open comments').click()
+    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: 'Earlier revision' }))
+      .toHaveCount(1)
+    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: 'Suggested edit' }))
+      .toHaveCount(1)
   } finally {
     await first.context.close()
     await second.context.close()

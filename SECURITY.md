@@ -13,7 +13,7 @@ valid new pending suggestions, comments, replies, ordinary comment resolution,
 presence, and synchronization. Existing suggestions and their decisions are
 immutable to that role. Maintainers alone apply accepted edits to canonical
 source and mirror review records to GitHub. Source-mode keystrokes remain in a
-browser-local draft; only an explicit **Propose change** action creates the
+browser-local draft; only an explicit **Propose changes** action creates the
 validated review record sent through Yjs.
 
 ## Reporting
