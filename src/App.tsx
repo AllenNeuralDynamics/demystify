@@ -48,7 +48,6 @@ import './App.css'
 import {
   CollaborativeEditor,
   type CollaborativeEditorHandle,
-  type SourceSuggestionHighlight,
 } from './components/CollaborativeEditor'
 import { CitationPicker, type CitationSelection } from './components/CitationPicker'
 import { GitHubDialog } from './components/GitHubDialog'
@@ -56,15 +55,20 @@ import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
 import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
-import type { MystPreviewSuggestion } from './components/MystPreview'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
-import { useCollaboration, type SharedComment } from './hooks/useCollaboration'
+import {
+  useCollaboration,
+  type PrimaryEditMode,
+  type SharedComment,
+  type SharedCommentMessage,
+} from './hooks/useCollaboration'
 import { useGitHubSession } from './hooks/useGitHubSession'
 import { usePageActivity } from './hooks/usePageActivity'
 import { useRoomAccess } from './hooks/useRoomAccess'
 import { useShareSession } from './hooks/useViewerSession'
 import {
   createSnapshot,
+  decideLiveProposal,
   getRepositoryAssetBaseUrl,
   getRepositoryGitHubUrl,
   loadRepositoryFile,
@@ -78,11 +82,8 @@ import {
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
 import { getMystOutline } from './lib/mystOutline'
-import {
-  getProjectedSuggestionReplacement,
-  mapProjectedRange,
-  projectPendingSuggestions,
-} from './lib/suggestionProjection'
+import { projectPendingSuggestions } from './lib/suggestionProjection'
+import { getLiveProposalChanges } from './lib/liveProposal'
 import {
   detectCitationSyntax,
   formatCitation,
@@ -178,13 +179,15 @@ function App() {
     shareDialogOpen ||
     githubDialogOpen
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null)
-  const [sourceDraftPreview, setSourceDraftPreview] = useState<{
-    filePath: string
-    content: string
+  const [maintainerEditMode, setMaintainerEditMode] = useState<PrimaryEditMode>('editing')
+  const [editingReviewItem, setEditingReviewItem] = useState<{
+    id: string
+    kind: 'comment' | 'reply'
+    body: string
   } | null>(null)
-  const visualSuggestionSupersedesRef = useRef<string[]>([])
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDecidingProposal, setIsDecidingProposal] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
   const [initializeRevision] = useState(shouldInitializeRevision)
   const [revisionInitialContent, setRevisionInitialContent] = useState<string | null>(
@@ -230,25 +233,31 @@ function App() {
     : roomRole
   const isMaintainer = roomRole === 'editor'
   const isViewer = sharedAccessRole === 'viewer'
-  const isSuggestionMode = sharedAccessRole === 'collaborator'
+  const isContributor = sharedAccessRole === 'collaborator'
+  const primaryEditMode: PrimaryEditMode = isContributor || isViewer || maintainerEditMode === 'suggesting'
+    ? 'suggesting'
+    : 'editing'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isSuggestionMode)
+  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isContributor)
   const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
-  const isStructuredEditorReadOnly = isReadOnly || isSuggestionMode
   const roomReviewNumber = roomAccess.review?.number
   const refreshRoom = roomAccess.refresh
   const collaborationProfile = github.session?.user
     ? {
         ...profile,
-        id: `github:${github.session.user.id}`,
+        id: roomAccess.room?.actorId ?? `github:${github.session.user.id}`,
         name: github.session.user.name
           ? `${github.session.user.name} (@${github.session.user.login})`
           : `@${github.session.user.login}`,
       }
-    : profile
+    : {
+        ...profile,
+        id: roomAccess.room?.actorId ?? profile.id,
+      }
+  const ownedActorIds = roomAccess.room?.ownedActorIds ?? [collaborationProfile.id]
   const collaboration = useCollaboration(
     roomName,
     collaborationProfile,
@@ -256,7 +265,11 @@ function App() {
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
     pageActive,
+    primaryEditMode,
   )
+  const isSuggestionMode = primaryEditMode === 'suggesting' ||
+    collaboration.hasPendingWorkingChanges
+  const isStructuredEditorReadOnly = isReadOnly || isSuggestionMode
   const primaryFilePath = repositoryBinding?.path ?? 'manuscript.md'
   const projectFilePaths = useMemo(() => Array.from(new Set([
     primaryFilePath,
@@ -275,16 +288,16 @@ function App() {
   const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
     ?? collaboration.sharedText
   const activeContent = isPrimaryFile
-    ? collaboration.content
+    ? collaboration.workingContent
     : collaboration.projectFiles[activeFilePath] ?? ''
   const activeAssetBaseUrl = repositoryBinding
     ? getRepositoryAssetBaseUrl({ ...repositoryBinding, path: activeFilePath })
     : undefined
   const projectManuscriptContent = useMemo(() => [
-    collaboration.content,
+    collaboration.workingContent,
     ...Object.entries(collaboration.projectFiles).flatMap(([path, fileContent]) =>
       isMystSourcePath(path) ? [fileContent] : []),
-  ].join('\n'), [collaboration.content, collaboration.projectFiles])
+  ].join('\n'), [collaboration.projectFiles, collaboration.workingContent])
   const sharedComments = collaboration.comments
   const initializeBibliography = collaboration.initializeBibliography
   const initializeMystConfig = collaboration.initializeMystConfig
@@ -321,7 +334,7 @@ function App() {
     }) : [],
     [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
   )
-  const primarySuggestionProjection = useMemo(
+  const legacySuggestionProjection = useMemo(
     () => projectPendingSuggestions(
       collaboration.content,
       sharedComments.flatMap((comment) => {
@@ -342,56 +355,44 @@ function App() {
     ),
     [collaboration.content, commentLocations, sharedComments],
   )
-  const activeSuggestionProjection = useMemo(
-    () => isPrimaryFile
-      ? primarySuggestionProjection
-      : projectPendingSuggestions(activeContent, []),
-    [activeContent, isPrimaryFile, primarySuggestionProjection],
-  )
-  const suggestionBaseContent = isSuggestionMode && isActiveMystSource
-    ? activeSuggestionProjection.content
-    : activeContent
-  const activeSourceDraftPreview = isSuggestionMode &&
-    sourceDraftPreview?.filePath === activeFilePath
-    ? sourceDraftPreview.content
-    : null
-  const displayedContent = activeSourceDraftPreview ?? suggestionBaseContent
+  const displayedContent = activeContent
   const activeOutline = useMemo(
     () => isActiveMystSource ? getMystOutline(displayedContent) : [],
     [displayedContent, isActiveMystSource],
   )
-  const currentSuggestionIds = useMemo(
-    () => new Set(primarySuggestionProjection.suggestions.map((suggestion) => suggestion.id)),
-    [primarySuggestionProjection.suggestions],
+  const liveProposalChanges = useMemo(
+    () => getLiveProposalChanges(
+      collaboration.content,
+      collaboration.workingContent,
+    ),
+    [collaboration.content, collaboration.workingContent],
   )
-  const inactiveSuggestionIds = primarySuggestionProjection.hiddenIds
-  const inlineSuggestions = useMemo<MystPreviewSuggestion[]>(
-    () => isPrimaryFile ? primarySuggestionProjection.suggestions.flatMap((suggestion) => {
-      const comment = sharedComments.find((candidate) => candidate.id === suggestion.id)
-      return comment ? [{
-        id: suggestion.id,
-        from: suggestion.from,
-        to: suggestion.to,
-        before: suggestion.before,
-        after: suggestion.after,
-        authorName: comment.authorName,
-        authorColor: comment.authorColor,
-      }] : []
-    }) : [],
-    [isPrimaryFile, primarySuggestionProjection.suggestions, sharedComments],
+  const inactiveSuggestionIds = useMemo(
+    () => collaboration.isWorkingContentInitialized
+      ? new Set(sharedComments.flatMap((comment) =>
+          comment.suggestion?.status === 'pending' ? [comment.id] : [],
+        ))
+      : legacySuggestionProjection.hiddenIds,
+    [
+      collaboration.isWorkingContentInitialized,
+      legacySuggestionProjection.hiddenIds,
+      sharedComments,
+    ],
   )
-  const sourceSuggestions = useMemo<SourceSuggestionHighlight[]>(
-    () => inlineSuggestions.map((suggestion) => ({
-      id: suggestion.id,
-      from: suggestion.from,
-      to: suggestion.to,
-      after: suggestion.after,
-      authorName: suggestion.authorName,
-      authorColor: suggestion.authorColor,
-      active: activeCommentId === suggestion.id,
-    })),
-    [activeCommentId, inlineSuggestions],
-  )
+
+  useEffect(() => {
+    if (
+      !canEditRoom ||
+      !isCollaborationSynced ||
+      collaboration.isWorkingContentInitialized
+    ) return
+    collaboration.initializeWorkingContent(legacySuggestionProjection.content)
+  }, [
+    canEditRoom,
+    collaboration,
+    isCollaborationSynced,
+    legacySuggestionProjection.content,
+  ])
 
   const title = useMemo(
     () => getDocumentTitle(displayedContent),
@@ -690,7 +691,6 @@ function App() {
     if (!reviewNumber || !canMirrorGitHub) return
 
     for (const message of sharedCommentMessages) {
-      if (message.github) continue
       const thread = sharedComments.find((comment) => comment.id === message.threadId)
       if (!thread?.github) continue
       const version = `${reviewNumber}:${thread.github.id}:${message.body}`
@@ -783,6 +783,43 @@ function App() {
     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
   }
 
+  const saveReviewItemEdit = () => {
+    if (!editingReviewItem) return
+    const pendingEdit = editingReviewItem
+    setEditingReviewItem(null)
+    const applied = pendingEdit.kind === 'comment'
+      ? collaboration.editComment(pendingEdit.id, pendingEdit.body)
+      : collaboration.editCommentReply(pendingEdit.id, pendingEdit.body)
+    if (!applied) {
+      showNotice('Only the original author can edit this comment.')
+      return
+    }
+  }
+
+  const beginCommentEdit = (comment: SharedComment) => {
+    if (!ownedActorIds.includes(comment.authorId) || comment.suggestion) return
+    setEditingReviewItem({ id: comment.id, kind: 'comment', body: comment.body })
+  }
+
+  const beginReplyEdit = (message: SharedCommentMessage) => {
+    if (!ownedActorIds.includes(message.authorId)) return
+    setEditingReviewItem({ id: message.id, kind: 'reply', body: message.body })
+  }
+
+  const decideCurrentProposal = async (status: 'accepted' | 'rejected') => {
+    if (!isMaintainer || isDecidingProposal || !collaboration.isSynced) return
+    setIsDecidingProposal(true)
+    try {
+      await decideLiveProposal(roomName, status)
+      setMaintainerEditMode('editing')
+      showNotice(status === 'accepted' ? 'Live proposal accepted' : 'Live proposal discarded')
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : 'Could not decide the live proposal')
+    } finally {
+      setIsDecidingProposal(false)
+    }
+  }
+
   const decideSuggestion = (comment: SharedComment, decision: 'accept' | 'reject') => {
     if (!isMaintainer || !comment.suggestion) return
     if (inactiveSuggestionIds.has(comment.id)) {
@@ -803,19 +840,6 @@ function App() {
         ? 'The source changed around this suggestion. Review the latest text before deciding.'
         : 'This suggestion is no longer available.',
     )
-  }
-
-  const reviseSuggestion = (comment: SharedComment) => {
-    const suggestion = comment.suggestion
-    const projected = primarySuggestionProjection.suggestions.find(
-      (candidate) => candidate.id === comment.id,
-    )
-    if (!isSuggestionMode || !suggestion || !projected) return
-    setView('split')
-    setCommentsOpen(false)
-    window.requestAnimationFrame(() => {
-      editorRef.current?.revealRange(projected.projectedFrom, projected.projectedTo)
-    })
   }
 
   const openCommentThread = (commentId: string) => {
@@ -851,6 +875,11 @@ function App() {
   const saveToGitHub = async () => {
     if (!canManageRepository) {
       showNotice('Maintainer access is required to publish this room to GitHub.')
+      return false
+    }
+    if (collaboration.hasPendingWorkingChanges) {
+      showNotice('Accept or discard the live proposal before submitting accepted MyST to GitHub.')
+      setCommentsOpen(true)
       return false
     }
     if (!github.session?.user || !repositoryBinding) {
@@ -1057,9 +1086,11 @@ function App() {
             <button
               className="button github-button"
               type="button"
-              disabled={isSaving}
+              disabled={isSaving || (!isArchived && collaboration.hasPendingWorkingChanges)}
               title={isArchived
                 ? 'Open pull request'
+                : collaboration.hasPendingWorkingChanges
+                  ? 'Accept or discard the live proposal before saving to GitHub'
                 : repositoryBinding
                   ? 'Save snapshot to GitHub'
                   : 'Connect GitHub repository'}
@@ -1290,8 +1321,8 @@ function App() {
                   {isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
                     : github.session?.user
-                      ? 'Your GitHub identity labels comments and Source or Visual proposals. Canonical MyST changes only when a maintainer accepts one.'
-                      : 'Source and Visual edits become proposals for a maintainer to accept or reject. Connect GitHub to identify your contributions.'}
+                      ? 'Your GitHub identity labels live Source and Visual changes. Everyone sees them immediately; accepted MyST changes only when a maintainer accepts the proposal.'
+                      : 'Source and Visual changes are live for everyone in the room and remain pending until a maintainer accepts them. Connect GitHub for verified attribution.'}
                 </span>
               </div>
               {roomAccess.review && (
@@ -1361,6 +1392,31 @@ function App() {
               </button>
             </div>
 
+            {isMaintainer && isPrimaryFile && (
+              <div className="edit-mode-switcher" role="group" aria-label="Maintainer edit mode">
+                <button
+                  className={!isSuggestionMode ? 'active' : ''}
+                  type="button"
+                  title={collaboration.hasPendingWorkingChanges
+                    ? 'Accept or discard the live proposal before returning to Editing'
+                    : 'Editing changes accepted MyST directly'}
+                  disabled={!collaboration.isSynced || collaboration.hasPendingWorkingChanges}
+                  onClick={() => setMaintainerEditMode('editing')}
+                >
+                  <PencilLine size={15} /><span>Editing</span>
+                </button>
+                <button
+                  className={isSuggestionMode ? 'active' : ''}
+                  type="button"
+                  title="Suggesting changes are visible live and require maintainer acceptance"
+                  disabled={!collaboration.isSynced}
+                  onClick={() => setMaintainerEditMode('suggesting')}
+                >
+                  <MessageSquare size={15} /><span>Suggesting</span>
+                </button>
+              </div>
+            )}
+
             <div className="view-switcher" aria-label="Workspace view">
               <button className={view === 'source' ? 'active' : ''} type="button" title="Source only" onClick={() => setView('source')}>
                 <Code2 size={15} /><span>Source</span>
@@ -1390,7 +1446,15 @@ function App() {
                 )}
               </button>
               <span>{wordCount.toLocaleString()} words</span>
-              <button className="icon-button" type="button" title="Save snapshot to GitHub" disabled={isSaving || !canManageRepository} onClick={() => void saveToGitHub()}>
+              <button
+                className="icon-button"
+                type="button"
+                title={collaboration.hasPendingWorkingChanges
+                  ? 'Accept or discard the live proposal before saving to GitHub'
+                  : 'Save snapshot to GitHub'}
+                disabled={isSaving || !canManageRepository || collaboration.hasPendingWorkingChanges}
+                onClick={() => void saveToGitHub()}
+              >
                 {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
               </button>
             </div>
@@ -1406,44 +1470,9 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openCommentThread}
-                  onProposeSourceEdit={(draft) => {
-                    const projected = getProjectedSuggestionReplacement(
-                      activeSuggestionProjection,
-                      draft,
-                    )
-                    if (!projected || projected === 'conflict') {
-                      return { result: projected === 'conflict' ? 'conflict' : 'unavailable' }
-                    }
-                    const { replacement, supersedes } = projected
-                    const anchor = collaboration.beginTextEdit(
-                      replacement.from,
-                      replacement.to,
-                      replacement.before,
-                      activeFilePath,
-                      primaryFilePath,
-                    )
-                    if (!anchor) return { result: 'conflict' as const }
-                    const proposal = collaboration.createTextSuggestion(
-                      anchor,
-                      replacement.after,
-                      activeFilePath,
-                      primaryFilePath,
-                      supersedes,
-                    )
-                    if (proposal.suggestionId) {
-                      setActiveCommentId(proposal.suggestionId)
-                      setCommentsOpen(true)
-                      showNotice('Source suggestion ready for review')
-                    }
-                    return proposal
-                  }}
-                  onSourceDraftChange={(draft) => setSourceDraftPreview(
-                    draft === null ? null : { filePath: activeFilePath, content: draft },
-                  )}
                   readOnly={isSourceReadOnly}
-                  suggestionBaseContent={suggestionBaseContent}
                   suggestionMode={isSuggestionMode && isActiveMystSource && isPrimaryFile}
-                  suggestionHighlights={isSuggestionMode ? [] : sourceSuggestions}
+                  suggestionHighlights={[]}
                 />
               ) : shareSession.error ? (
                 <div className="pane-loading">{shareSession.error}</div>
@@ -1468,71 +1497,35 @@ function App() {
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
                   content={displayedContent}
+                  liveEditing
                   editable={
                     !isReadOnly &&
                     collaboration.isSynced &&
                     isActiveMystSource &&
-                    (!isSuggestionMode || (isPrimaryFile && activeSourceDraftPreview === null))
+                    (!isSuggestionMode || isPrimaryFile)
                   }
                   projectFiles={collaboration.projectFiles}
                   sourcePath={activeFilePath}
-                  onBeginEdit={(block) => {
-                    visualSuggestionSupersedesRef.current = []
-                    if (!isSuggestionMode) {
-                      return collaboration.beginTextEdit(
-                        block.from,
-                        block.to,
-                        block.value,
-                        activeFilePath,
-                        primaryFilePath,
-                      )
-                    }
-                    const projected = mapProjectedRange(
-                      activeSuggestionProjection,
-                      block.from,
-                      block.to,
-                    )
-                    if (projected === 'conflict') return null
-                    visualSuggestionSupersedesRef.current = projected.supersedes
-                    return collaboration.beginTextEdit(
-                      projected.replacement.from,
-                      projected.replacement.to,
-                      projected.replacement.before,
-                      activeFilePath,
-                      primaryFilePath,
-                    )
-                  }}
-                  onCommitEdit={(anchor, replacement) => {
-                    if (!isSuggestionMode) {
-                      return collaboration.commitTextEdit(
-                        anchor,
-                        replacement,
-                        activeFilePath,
-                        primaryFilePath,
-                      )
-                    }
-                    const proposal = collaboration.createTextSuggestion(
-                      anchor,
-                      replacement,
-                      activeFilePath,
-                      primaryFilePath,
-                      visualSuggestionSupersedesRef.current,
-                    )
-                    visualSuggestionSupersedesRef.current = []
-                    if (proposal.suggestionId) {
-                      setActiveCommentId(proposal.suggestionId)
-                      setCommentsOpen(true)
-                      showNotice('Suggestion ready for review')
-                    }
-                    return proposal.result
-                  }}
+                  onBeginEdit={(block) => collaboration.beginTextEdit(
+                    block.from,
+                    block.to,
+                    block.value,
+                    activeFilePath,
+                    primaryFilePath,
+                  )}
+                  onCommitEdit={(anchor, replacement) => collaboration.commitTextEdit(
+                    anchor,
+                    replacement,
+                    activeFilePath,
+                    primaryFilePath,
+                  )}
                   onEditError={showNotice}
                   onSuggestionClick={openCommentThread}
                   onRequestCitation={(insert) => {
                     setVisualCitationInserter(() => insert)
                     setCitationPickerOpen(true)
                   }}
-                  suggestions={isSuggestionMode ? [] : inlineSuggestions}
+                  suggestions={[]}
                 />
               </Suspense>
             </section>
@@ -1575,10 +1568,90 @@ function App() {
                   </button>
                 </div>
                 <div className="comment-list">
-                  {collaboration.comments.length === 0 ? (
+                  {collaboration.hasPendingWorkingChanges && (
+                    <article className="live-proposal-card">
+                      <div className="live-proposal-heading">
+                        <div>
+                          <strong>Current live proposal</strong>
+                          <span>Visible to everyone in Source and Visual</span>
+                        </div>
+                        <span className="live-proposal-status">pending</span>
+                      </div>
+                      <div className="proposal-contributors" aria-label="Proposal contributors">
+                        {collaboration.proposalContributors.length > 0
+                          ? collaboration.proposalContributors.map((contributor) => (
+                              <span key={contributor.actorId} style={{ borderColor: contributor.color }}>
+                                {contributor.name}
+                              </span>
+                            ))
+                          : <span>Recording contributor...</span>}
+                      </div>
+                      <div className="live-proposal-changes">
+                        {liveProposalChanges.map((change) => (
+                          <div className="live-proposal-change" key={change.id}>
+                            {change.before && (
+                              <div className="suggestion-line removed">
+                                <Minus size={13} aria-hidden="true" />
+                                <del>{change.before}</del>
+                              </div>
+                            )}
+                            {change.after && (
+                              <div className="suggestion-line added">
+                                <Plus size={13} aria-hidden="true" />
+                                <ins>{change.after}</ins>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {isMaintainer ? (
+                        <div className="live-proposal-actions">
+                          <button
+                            type="button"
+                            disabled={
+                              isDecidingProposal ||
+                              !collaboration.isSynced ||
+                              collaboration.proposalContributors.length === 0
+                            }
+                            onClick={() => void decideCurrentProposal('rejected')}
+                          >
+                            <X size={13} /> Reject
+                          </button>
+                          <button
+                            className="accept"
+                            type="button"
+                            disabled={
+                              isDecidingProposal ||
+                              !collaboration.isSynced ||
+                              collaboration.proposalContributors.length === 0
+                            }
+                            onClick={() => void decideCurrentProposal('accepted')}
+                          >
+                            <Check size={13} /> Accept
+                          </button>
+                        </div>
+                      ) : (
+                        <small>A maintainer must accept or reject this proposal.</small>
+                      )}
+                    </article>
+                  )}
+                  {collaboration.proposalHistory.slice(0, 10).map((checkpoint) => (
+                    <details className="proposal-checkpoint" key={checkpoint.id}>
+                      <summary>
+                        <span>{checkpoint.status === 'accepted' ? 'Accepted' : 'Rejected'} proposal</span>
+                        <time dateTime={checkpoint.decidedAt}>{formatRelativeTime(checkpoint.decidedAt)}</time>
+                      </summary>
+                      <p>
+                        {checkpoint.contributors.map((contributor) => contributor.name).join(', ') || 'Unattributed migration'}
+                        {' | '}{checkpoint.status} by {checkpoint.decidedByName}
+                        {checkpoint.commitSha && ` | Git ${checkpoint.commitSha.slice(0, 7)}`}
+                      </p>
+                    </details>
+                  ))}
+                  {collaboration.comments.length === 0 && !collaboration.hasPendingWorkingChanges ? (
                     <div className="comments-empty">
                       <MessageSquare size={20} />
-                      <span>No comments or suggestions yet</span>
+                      <span>No comments yet</span>
                     </div>
                   ) : collaboration.comments.map((comment) => {
                     const location = commentLocations.get(comment.id)
@@ -1648,7 +1721,33 @@ function App() {
                           )}
                         </div>
                       ) : (
-                        <p>{comment.body}</p>
+                        editingReviewItem?.kind === 'comment' && editingReviewItem.id === comment.id ? (
+                          <div className="comment-edit-composer">
+                            <textarea
+                              aria-label={`Edit comment by ${comment.authorName}`}
+                              value={editingReviewItem.body}
+                              onChange={(event) => setEditingReviewItem({
+                                ...editingReviewItem,
+                                body: event.target.value,
+                              })}
+                              onKeyDown={(event) => {
+                                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                                  event.preventDefault()
+                                  saveReviewItemEdit()
+                                }
+                              }}
+                            />
+                            <div>
+                              <button type="button" onClick={() => setEditingReviewItem(null)}>Cancel</button>
+                              <button type="button" disabled={!editingReviewItem.body.trim()} onClick={saveReviewItemEdit}>Save</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p>
+                            {comment.body}
+                            {comment.editedAt && <small className="edited-label"> edited</small>}
+                          </p>
+                        )
                       )}
                       {replies.length > 0 && (
                         <div className="comment-replies">
@@ -1660,8 +1759,44 @@ function App() {
                                 </span>
                                 <strong>{message.authorName}</strong>
                                 <time dateTime={message.createdAt}>{formatRelativeTime(message.createdAt)}</time>
+                                {ownedActorIds.includes(message.authorId) && (
+                                  <button
+                                    className="comment-inline-edit"
+                                    type="button"
+                                    title="Edit your reply"
+                                    onClick={() => beginReplyEdit(message)}
+                                  >
+                                    <PencilLine size={12} />
+                                  </button>
+                                )}
                               </div>
-                              <p>{message.body}</p>
+                              {editingReviewItem?.kind === 'reply' && editingReviewItem.id === message.id ? (
+                                <div className="comment-edit-composer">
+                                  <textarea
+                                    aria-label={`Edit reply by ${message.authorName}`}
+                                    value={editingReviewItem.body}
+                                    onChange={(event) => setEditingReviewItem({
+                                      ...editingReviewItem,
+                                      body: event.target.value,
+                                    })}
+                                    onKeyDown={(event) => {
+                                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                                        event.preventDefault()
+                                        saveReviewItemEdit()
+                                      }
+                                    }}
+                                  />
+                                  <div>
+                                    <button type="button" onClick={() => setEditingReviewItem(null)}>Cancel</button>
+                                    <button type="button" disabled={!editingReviewItem.body.trim()} onClick={saveReviewItemEdit}>Save</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p>
+                                  {message.body}
+                                  {message.editedAt && <small className="edited-label"> edited</small>}
+                                </p>
+                              )}
                               {message.github && (
                                 <a href={message.github.htmlUrl} target="_blank" rel="noreferrer">
                                   <ExternalLink size={12} /> GitHub reply
@@ -1717,13 +1852,7 @@ function App() {
                       </div>
                       <div className="comment-actions">
                         {comment.suggestion ? (
-                          isSuggestionMode &&
-                          comment.suggestion.status === 'pending' &&
-                          currentSuggestionIds.has(comment.id) ? (
-                            <button type="button" onClick={() => reviseSuggestion(comment)}>
-                              <PencilLine size={13} /> Revise
-                            </button>
-                          ) : isMaintainer && (
+                          isMaintainer && (
                             comment.suggestion.status === 'pending' ||
                             comment.suggestion.status === 'conflicted'
                           ) && !isEarlierRevision ? (
@@ -1738,9 +1867,16 @@ function App() {
                             </div>
                           ) : null
                         ) : (
-                          <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
-                            <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
-                          </button>
+                          <>
+                            {ownedActorIds.includes(comment.authorId) && (
+                              <button type="button" disabled={isReadOnly} onClick={() => beginCommentEdit(comment)}>
+                                <PencilLine size={13} /> Edit
+                              </button>
+                            )}
+                            <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
+                              <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
+                            </button>
+                          </>
                         )}
                         <div className="comment-github-state">
                           {comment.github && (

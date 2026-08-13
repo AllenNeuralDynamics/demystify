@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { Awareness } from 'y-protocols/awareness'
-import { act } from 'react'
+import { act, createRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
-import { CollaborativeEditor } from './CollaborativeEditor'
+import {
+  CollaborativeEditor,
+  type CollaborativeEditorHandle,
+} from './CollaborativeEditor'
 
 const reactTestGlobal = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT: boolean
@@ -86,7 +89,7 @@ describe('CollaborativeEditor', () => {
     container.remove()
   })
 
-  it('submits a local source draft without mutating canonical Y.Text', async () => {
+  it('shares Source edits immediately while accepted Y.Text remains unchanged', async () => {
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList
     Range.prototype.getBoundingClientRect = () => ({
       bottom: 0,
@@ -101,17 +104,14 @@ describe('CollaborativeEditor', () => {
     })
     const source = '# Draft\n\nOriginal claim.'
     const currentProposal = '# Draft\n\nCurrent proposed claim.'
-    const revisedProposal = '# Draft\n\nRevised current claim.'
     const yDocument = new Y.Doc()
-    const sharedText = yDocument.getText('content')
-    sharedText.insert(0, source)
+    const acceptedText = yDocument.getText('content')
+    acceptedText.insert(0, source)
+    const sharedText = yDocument.getText('workingContent')
+    sharedText.insert(0, currentProposal)
     const awareness = new Awareness(yDocument)
     const provider = { awareness } as unknown as WebsocketProvider
-    const onProposeSourceEdit = vi.fn(() => ({
-      result: 'applied' as const,
-      suggestionId: 'source-suggestion',
-    }))
-    const onSourceDraftChange = vi.fn()
+    const editorRef = createRef<CollaborativeEditorHandle>()
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -119,12 +119,10 @@ describe('CollaborativeEditor', () => {
     await act(async () => {
       root.render(
         <CollaborativeEditor
+          ref={editorRef}
           sharedText={sharedText}
           provider={provider}
           suggestionMode
-          suggestionBaseContent={currentProposal}
-          onProposeSourceEdit={onProposeSourceEdit}
-          onSourceDraftChange={onSourceDraftChange}
         />,
       )
     })
@@ -132,37 +130,19 @@ describe('CollaborativeEditor', () => {
     const editor = container.querySelector<HTMLElement>('.cm-content')
     expect(editor?.textContent).toContain('Current proposed claim.')
     expect(editor?.textContent).not.toContain('Original claim.')
-    await act(async () => {
-      if (!editor) return
-      editor.textContent = revisedProposal
-      editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
-    })
-    expect(sharedText.toString()).toBe(source)
-    expect(container.textContent).toContain('Drafting a source proposal')
+    await act(async () => editorRef.current?.insertText('Live '))
+    expect(sharedText.toString()).toBe(`Live ${currentProposal}`)
+    expect(acceptedText.toString()).toBe(source)
+    expect(container.textContent).toContain('Suggesting live')
+    expect(container.textContent).not.toContain('Propose changes')
 
+    const sharedFollowUp = '\nRemote follow-up claim.'
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('.source-suggestion-draft-actions .primary')
-        ?.click()
-    })
-    expect(onProposeSourceEdit).toHaveBeenCalledWith(revisedProposal)
-    expect(sharedText.toString()).toBe(source)
-
-    const sharedFollowUp = '# Draft\n\nShared follow-up claim.'
-    await act(async () => {
-      root.render(
-        <CollaborativeEditor
-          sharedText={sharedText}
-          provider={provider}
-          suggestionMode
-          suggestionBaseContent={sharedFollowUp}
-          onProposeSourceEdit={onProposeSourceEdit}
-          onSourceDraftChange={onSourceDraftChange}
-        />,
-      )
+      sharedText.insert(sharedText.length, sharedFollowUp)
     })
     expect(container.querySelector<HTMLElement>('.cm-content')?.textContent)
-      .toContain('Shared follow-up claim.')
-    expect(sharedText.toString()).toBe(source)
+      .toContain('Remote follow-up claim.')
+    expect(acceptedText.toString()).toBe(source)
 
     await act(async () => root.unmount())
     awareness.destroy()

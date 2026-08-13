@@ -102,6 +102,17 @@ export interface RoomStoreLike {
 
 export interface RoomLifecycleOptions {
   onReadOnlyChange?: (roomName: string, readOnly: boolean) => void
+  hasPendingWorkingChanges?: (roomName: string) => Promise<boolean>
+  decideLiveProposal?: (
+    roomName: string,
+    status: 'accepted' | 'rejected',
+    actor: { id: string; name: string },
+  ) => Promise<{ id: string; status: 'accepted' | 'rejected' } | null>
+  markProposalCheckpointsSubmitted?: (
+    roomName: string,
+    commitSha: string,
+  ) => Promise<void>
+  getUnsubmittedProposalContributorNames?: (roomName: string) => Promise<string[]>
   onShareAccessRevoked?: (
     roomName: string,
     role: 'viewer' | 'collaborator',
@@ -113,6 +124,9 @@ export type RoomAccessRole = 'editor' | 'viewer' | 'collaborator'
 export interface AuthorizedRoomAccess {
   room: RoomRecord
   role: RoomAccessRole
+  actorId: string
+  actorName: string
+  ownedActorIds: string[]
   shareExpiresAt?: string | null
 }
 
@@ -176,14 +190,21 @@ const getShareGrant = (request: Request, room: RoomRecord) => {
   ) {
     return null
   }
-  return { ...grant, role }
+  return {
+    ...grant,
+    role,
+    actorId: grant.actorId ?? `share:${grant.shareId}`,
+    actorName: grant.actorName ?? (role === 'collaborator' ? 'Guest contributor' : 'Guest viewer'),
+  }
 }
 
-export const toClientRoom = ({ room, role }: AuthorizedRoomAccess) => {
+export const toClientRoom = ({ room, role, actorId, ownedActorIds }: AuthorizedRoomAccess) => {
   const { viewerShare, collaboratorShare, ...publicRoom } = room
   return {
     ...publicRoom,
     access: role,
+    actorId,
+    ownedActorIds,
     viewerLink: role === 'editor' && viewerShare
       ? {
           createdAt: viewerShare.createdAt,
@@ -898,6 +919,15 @@ export const authorizeRoomAccess = async (
     return {
       room,
       role: 'viewer',
+      actorId: request.session.github?.user
+        ? `github:${request.session.github.user.id}`
+        : shareGrant.actorId,
+      actorName: request.session.github?.user
+        ? request.session.github.user.name ?? `@${request.session.github.user.login}`
+        : shareGrant.actorName,
+      ownedActorIds: request.session.github?.user
+        ? [`github:${request.session.github.user.id}`, shareGrant.actorId]
+        : [shareGrant.actorId],
       shareExpiresAt: shareGrant.expiresAt,
     }
   }
@@ -907,6 +937,12 @@ export const authorizeRoomAccess = async (
       return {
         room: await authorizeEditorRoom(request, roomStore, room, options),
         role: 'editor',
+        actorId: `github:${request.session.github.user.id}`,
+        actorName: request.session.github.user.name ?? `@${request.session.github.user.login}`,
+        ownedActorIds: [
+          `github:${request.session.github.user.id}`,
+          ...(shareGrant ? [shareGrant.actorId] : []),
+        ],
       }
     } catch (error) {
       if (
@@ -926,6 +962,15 @@ export const authorizeRoomAccess = async (
   return {
     room,
     role: shareGrant.role,
+    actorId: request.session.github?.user
+      ? `github:${request.session.github.user.id}`
+      : shareGrant.actorId,
+    actorName: request.session.github?.user
+      ? request.session.github.user.name ?? `@${request.session.github.user.login}`
+      : shareGrant.actorName,
+    ownedActorIds: request.session.github?.user
+      ? [`github:${request.session.github.user.id}`, shareGrant.actorId]
+      : [shareGrant.actorId],
     shareExpiresAt: shareGrant.expiresAt,
   }
 }
@@ -974,10 +1019,19 @@ export const createRoomRouter = (
       throw new ApiError(403, 'This sharing link is invalid or expired.')
     }
     request.session.viewerRooms ??= {}
+    const currentGrant = request.session.viewerRooms[roomName]
+    const requestedActorName = typeof request.body?.actorName === 'string'
+      ? request.body.actorName.trim().slice(0, 200)
+      : ''
     request.session.viewerRooms[roomName] = {
       shareId: share.id,
       expiresAt: share.expiresAt,
       role,
+      actorId: currentGrant?.shareId === share.id && currentGrant.actorId
+        ? currentGrant.actorId
+        : `share:${randomUUID()}`,
+      actorName: requestedActorName || currentGrant?.actorName ||
+        (role === 'collaborator' ? 'Guest contributor' : 'Guest viewer'),
     }
     await saveSession(request)
     response.status(204).end()
@@ -1008,7 +1062,13 @@ export const createRoomRouter = (
       await authorizeRoomRequest(request, roomStore, roomName, options)
     }
     options.onReadOnlyChange?.(roomName, false)
-    response.status(201).json(toClientRoom({ room: claimed, role: 'editor' }))
+    response.status(201).json(toClientRoom({
+      room: claimed,
+      role: 'editor',
+      actorId: `github:${user.id}`,
+      actorName: request.session.github?.user?.name ?? `@${user.login}`,
+      ownedActorIds: [`github:${user.id}`],
+    }))
   })
 
   router.put('/rooms/:roomName/binding', async (request, response) => {
@@ -1038,6 +1098,9 @@ export const createRoomRouter = (
     response.json(toClientRoom({
       room: await roomStore.setBinding(roomName, user, binding),
       role: 'editor',
+      actorId: `github:${user.id}`,
+      actorName: request.session.github?.user?.name ?? `@${user.login}`,
+      ownedActorIds: [`github:${user.id}`],
     }))
   })
 
@@ -1067,7 +1130,13 @@ export const createRoomRouter = (
         ? await roomStore.setViewerShare(roomName, user, share)
         : await roomStore.setCollaboratorShare(roomName, user, share)
       options.onShareAccessRevoked?.(roomName, role)
-      const clientRoom = toClientRoom({ room: updated, role: 'editor' })
+      const clientRoom = toClientRoom({
+        room: updated,
+        role: 'editor',
+        actorId: `github:${user.id}`,
+        actorName: request.session.github?.user?.name ?? `@${user.login}`,
+        ownedActorIds: [`github:${user.id}`],
+      })
       const link = role === 'viewer' ? clientRoom.viewerLink : clientRoom.collaboratorLink
       response.status(201).json({
         token,
@@ -1107,11 +1176,39 @@ export const createRoomRouter = (
     response.json({ results: await searchCrossrefWorks(query) })
   })
 
+  router.post('/rooms/:roomName/proposal-decision', async (request, response) => {
+    const roomName = readRoomNameParameter(request)
+    requireWritableRoom(await authorizeRoomRequest(request, roomStore, roomName, options))
+    const status = request.body.status
+    if (status !== 'accepted' && status !== 'rejected') {
+      throw new ApiError(400, 'status must be accepted or rejected.')
+    }
+    if (!options.decideLiveProposal) {
+      throw new ApiError(503, 'Live proposal decisions are unavailable.')
+    }
+    const sessionUser = request.session.github?.user
+    const user = requireUser(request)
+    const checkpoint = await options.decideLiveProposal(roomName, status, {
+      id: `github:${user.id}`,
+      name: sessionUser?.name ?? `@${user.login}`,
+    })
+    if (!checkpoint) {
+      throw new ApiError(409, 'The live proposal is already synchronized with accepted MyST.')
+    }
+    response.json(checkpoint)
+  })
+
   router.post('/rooms/:roomName/snapshots', async (request, response) => {
     const roomName = validateRoomName(request.params.roomName)
     const room = requireWritableRoom(
       await authorizeRoomRequest(request, roomStore, roomName, options),
     )
+    if (await options.hasPendingWorkingChanges?.(roomName)) {
+      throw new ApiError(
+        409,
+        'Accept or reject the live proposal before saving accepted MyST to GitHub.',
+      )
+    }
     const binding = requireBinding(room)
     const content = readText(request.body.content, 'content')
     const bibliography = request.body.bibliography == null
@@ -1167,10 +1264,14 @@ export const createRoomRouter = (
         : (() => {
             throw new ApiError(400, 'projectFiles must contain at most 50 files.')
           })()
-    const commitMessage =
+    const requestedCommitMessage =
       typeof request.body.commitMessage === 'string'
         ? request.body.commitMessage
         : undefined
+    const contributorNames = await options.getUnsubmittedProposalContributorNames?.(roomName)
+    const commitMessage = contributorNames?.length
+      ? `Update ${binding.path} after live review by ${contributorNames.join(', ')}`
+      : requestedCommitMessage
 
     const filesByPath = new Map<string, string>([[binding.path, content]])
     if (bibliography !== undefined) {
@@ -1185,6 +1286,7 @@ export const createRoomRouter = (
     const snapshot = files.length === 1
       ? await createRepositorySnapshot(request, binding, content, commitMessage)
       : await createRepositoryFilesSnapshot(request, binding, files, commitMessage)
+    await options.markProposalCheckpointsSubmitted?.(roomName, snapshot.commitSha)
     let review = room.review
     if (!binding.isFork) {
       const existingPullRequest =
@@ -1459,7 +1561,13 @@ export const createRoomRouter = (
     const binding = requireBinding(room)
     const boundRoom = await roomStore.createRevision(roomName, user, binding)
     options.onReadOnlyChange?.(boundRoom.roomName, false)
-    response.status(201).json(toClientRoom({ room: boundRoom, role: 'editor' }))
+    response.status(201).json(toClientRoom({
+      room: boundRoom,
+      role: 'editor',
+      actorId: `github:${user.id}`,
+      actorName: request.session.github?.user?.name ?? `@${user.login}`,
+      ownedActorIds: [`github:${user.id}`],
+    }))
   })
 
   return router

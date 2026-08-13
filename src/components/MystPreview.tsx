@@ -32,6 +32,7 @@ interface MystPreviewProps {
   bibliography?: string
   content: string
   editable?: boolean
+  liveEditing?: boolean
   projectFiles?: Record<string, string>
   sourcePath?: string
   onBeginEdit?: (block: MystEditableBlock) => CollaborativeTextEditAnchor | null
@@ -69,6 +70,7 @@ export const MystPreview = memo(({
   bibliography = '',
   content,
   editable = false,
+  liveEditing = false,
   projectFiles,
   sourcePath,
   onBeginEdit,
@@ -319,11 +321,51 @@ export const MystPreview = memo(({
 
   const cancelEditing = () => setActiveEdit(null)
 
+  const normalizeVisualDraft = (draft: string) => activeEdit?.block.kind === 'heading'
+    ? draft.trim()
+    : draft
+
+  const applyLiveEditing = (draft: string) => {
+    if (!activeEdit || !onCommitEdit || !onBeginEdit) return
+    const replacement = normalizeVisualDraft(draft)
+    if (activeEdit.block.kind === 'heading' && !replacement) {
+      setActiveEdit((current) => current
+        ? { ...current, error: 'A heading cannot be empty.' }
+        : current)
+      return
+    }
+    const result = onCommitEdit(activeEdit.anchor, replacement)
+    if (result !== 'applied') {
+      setActiveEdit((current) => current
+        ? {
+            ...current,
+            error: result === 'conflict'
+              ? 'This block changed elsewhere. Close and reopen it before editing.'
+              : 'Visual editing is no longer available for this document.',
+          }
+        : current)
+      return
+    }
+    const nextBlock = {
+      ...activeEdit.block,
+      to: activeEdit.block.from + replacement.length,
+      value: replacement,
+    }
+    const nextAnchor = onBeginEdit(nextBlock)
+    setActiveEdit((current) => current
+      ? nextAnchor
+        ? { ...current, anchor: nextAnchor, block: nextBlock, error: null }
+        : { ...current, block: nextBlock, error: 'The live block could not be re-anchored.' }
+      : current)
+  }
+
   const commitEditing = (draft: string) => {
     if (!activeEdit || !onCommitEdit) return
-    const replacement = activeEdit.block.kind === 'heading'
-      ? draft.trim()
-      : draft
+    if (liveEditing) {
+      setActiveEdit(null)
+      return
+    }
+    const replacement = normalizeVisualDraft(draft)
     if (activeEdit.block.kind === 'heading' && !replacement) {
       setActiveEdit((current) => current
         ? { ...current, error: 'A heading cannot be empty.' }
@@ -371,6 +413,7 @@ export const MystPreview = memo(({
           citationSyntax={detectCitationSyntax(activeEdit.block.value, citationSyntax)}
           error={activeEdit.error}
           onCancel={cancelEditing}
+          onChange={liveEditing ? applyLiveEditing : undefined}
           onRequestCitation={(insert) => onRequestCitation?.(insert)}
           onSave={commitEditing}
         />,

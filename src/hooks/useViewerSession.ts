@@ -3,6 +3,7 @@ import {
   activateShareSession,
   type AnonymousShareRole,
 } from '../lib/github'
+import { loadProfile } from '../lib/profile'
 
 const readShareToken = (): { token: string; role: AnonymousShareRole } | null => {
   const parameters = new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -30,7 +31,7 @@ export const useShareSession = (roomName: string) => {
     if (!shareToken) return
     let active = true
     removeShareToken()
-    activateShareSession(roomName, shareToken.token, shareToken.role)
+    activateShareSession(roomName, shareToken.token, shareToken.role, loadProfile().name)
       .then(() => {
         if (!active) return
         setError(null)

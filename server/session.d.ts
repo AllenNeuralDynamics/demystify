@@ -23,6 +23,8 @@ declare module 'express-session' {
       shareId: string
       expiresAt: string | null
       role?: 'viewer' | 'collaborator'
+      actorId?: string
+      actorName?: string
     }>
   }
 }

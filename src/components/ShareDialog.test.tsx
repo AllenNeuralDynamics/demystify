@@ -18,6 +18,8 @@ const room: CollaborationRoom = {
   review: null,
   nextRoomName: null,
   access: 'editor',
+  actorId: 'github:42',
+  ownedActorIds: ['github:42'],
   viewerLink: null,
   collaboratorLink: null,
   createdAt: '2026-08-09T00:00:00.000Z',
@@ -47,9 +49,9 @@ describe('ShareDialog', () => {
       .map((element) => element.textContent)
     expect(roleNames).toEqual(['Maintainer', 'Suggestion mode', 'Viewer'])
     expect(container.textContent).toContain('The link grants no authority by itself')
-    expect(container.textContent).toContain('edit one current proposal in Source or Visual')
-    expect(container.textContent).toContain('Earlier revisions stay in Review')
-    expect(container.textContent).toContain('canonical source changes only when a maintainer accepts')
+    expect(container.textContent).toContain('coedit one live working manuscript in Source or Visual')
+    expect(container.textContent).toContain('only when a maintainer accepts the checkpoint')
+    expect(container.textContent).toContain('only maintainers submit to GitHub')
     expect(container.textContent).toContain('Editing and publishing are disabled')
     expect(container.querySelector('[aria-label="Maintainer link"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="Suggestion link expiration"]')).not.toBeNull()
