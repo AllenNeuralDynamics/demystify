@@ -149,4 +149,67 @@ describe('CollaborativeEditor', () => {
     yDocument.destroy()
     container.remove()
   })
+
+  it('renders a live replacement inline without duplicating working text', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => ({
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    const working = 'alpha INSERT omega'
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('workingContent')
+    sharedText.insert(0, working)
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const onCommentClick = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <CollaborativeEditor
+          sharedText={sharedText}
+          provider={provider}
+          onCommentClick={onCommentClick}
+          suggestionHighlights={[{
+            id: 'live-inline-6-11',
+            from: 6,
+            to: 12,
+            before: 'gamma',
+            after: 'INSERT',
+            authorName: 'Ada Reviewer',
+            authorColor: '#a64b36',
+            active: true,
+            projection: 'working',
+          }]}
+        />,
+      )
+    })
+
+    expect(container.querySelector('.cm-suggestion-deleted-source')?.textContent)
+      .toBe('gamma')
+    expect(container.querySelector('.cm-suggestion-insertion')?.textContent)
+      .toBe('INSERT')
+    expect(container.textContent?.match(/INSERT/g)).toHaveLength(1)
+    expect(sharedText.toString()).toBe(working)
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('.cm-suggestion-insertion')?.click()
+    })
+    expect(onCommentClick).toHaveBeenCalledWith('live-inline-6-11')
+
+    await act(async () => root.unmount())
+    awareness.destroy()
+    yDocument.destroy()
+    container.remove()
+  })
 })

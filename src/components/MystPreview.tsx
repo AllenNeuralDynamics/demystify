@@ -54,6 +54,8 @@ export interface MystPreviewSuggestion {
   after: string
   authorName: string
   authorColor: string
+  active?: boolean
+  projection?: 'accepted' | 'working'
 }
 
 interface ActiveVisualEdit {
@@ -124,6 +126,24 @@ export const MystPreview = memo(({
       }>
     }>()
     for (const suggestion of suggestions) {
+      if (suggestion.projection === 'working') {
+        const block = preview.editableBlocks.find((candidate) =>
+          candidate.from <= suggestion.from &&
+          candidate.to >= suggestion.to &&
+          candidate.value.slice(
+            suggestion.from - candidate.from,
+            suggestion.to - candidate.from,
+          ) === suggestion.after)
+        if (!block) continue
+        const group = suggestionsByBlock.get(block.id) ?? { block, suggestions: [] }
+        group.suggestions.push({
+          ...suggestion,
+          renderedAfter: block.value,
+          renderBeforeBlock: false,
+        })
+        suggestionsByBlock.set(block.id, group)
+        continue
+      }
       const matchingBlock = preview.editableBlocks.find((candidate) =>
         candidate.from <= suggestion.from &&
         candidate.to >= suggestion.to &&
@@ -177,6 +197,71 @@ export const MystPreview = memo(({
       deletion.dataset.mystSuggestionId = blockSuggestions[0].id
       deletion.tabIndex = 0
       deletion.setAttribute('role', 'button')
+      const workingProjection = blockSuggestions.every(
+        (suggestion) => suggestion.projection === 'working',
+      )
+      if (workingProjection) {
+        const active = blockSuggestions.some((suggestion) => suggestion.active)
+        if (active) deletion.classList.add('is-active')
+        const acceptedBlock = [...blockSuggestions]
+          .sort((first, second) => second.from - first.from)
+          .reduce((value, suggestion) => {
+            const relativeFrom = suggestion.from - block.from
+            const relativeTo = suggestion.to - block.from
+            return `${value.slice(0, relativeFrom)}${suggestion.before}${value.slice(relativeTo)}`
+          }, block.value)
+        const acceptedPreview = renderMyst(acceptedBlock, {
+          assetBaseUrl,
+          bibliography,
+          projectFiles,
+          sourcePath,
+        })
+        const acceptedTemplate = document.createElement('template')
+        acceptedTemplate.innerHTML = acceptedPreview.html
+        const acceptedElement = acceptedTemplate.content.querySelector<HTMLElement>(
+          '[data-myst-edit-id]',
+        )
+        if (acceptedElement) deletion.append(...Array.from(acceptedElement.childNodes))
+        else deletion.textContent = acceptedBlock
+
+        const primarySuggestion = blockSuggestions[0]
+        const option = document.createElement('span')
+        option.className = [
+          'myst-suggestion-option',
+          active ? 'is-active' : '',
+        ].filter(Boolean).join(' ')
+        option.dataset.mystSuggestionId = primarySuggestion.id
+        option.style.setProperty('--myst-suggestion-color', primarySuggestion.authorColor)
+        option.tabIndex = 0
+        option.setAttribute('role', 'button')
+        option.title = 'Open this live proposal change in Review'
+        option.setAttribute(
+          'aria-label',
+          'Current proposed block. Press Enter to open this change in Review.',
+        )
+
+        const insertion = document.createElement('ins')
+        insertion.className = 'myst-suggestion-insertion'
+        insertion.append(...originalNodes)
+        const author = document.createElement('span')
+        author.className = 'myst-suggestion-author'
+        author.textContent = Array.from(new Set(
+          blockSuggestions.map((suggestion) => suggestion.authorName),
+        )).join(', ')
+        option.append(insertion, author)
+
+        target.replaceChildren(
+          ...(captionNumber ? [captionNumber, captionGap ?? document.createTextNode(' ')] : []),
+          deletion,
+          document.createTextNode(' '),
+          option,
+        )
+        target.classList.add('myst-inline-suggestion')
+        if (active) target.classList.add('is-active')
+        target.style.setProperty('--myst-suggestion-color', primarySuggestion.authorColor)
+        target.title = 'Select this proposed block to review its changes; press F2 to edit it.'
+        continue
+      }
       originalNodes.forEach((node) => deletion.append(node))
       const insertionGroup = blockSuggestions.every((suggestion) => !suggestion.before)
 

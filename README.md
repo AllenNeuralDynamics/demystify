@@ -117,10 +117,14 @@ and working `Y.Text` roots. Source binds directly to the working root; supported
 Visual headings, prose, and captions stream each safe ProseMirror transaction to
 that same text. All connected reviewers therefore edit one convergent manuscript
 without a submit button. Review derives readable before/after hunks from accepted
-and working source and shows the server-stamped contributor set. A maintainer may
-edit the same working text in **Suggesting**, then accept or reject it as an
-immutable checkpoint. Direct **Editing** updates accepted source and is unavailable
-while a proposal is pending.
+and working source and shows the server-stamped contributor set. Source keeps the
+working text editable while projecting accepted deletions as struck-through
+widgets and marking proposed insertions in place. Supported Visual blocks show
+one accepted and one proposed rendering; changes that cross MyST block boundaries
+remain explicit in Source and Review. A maintainer may edit the same working text
+in **Suggesting**, then accept or reject the entire proposal as an immutable
+checkpoint. Direct **Editing** updates accepted source and is unavailable while a
+proposal is pending.
 References, metadata, YAML project files, publishing, and maintainer decisions
 remain read-only for that role. The WebSocket gateway validates incoming
 Suggestion updates against a shadow Yjs document, permits only the working text

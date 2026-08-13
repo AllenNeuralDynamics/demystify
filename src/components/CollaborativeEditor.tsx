@@ -32,10 +32,12 @@ export interface SourceSuggestionHighlight {
   id: string
   from: number
   to: number
+  before?: string
   after: string
   authorName: string
   authorColor: string
   active: boolean
+  projection?: 'accepted' | 'working'
 }
 
 interface CollaborativeEditorProps {
@@ -123,6 +125,51 @@ class SuggestionWidget extends WidgetType {
   }
 }
 
+class WorkingDeletionWidget extends WidgetType {
+  private readonly suggestion: SourceSuggestionHighlight
+
+  constructor(suggestion: SourceSuggestionHighlight) {
+    super()
+    this.suggestion = suggestion
+  }
+
+  eq(other: WorkingDeletionWidget) {
+    return JSON.stringify(this.suggestion) === JSON.stringify(other.suggestion)
+  }
+
+  toDOM() {
+    const wrapper = document.createElement('span')
+    wrapper.className = [
+      'cm-suggestion-deletion-widget',
+      this.suggestion.active ? 'is-active' : '',
+    ].filter(Boolean).join(' ')
+    wrapper.dataset.commentId = this.suggestion.id
+    wrapper.tabIndex = 0
+    wrapper.setAttribute('role', 'button')
+    wrapper.setAttribute(
+      'aria-label',
+      `Suggested deletion by ${this.suggestion.authorName}. Press Enter to open review.`,
+    )
+    wrapper.title = `Suggested deletion by ${this.suggestion.authorName}; open review`
+    wrapper.style.setProperty('--cm-suggestion-color', this.suggestion.authorColor)
+
+    const prefix = document.createElement('span')
+    prefix.className = 'cm-suggestion-prefix'
+    prefix.textContent = '-'
+    prefix.setAttribute('aria-hidden', 'true')
+
+    const source = document.createElement('del')
+    source.className = 'cm-suggestion-deleted-source'
+    source.textContent = this.suggestion.before ?? ''
+    wrapper.append(prefix, source)
+    return wrapper
+  }
+
+  ignoreEvent() {
+    return false
+  }
+}
+
 const commentHighlightField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update: (decorations, transaction) => {
@@ -139,12 +186,14 @@ const commentHighlightField = StateField.define<DecorationSet>({
           attributes: { 'data-comment-id': highlight.id },
         }).range(highlight.from, highlight.to))
       const suggestionGroups = new Map<string, SourceSuggestionHighlight[]>()
-      effect.value.suggestions.forEach((suggestion) => {
-        const key = `${suggestion.from}:${suggestion.to}`
-        const group = suggestionGroups.get(key) ?? []
-        group.push(suggestion)
-        suggestionGroups.set(key, group)
-      })
+      effect.value.suggestions
+        .filter((suggestion) => suggestion.projection !== 'working')
+        .forEach((suggestion) => {
+          const key = `${suggestion.from}:${suggestion.to}`
+          const group = suggestionGroups.get(key) ?? []
+          group.push(suggestion)
+          suggestionGroups.set(key, group)
+        })
       const suggestionDecorations = Array.from(suggestionGroups.values())
         .flatMap((suggestions) => {
           const first = suggestions[0]
@@ -168,8 +217,42 @@ const commentHighlightField = StateField.define<DecorationSet>({
             }).range(suggestion.to))
           return [...deletion, ...proposals]
         })
+      const workingSuggestionDecorations = effect.value.suggestions
+        .filter((suggestion) =>
+          suggestion.projection === 'working' &&
+          suggestion.from >= 0 &&
+          suggestion.to >= suggestion.from &&
+          suggestion.to <= transaction.state.doc.length)
+        .flatMap((suggestion) => {
+          const deletion = suggestion.before
+            ? [Decoration.widget({
+                widget: new WorkingDeletionWidget(suggestion),
+                side: -1,
+              }).range(suggestion.from)]
+            : []
+          const insertion = suggestion.to > suggestion.from
+            ? [Decoration.mark({
+                class: [
+                  'cm-suggestion-insertion',
+                  suggestion.active ? 'is-active' : '',
+                ].filter(Boolean).join(' '),
+                attributes: {
+                  'aria-label': `Suggested insertion by ${suggestion.authorName}. Press Enter to open review.`,
+                  'data-comment-id': suggestion.id,
+                  role: 'button',
+                  tabindex: '0',
+                  title: `Suggested insertion by ${suggestion.authorName}; open review`,
+                },
+              }).range(suggestion.from, suggestion.to)]
+            : []
+          return [...deletion, ...insertion]
+        })
       return Decoration.set(
-        [...commentDecorations, ...suggestionDecorations],
+        [
+          ...commentDecorations,
+          ...suggestionDecorations,
+          ...workingSuggestionDecorations,
+        ],
         true,
       )
     }
@@ -236,6 +319,36 @@ const editorTheme = EditorView.theme({
   },
   '.cm-suggestion-deletion.is-active': {
     background: '#ffe3dc',
+  },
+  '.cm-suggestion-deletion-widget': {
+    display: 'inline',
+    marginRight: '3px',
+    padding: '1px 3px',
+    borderBottom: '2px solid #a64b36',
+    background: '#fff1ee',
+    color: '#725b55',
+    cursor: 'pointer',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  '.cm-suggestion-deletion-widget.is-active': {
+    outline: '2px solid #a64b36',
+    outlineOffset: '2px',
+  },
+  '.cm-suggestion-deleted-source': {
+    textDecorationColor: '#a64b36',
+    textDecorationThickness: '1.5px',
+  },
+  '.cm-suggestion-insertion': {
+    borderBottom: '2px solid var(--cm-suggestion-color, #16705d)',
+    background: '#eaf7f1',
+    color: '#185b49',
+    cursor: 'pointer',
+    textDecoration: 'none',
+  },
+  '.cm-suggestion-insertion.is-active': {
+    outline: '2px solid var(--cm-suggestion-color, #16705d)',
+    outlineOffset: '2px',
   },
   '.cm-suggestion-proposal': {
     display: 'inline',
@@ -335,7 +448,11 @@ export const CollaborativeEditor = forwardRef<
             if (event.key !== 'Enter' && event.key !== ' ') return false
             const target = event.target
             if (!(target instanceof HTMLElement)) return false
-            const proposal = target.closest<HTMLElement>('.cm-suggestion-proposal')
+            const proposal = target.closest<HTMLElement>([
+              '.cm-suggestion-proposal',
+              '.cm-suggestion-insertion',
+              '.cm-suggestion-deletion-widget',
+            ].join(', '))
             const commentId = proposal?.dataset.commentId
             if (!commentId) return false
             event.preventDefault()

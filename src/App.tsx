@@ -83,7 +83,7 @@ import {
 import { loadProfile, saveProfile } from './lib/profile'
 import { getMystOutline } from './lib/mystOutline'
 import { projectPendingSuggestions } from './lib/suggestionProjection'
-import { getLiveProposalChanges } from './lib/liveProposal'
+import { getLiveProposalInlineChanges } from './lib/liveProposal'
 import {
   detectCitationSyntax,
   formatCitation,
@@ -160,6 +160,7 @@ function App() {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  const [activeLiveProposalChangeId, setActiveLiveProposalChangeId] = useState<string | null>(null)
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
@@ -361,11 +362,51 @@ function App() {
     [displayedContent, isActiveMystSource],
   )
   const liveProposalChanges = useMemo(
-    () => getLiveProposalChanges(
+    () => getLiveProposalInlineChanges(
       collaboration.content,
       collaboration.workingContent,
     ),
     [collaboration.content, collaboration.workingContent],
+  )
+  const selectedLiveProposalChangeId = liveProposalChanges.some(
+    (change) => change.id === activeLiveProposalChangeId,
+  ) ? activeLiveProposalChangeId : null
+  const liveProposalAttribution = useMemo(() => {
+    const first = collaboration.proposalContributors[0]
+    return {
+      name: collaboration.proposalContributors.length > 1
+        ? `${collaboration.proposalContributors.length} contributors`
+        : first?.name ?? 'Live proposal',
+      color: first?.color ?? '#16705d',
+    }
+  }, [collaboration.proposalContributors])
+  const liveProposalSourceHighlights = useMemo(
+    () => liveProposalChanges.map((change) => ({
+      id: change.id,
+      from: change.workingFrom,
+      to: change.workingTo,
+      before: change.before,
+      after: change.after,
+      authorName: liveProposalAttribution.name,
+      authorColor: liveProposalAttribution.color,
+      active: selectedLiveProposalChangeId === change.id,
+      projection: 'working' as const,
+    })),
+    [liveProposalAttribution, liveProposalChanges, selectedLiveProposalChangeId],
+  )
+  const liveProposalVisualSuggestions = useMemo(
+    () => liveProposalChanges.map((change) => ({
+      id: change.id,
+      from: change.workingFrom,
+      to: change.workingTo,
+      before: change.before,
+      after: change.after,
+      authorName: liveProposalAttribution.name,
+      authorColor: liveProposalAttribution.color,
+      active: selectedLiveProposalChangeId === change.id,
+      projection: 'working' as const,
+    })),
+    [liveProposalAttribution, liveProposalChanges, selectedLiveProposalChangeId],
   )
   const inactiveSuggestionIds = useMemo(
     () => collaboration.isWorkingContentInitialized
@@ -812,6 +853,7 @@ function App() {
     try {
       await decideLiveProposal(roomName, status)
       setMaintainerEditMode('editing')
+      setActiveLiveProposalChangeId(null)
       showNotice(status === 'accepted' ? 'Live proposal accepted' : 'Live proposal discarded')
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Could not decide the live proposal')
@@ -845,11 +887,27 @@ function App() {
   const openCommentThread = (commentId: string) => {
     setCommentsOpen(true)
     setActiveCommentId(commentId)
+    setActiveLiveProposalChangeId(null)
     const location = commentLocations.get(commentId)
     if (!location || location.orphaned) return
     if (view === 'preview') setView('split')
     window.requestAnimationFrame(() => {
       editorRef.current?.revealRange(location.from, location.to)
+    })
+  }
+
+  const openLiveProposalChange = (changeId: string) => {
+    const change = liveProposalChanges.find((candidate) => candidate.id === changeId)
+    if (!change) {
+      openCommentThread(changeId)
+      return
+    }
+    setCommentsOpen(true)
+    setActiveCommentId(null)
+    setActiveLiveProposalChangeId(changeId)
+    if (view === 'preview') setView('split')
+    window.requestAnimationFrame(() => {
+      editorRef.current?.revealRange(change.workingFrom, change.workingTo)
     })
   }
 
@@ -1469,10 +1527,10 @@ function App() {
                   sharedText={activeSharedText}
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
-                  onCommentClick={openCommentThread}
+                  onCommentClick={openLiveProposalChange}
                   readOnly={isSourceReadOnly}
                   suggestionMode={isSuggestionMode && isActiveMystSource && isPrimaryFile}
-                  suggestionHighlights={[]}
+                  suggestionHighlights={isPrimaryFile ? liveProposalSourceHighlights : []}
                 />
               ) : shareSession.error ? (
                 <div className="pane-loading">{shareSession.error}</div>
@@ -1520,12 +1578,12 @@ function App() {
                     primaryFilePath,
                   )}
                   onEditError={showNotice}
-                  onSuggestionClick={openCommentThread}
+                  onSuggestionClick={openLiveProposalChange}
                   onRequestCitation={(insert) => {
                     setVisualCitationInserter(() => insert)
                     setCitationPickerOpen(true)
                   }}
-                  suggestions={[]}
+                  suggestions={isPrimaryFile ? liveProposalVisualSuggestions : []}
                 />
               </Suspense>
             </section>
@@ -1586,23 +1644,38 @@ function App() {
                             ))
                           : <span>Recording contributor...</span>}
                       </div>
-                      <div className="live-proposal-changes">
-                        {liveProposalChanges.map((change) => (
-                          <div className="live-proposal-change" key={change.id}>
+                      <div className="live-proposal-changes" aria-label="Live proposal changes">
+                        {liveProposalChanges.map((change, index) => {
+                          const kind = change.before && change.after
+                            ? 'Replace'
+                            : change.before ? 'Delete' : 'Add'
+                          return (
+                          <button
+                            aria-pressed={selectedLiveProposalChangeId === change.id}
+                            className={`live-proposal-change ${selectedLiveProposalChangeId === change.id ? 'is-active' : ''}`}
+                            key={change.id}
+                            onClick={() => openLiveProposalChange(change.id)}
+                            type="button"
+                          >
+                            <span className="live-proposal-change-heading">
+                              <strong>{kind}</strong>
+                              <span>{index + 1} of {liveProposalChanges.length}</span>
+                            </span>
                             {change.before && (
-                              <div className="suggestion-line removed">
+                              <span className="suggestion-line removed">
                                 <Minus size={13} aria-hidden="true" />
                                 <del>{change.before}</del>
-                              </div>
+                              </span>
                             )}
                             {change.after && (
-                              <div className="suggestion-line added">
+                              <span className="suggestion-line added">
                                 <Plus size={13} aria-hidden="true" />
                                 <ins>{change.after}</ins>
-                              </div>
+                              </span>
                             )}
-                          </div>
-                        ))}
+                          </button>
+                          )
+                        })}
                       </div>
                       {isMaintainer ? (
                         <div className="live-proposal-actions">
