@@ -6,9 +6,8 @@
 
 **Publication status:** Online. Replit release `a85d2313` was published on
 August 13, 2026, with live attributed Suggesting shared by Source and Visual,
-server-stamped contributors, server-authoritative maintainer decisions,
-author-owned comment and reply edits, and canonical and Git writes blocked
-while a proposal is unresolved.
+server-stamped contributors, server-authoritative maintainer decisions, and
+accepted-MyST snapshots blocked while a proposal is unresolved.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
