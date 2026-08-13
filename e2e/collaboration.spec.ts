@@ -202,9 +202,9 @@ test('Source and Visual share one live proposal with suggesting maintainers', as
     await expect(liveProposal).toContainText('Integration Test')
     await liveProposal.getByRole('button', { name: 'Accept', exact: true }).click()
     await expect(liveProposal).toHaveCount(0)
-    await reviewer.getByTitle('Source only').click()
-    await expect(reviewerSource).toContainText(replacement)
-    await expect(reviewerSource).toContainText(remoteReplacement)
+    await expect(page.getByRole('button', { name: 'Editing' })).toHaveClass(/active/)
+    await expect(page.locator('.myst-preview')).toContainText(replacement)
+    await expect(page.locator('.myst-preview')).toContainText(remoteReplacement)
   } finally {
     await reviewerContext.close()
   }
