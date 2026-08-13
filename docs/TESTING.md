@@ -122,15 +122,15 @@ Before deleting the branch, refresh its room and verify it becomes read-only. Co
 
 ## Suggestion Link Test
 
-1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar; primary MyST Source accepts a local draft while secondary project files, metadata, references, publishing, and decisions remain read-only. Confirm supported primary-file Visual prose edits and comments remain available.
-2. Connect a GitHub account that lacks repository write permission. Verify the room remains in Suggestion mode and the account name plus handle label new presence, comments, suggestions, and replies.
-3. Propose a Visual edit. Verify another reviewer sees that proposed text as the current editable paragraph in both Source and Visual, while the maintainer receives one attributed before/after change and canonical `Y.Text` remains unchanged. Activate the maintainer overlay to open Review, reply from both sessions, then accept and verify the source converges and the pending overlay disappears. Repeat with Reject.
-4. Edit the current proposal in Source and switch to Split. Verify Visual previews the same local draft, another session cannot see it, and canonical `Y.Text` remains unchanged until **Propose changes**. After submission, edit that current version in Visual and verify Source updates to the same text without duplicating the paragraph.
-5. While a Source draft is open, apply a non-overlapping canonical edit and verify the draft rebases. Apply an overlapping edit and verify submission stops without overwriting either version.
-6. Have two reviewers propose concurrently for the same paragraph. Verify Source and Visual project exactly one current version, Review labels the other as an earlier revision, and a subsequent Source or Visual edit supersedes both in one visible current proposal. Accept it and verify canonical source converges.
-7. Verify the contributor cannot change the repository binding, manage sharing, save a snapshot, start a revision, or invoke a GitHub comment route.
-8. With no maintainer connected, verify review records remain queued. Reconnect a maintainer and verify comments, suggestion state, decisions, and replies mirror once to the pull request with contributor attribution.
-9. Rotate or revoke the Suggestion link. Confirm Suggestion sockets disconnect while active viewer and maintainer sockets remain connected.
+1. Open a Suggestion link in a private browser. Verify the token disappears from the address bar; primary MyST Source and supported Visual prose are editable while secondary files, metadata, references, publishing, and decisions remain read-only.
+2. Type in Source and verify every other Suggestion, Viewer, and maintainer session sees the working text and Split preview immediately without **Propose changes**. Verify accepted `content` remains unchanged and Git submission is disabled.
+3. Open a Visual paragraph and type without finishing the editor. Verify Source and Visual in another session update before **Finish visual edit**, and the active editor displays its Live state. Continue editing the same proposal from Source and Visual in different sessions.
+4. Verify Review shows one current live proposal, readable accepted/working hunks, and every server-stamped contributor. It must not render full-paragraph alternatives in the manuscript. Have a maintainer add text in **Suggesting**, then accept; repeat and reject. Confirm all sessions converge and checkpoint history retains each decision.
+5. Have two reviewers type simultaneously at one Source position. Verify Yjs preserves both contributions, every session converges, and Review still shows one live proposal with both contributors rather than choosing a winner.
+6. Create a comment as Reviewer A. Verify only A sees **Edit**, while Reviewer B and the maintainer cannot edit the body but can reply. Edit A's comment, have B reply, edit B's reply, and verify both changes synchronize with an edited marker. Attempt forged Yjs actor/body updates in the server test and require rejection.
+7. Verify a maintainer cannot return to **Editing** or save to GitHub while working and accepted text differ. After acceptance, save a snapshot and confirm the commit author is the maintainer, the message names unsubmitted contributors, and the accepted checkpoint records that commit SHA.
+8. Connect a GitHub account lacking repository write permission. Verify the room remains in Suggestion mode but new presence, comments, replies, and live contributions use the `github:<id>` actor. Reconnect anonymously and verify the share-session actor remains stable.
+9. Verify the contributor cannot change repository binding, manage sharing, decide a proposal, save a snapshot, start a revision, or invoke a GitHub comment route. Rotate or revoke the Suggestion link and confirm its sockets disconnect while Viewer and maintainer sockets remain connected.
 
 ## Required Checks
 

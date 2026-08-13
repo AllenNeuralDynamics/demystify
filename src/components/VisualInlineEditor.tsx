@@ -40,6 +40,7 @@ interface VisualInlineEditorProps {
   citationSyntax?: CitationSyntax
   error?: string | null
   onCancel: () => void
+  onChange?: (source: string) => void
   onRequestCitation: (insert: VisualCitationInserter) => void
   onSave: (source: string) => void
 }
@@ -78,6 +79,7 @@ export const VisualInlineEditor = ({
   citationSyntax = 'role',
   error,
   onCancel,
+  onChange,
   onRequestCitation,
   onSave,
 }: VisualInlineEditorProps) => {
@@ -85,6 +87,7 @@ export const VisualInlineEditor = ({
   const viewRef = useRef<EditorView | null>(null)
   const bibliographyRef = useRef(bibliography)
   const onCancelRef = useRef(onCancel)
+  const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   const [activeMarks, setActiveMarks] = useState<Record<VisualMarkName, boolean>>({
     strong: false,
@@ -102,6 +105,10 @@ export const VisualInlineEditor = ({
   useEffect(() => {
     onCancelRef.current = onCancel
   }, [onCancel])
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
 
   useEffect(() => {
     onSaveRef.current = onSave
@@ -152,6 +159,9 @@ export const VisualInlineEditor = ({
         const nextState = view.state.apply(transaction)
         view.updateState(nextState)
         setActiveMarks(activeMarksForState(nextState))
+        if (transaction.docChanged) {
+          onChangeRef.current?.(serializeVisualInlineDocument(nextState.doc))
+        }
       },
     })
     viewRef.current = view
@@ -252,11 +262,12 @@ export const VisualInlineEditor = ({
         <button type="button" title="Cite a paper" onClick={requestCitation}>
           <AtSign size={15} />
         </button>
+        {onChange && <span className="visual-live-label">Live</span>}
         <span className="visual-inline-toolbar-spacer" />
-        <button type="button" title="Save visual edit" onClick={save}>
+        <button type="button" title={onChange ? 'Finish visual edit' : 'Save visual edit'} onClick={save}>
           <Check size={15} />
         </button>
-        <button type="button" title="Cancel visual edit" onClick={onCancel}>
+        <button type="button" title={onChange ? 'Close visual editor' : 'Cancel visual edit'} onClick={onCancel}>
           <X size={15} />
         </button>
       </span>

@@ -72,7 +72,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
 
         <div className="help-comment-note">
           <MessageSquareText size={17} />
-          <p>Select source text before commenting, or use a Suggestion link to edit the current proposal in Source or Visual. Both panes show the same proposed manuscript; earlier revisions remain attributed in Review instead of repeating in the document. Queued review records mirror to the pull request.</p>
+          <p>Suggestion links open one live working manuscript in Source and Visual. Everyone sees edits immediately; a maintainer accepts or rejects the current checkpoint before submitting accepted MyST to GitHub. Only an author can edit their comment or reply, while everyone with editing access can reply.</p>
         </div>
       </section>
     </div>

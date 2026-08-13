@@ -28,7 +28,10 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   })
 
-const startRoomServer = async (store: RoomStore) => {
+const startRoomServer = async (
+  store: RoomStore,
+  options: Parameters<typeof createRoomRouter>[1] = {},
+) => {
   const app = express()
   app.use(express.json())
   const testSession = {
@@ -42,7 +45,7 @@ const startRoomServer = async (store: RoomStore) => {
     request.session = testSession
     next()
   })
-  app.use('/api', createRoomRouter(store))
+  app.use('/api', createRoomRouter(store, options))
   const server = createServer(app)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
@@ -60,6 +63,35 @@ const closeServer = (server: ReturnType<typeof createServer>) =>
   )
 
 describe('room publication routes', () => {
+  it('blocks snapshots while a live proposal is unresolved', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'pending-live-proposal'
+    const user = { id: 42, login: 'researcher' }
+    await store.claim(roomName, user)
+    const { server, baseUrl } = await startRoomServer(store, {
+      hasPendingWorkingChanges: async () => true,
+    })
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/rooms/${roomName}/snapshots`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '# Accepted only\n' }),
+        },
+      )
+      expect(response.status).toBe(409)
+      await expect(response.text()).resolves.toContain(
+        'Accept or reject the live proposal before saving accepted MyST to GitHub.',
+      )
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('rejects project file paths that collide with managed publication files', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
     temporaryDirectories.push(directory)
@@ -154,6 +186,8 @@ describe('room publication routes', () => {
 
     let storedContent: string | null = null
     let pullRequestCreates = 0
+    const commitMessages: string[] = []
+    const linkedCommitShas: string[] = []
     const originalFetch = globalThis.fetch
     vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
@@ -172,8 +206,9 @@ describe('room publication routes', () => {
         return jsonResponse({ object: { sha: 'branch-sha' } })
       }
       if (url.includes('/contents/paper.md') && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { content: string }
+        const body = JSON.parse(String(init.body)) as { content: string; message: string }
         storedContent = Buffer.from(body.content, 'base64').toString('utf8')
+        commitMessages.push(body.message)
         return jsonResponse({
           commit: {
             sha: 'commit-sha',
@@ -222,7 +257,12 @@ describe('room publication routes', () => {
       throw new Error(`Unexpected GitHub request: ${init?.method ?? 'GET'} ${url}`)
     })
 
-    const { server, baseUrl } = await startRoomServer(store)
+    const { server, baseUrl } = await startRoomServer(store, {
+      getUnsubmittedProposalContributorNames: async () => ['Ada Reviewer', 'Lin Reviewer'],
+      markProposalCheckpointsSubmitted: async (_roomName, commitSha) => {
+        linkedCommitShas.push(commitSha)
+      },
+    })
     const endpoint = `${baseUrl}/api/rooms/${roomName}/snapshots`
 
     try {
@@ -248,6 +288,10 @@ describe('room publication routes', () => {
       }
       expect(firstResult.review).toMatchObject({ number: 17, state: 'draft' })
       expect(concurrentResult.review).toMatchObject({ number: 17, state: 'draft' })
+      expect(commitMessages).toContain(
+        'Update paper.md after live review by Ada Reviewer, Lin Reviewer',
+      )
+      expect(linkedCommitShas).toContain('commit-sha')
       await expect(store.get(roomName)).resolves.toMatchObject({
         review: { number: 17, state: 'draft' },
       })
@@ -773,10 +817,23 @@ describe('room publication routes', () => {
         `${baseUrl}/api/rooms/${roomName}/claim`,
         { method: 'POST' },
       )
-      await expect(collaboratorClaim.json()).resolves.toMatchObject({
+      const anonymousCollaborator = await collaboratorClaim.json() as {
+        access: string
+        actorId: string
+      }
+      expect(anonymousCollaborator).toMatchObject({
         access: 'collaborator',
         collaboratorLink: null,
         viewerLink: null,
+      })
+      expect(anonymousCollaborator.actorId).toMatch(/^share:[0-9a-f-]{36}$/)
+      expect(session.viewerRooms?.[roomName]?.actorId).toBe(anonymousCollaborator.actorId)
+      const repeatedCollaboratorClaim = await originalFetch(
+        `${baseUrl}/api/rooms/${roomName}/claim`,
+        { method: 'POST' },
+      )
+      await expect(repeatedCollaboratorClaim.json()).resolves.toMatchObject({
+        actorId: anonymousCollaborator.actorId,
       })
       const collaboratorSnapshot = await originalFetch(
         `${baseUrl}/api/rooms/${roomName}/snapshots`,
@@ -812,6 +869,7 @@ describe('room publication routes', () => {
       )
       await expect(signedInWithoutAccess.json()).resolves.toMatchObject({
         access: 'collaborator',
+        actorId: 'github:42',
       })
 
       repositoryCanPush = true
@@ -821,6 +879,7 @@ describe('room publication routes', () => {
       )
       await expect(upgradedClaim.json()).resolves.toMatchObject({
         access: 'editor',
+        actorId: 'github:42',
         collaboratorLink: { expiresAt: collaboratorLink.collaboratorLink.expiresAt },
       })
 

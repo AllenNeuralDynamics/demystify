@@ -20,6 +20,11 @@ import {
 } from './collaboration-observability.js'
 import { ApiError, githubRouter } from './github.js'
 import {
+  decideLiveProposalDocument,
+  getUnsubmittedProposalContributorNames,
+  markAcceptedCheckpointsSubmitted,
+} from './live-proposal.js'
+import {
   authorizeRoomAccess,
   createRoomRouter,
   PostgresRoomStore,
@@ -28,7 +33,9 @@ import {
 } from './rooms.js'
 import {
   isCollaboratorWebSocketMessageAllowed,
+  isEditorWebSocketMessageAllowed,
   setupReadOnlyAwareWebSocket,
+  type CollaborationSocketActor,
 } from './read-only-websocket.js'
 
 const port = Number(process.env.PORT ?? 8787)
@@ -83,6 +90,7 @@ const readOnlyRooms = new Set<string>()
 const testReadOnlyRooms = new Set<string>()
 const readOnlyGuestSockets = new WeakSet<WebSocket>()
 const collaboratorGuestSockets = new WeakSet<WebSocket>()
+const collaborationSocketActors = new WeakMap<WebSocket, CollaborationSocketActor>()
 const guestConnectionsByCapability = new Map<string, Set<WebSocket>>()
 const viewerExpiryTimers = new WeakMap<WebSocket, NodeJS.Timeout>()
 
@@ -140,6 +148,33 @@ const lifecycleOptions = {
     else readOnlyRooms.delete(roomName)
   },
   onShareAccessRevoked: closeRoomGuests,
+  hasPendingWorkingChanges: async (roomName: string) => {
+    const document = getYDoc(roomName)
+    await yjsPersistence?.waitForHydration(document)
+    const metadata = document.getMap('metadata')
+    return metadata.get('workingContentInitialized') === true &&
+      document.getText('workingContent').toString() !== document.getText('content').toString()
+  },
+  decideLiveProposal: async (
+    roomName: string,
+    status: 'accepted' | 'rejected',
+    actor: { id: string; name: string },
+  ) => {
+    const document = getYDoc(roomName)
+    await yjsPersistence?.waitForHydration(document)
+    const checkpoint = decideLiveProposalDocument(document, status, actor)
+    return checkpoint ? { id: checkpoint.id, status: checkpoint.status } : null
+  },
+  markProposalCheckpointsSubmitted: async (roomName: string, commitSha: string) => {
+    const document = getYDoc(roomName)
+    await yjsPersistence?.waitForHydration(document)
+    markAcceptedCheckpointsSubmitted(document, commitSha)
+  },
+  getUnsubmittedProposalContributorNames: async (roomName: string) => {
+    const document = getYDoc(roomName)
+    await yjsPersistence?.waitForHydration(document)
+    return getUnsubmittedProposalContributorNames(document)
+  },
 }
 const sessionSecret =
   process.env.SESSION_SECRET ??
@@ -312,8 +347,13 @@ webSocketServer.on('connection', (socket, request) => {
       readOnlyRooms.has(roomName) ||
       testReadOnlyRooms.has(roomName),
     (guardedSocket) => setupWSConnection(guardedSocket, request, { docName: roomName }),
-    (data) => !collaboratorGuestSockets.has(socket) ||
-      isCollaboratorWebSocketMessageAllowed(data, getYDoc(roomName)),
+    (data) => {
+      const actor = collaborationSocketActors.get(socket)
+      if (!actor) return false
+      return actor.role === 'collaborator'
+        ? isCollaboratorWebSocketMessageAllowed(data, getYDoc(roomName), actor)
+        : isEditorWebSocketMessageAllowed(data, getYDoc(roomName), actor)
+    },
   )
 })
 
@@ -474,6 +514,14 @@ server.on('upgrade', (request, socket, head) => {
           connections.add(webSocket)
           guestConnectionsByCapability.set(key, connections)
           scheduleGuestExpiry(roomName, access.role, webSocket, access.shareExpiresAt)
+        }
+        if (access.role === 'editor' || access.role === 'collaborator') {
+          collaborationSocketActors.set(webSocket, {
+            role: access.role,
+            actorId: access.actorId,
+            actorName: access.actorName,
+            ownedActorIds: access.ownedActorIds,
+          })
         }
         webSocketServer.emit('connection', webSocket, request)
       })

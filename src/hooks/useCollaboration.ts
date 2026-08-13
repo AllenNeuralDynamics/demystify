@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { diffChars } from 'diff'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import type {
@@ -32,8 +33,15 @@ import {
   type BibliographyEditResult,
   type PaperSearchResult,
 } from '../lib/references'
+import {
+  initializeLiveProposal,
+  liveProposalRoots,
+  type SharedProposalCheckpoint,
+  type SharedProposalContributor,
+} from '../lib/liveProposalState'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+export type PrimaryEditMode = 'editing' | 'suggesting'
 
 export interface Collaborator extends CollaboratorProfile {
   clientId: number
@@ -60,7 +68,9 @@ export interface SharedComment {
   authorColor: string
   body: string
   createdAt: string
+  editedAt?: string
   resolved: boolean
+  anchorTarget?: 'content' | 'working'
   anchor?: CommentAnchor
   suggestion?: SharedSuggestion
   github?: PullRequestCommentMirror & {
@@ -77,6 +87,7 @@ export interface SharedCommentMessage {
   authorColor: string
   body: string
   createdAt: string
+  editedAt?: string
   github?: PullRequestCommentMirror
 }
 
@@ -84,12 +95,15 @@ interface CollaborationSession {
   document: Y.Doc
   provider: WebsocketProvider
   text: Y.Text
+  workingText: Y.Text
   bibliography: Y.Text
   mystConfig: Y.Text
   projectFiles: Y.Map<Y.Text>
   generatedReferences: Y.Map<GeneratedReferenceEntry>
   comments: Y.Map<SharedComment>
   commentMessages: Y.Map<SharedCommentMessage>
+  proposalContributors: Y.Map<SharedProposalContributor>
+  proposalHistory: Y.Map<SharedProposalCheckpoint>
   metadata: Y.Map<string | number | boolean>
 }
 
@@ -115,6 +129,17 @@ const getSourceLineEnding = (
   return lineEnding === 'crlf' || lineEnding === 'cr' ? lineEnding : 'lf'
 }
 
+const synchronizeText = (text: Y.Text, nextContent: string) => {
+  let offset = 0
+  for (const part of diffChars(text.toString(), nextContent)) {
+    if (part.removed) text.delete(offset, part.value.length)
+    else if (part.added) {
+      text.insert(offset, part.value)
+      offset += part.value.length
+    } else offset += part.value.length
+  }
+}
+
 export const useCollaboration = (
   roomName: string,
   profile: CollaboratorProfile,
@@ -122,9 +147,11 @@ export const useCollaboration = (
   enabled = true,
   readOnly = false,
   shouldConnect = true,
+  primaryEditMode: PrimaryEditMode = 'editing',
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
+  const [workingContent, setWorkingContent] = useState('')
   const [bibliography, setBibliography] = useState('')
   const [bibliographyPath, setBibliographyPath] = useState('references.bib')
   const [mystConfig, setMystConfig] = useState('')
@@ -136,9 +163,12 @@ export const useCollaboration = (
   const [areProjectFilesInitialized, setAreProjectFilesInitialized] = useState(false)
   const [comments, setComments] = useState<SharedComment[]>([])
   const [commentMessages, setCommentMessages] = useState<SharedCommentMessage[]>([])
+  const [proposalContributors, setProposalContributors] = useState<SharedProposalContributor[]>([])
+  const [proposalHistory, setProposalHistory] = useState<SharedProposalCheckpoint[]>([])
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
+  const [isWorkingContentInitialized, setIsWorkingContentInitialized] = useState(false)
   const providerRef = useRef<WebsocketProvider | null>(null)
 
   useEffect(() => {
@@ -149,28 +179,55 @@ export const useCollaboration = (
     })
     providerRef.current = provider
     const text = document.getText('content')
+    const workingText = document.getText(liveProposalRoots.workingContent)
     const bibliographyText = document.getText('bibliography')
     const mystConfigText = document.getText('mystConfig')
     const projectFileMap = document.getMap<Y.Text>('projectFiles')
     const generatedReferences = document.getMap<GeneratedReferenceEntry>('references')
     const commentMap = document.getMap<SharedComment>('comments')
     const commentMessageMap = document.getMap<SharedCommentMessage>('commentMessages')
+    const proposalContributorMap = document.getMap<SharedProposalContributor>(
+      liveProposalRoots.contributors,
+    )
+    const proposalHistoryMap = document.getMap<SharedProposalCheckpoint>(
+      liveProposalRoots.history,
+    )
     const metadata = document.getMap<string | number | boolean>('metadata')
     const nextSession = {
       document,
       provider,
       text,
+      workingText,
       bibliography: bibliographyText,
       mystConfig: mystConfigText,
       projectFiles: projectFileMap,
       generatedReferences,
       comments: commentMap,
       commentMessages: commentMessageMap,
+      proposalContributors: proposalContributorMap,
+      proposalHistory: proposalHistoryMap,
       metadata,
     }
     let initializationTimer: number | undefined
+    let previousAcceptedContent = text.toString()
 
-    const updateContent = () => setContent(text.toString())
+    const updateContent = () => {
+      const nextContent = text.toString()
+      const previousContent = previousAcceptedContent
+      previousAcceptedContent = nextContent
+      setContent(nextContent)
+      if (
+        metadata.get('workingContentInitialized') === true &&
+        workingText.toString() === previousContent &&
+        workingText.toString() !== nextContent
+      ) {
+        document.transact(() => synchronizeText(workingText, nextContent))
+      }
+    }
+    const updateWorkingContent = () => {
+      const nextWorkingContent = workingText.toString()
+      setWorkingContent(nextWorkingContent)
+    }
     const updateBibliography = () => setBibliography(materializeBibliography(
       bibliographyText.toString(),
       generatedReferences.values(),
@@ -189,6 +246,7 @@ export const useCollaboration = (
       )
       setIsMystConfigInitialized(metadata.get('mystConfigInitialized') === true)
       setAreProjectFilesInitialized(metadata.get('projectFilesInitialized') === true)
+      setIsWorkingContentInitialized(metadata.get('workingContentInitialized') === true)
       const manifestVersion = metadata.get('projectManifestVersion')
       setProjectManifestVersion(
         typeof manifestVersion === 'number' && Number.isSafeInteger(manifestVersion)
@@ -211,6 +269,16 @@ export const useCollaboration = (
           first.createdAt.localeCompare(second.createdAt),
         ),
       )
+    }
+    const updateProposalContributors = () => {
+      setProposalContributors(Array.from(proposalContributorMap.values()).sort(
+        (first, second) => first.firstEditedAt.localeCompare(second.firstEditedAt),
+      ))
+    }
+    const updateProposalHistory = () => {
+      setProposalHistory(Array.from(proposalHistoryMap.values()).sort(
+        (first, second) => second.decidedAt.localeCompare(first.decidedAt),
+      ))
     }
     const updateCollaborators = () => {
       const nextCollaborators = Array.from(provider.awareness.getStates()).flatMap(
@@ -252,6 +320,7 @@ export const useCollaboration = (
     provider.on('sync', initializeEmptyDocument)
     provider.awareness.on('change', updateCollaborators)
     text.observe(updateContent)
+    workingText.observe(updateWorkingContent)
     bibliographyText.observe(updateBibliography)
     mystConfigText.observe(updateMystConfig)
     projectFileMap.observeDeep(updateProjectFiles)
@@ -259,10 +328,13 @@ export const useCollaboration = (
     metadata.observe(updateMetadata)
     commentMap.observe(updateComments)
     commentMessageMap.observe(updateCommentMessages)
+    proposalContributorMap.observe(updateProposalContributors)
+    proposalHistoryMap.observe(updateProposalHistory)
 
     return () => {
       window.clearTimeout(initializationTimer)
       text.unobserve(updateContent)
+      workingText.unobserve(updateWorkingContent)
       bibliographyText.unobserve(updateBibliography)
       mystConfigText.unobserve(updateMystConfig)
       projectFileMap.unobserveDeep(updateProjectFiles)
@@ -270,6 +342,8 @@ export const useCollaboration = (
       metadata.unobserve(updateMetadata)
       commentMap.unobserve(updateComments)
       commentMessageMap.unobserve(updateCommentMessages)
+      proposalContributorMap.unobserve(updateProposalContributors)
+      proposalHistoryMap.unobserve(updateProposalHistory)
       provider.off('status', updateStatus)
       provider.awareness.off('change', updateCollaborators)
       provider.off('sync', initializeEmptyDocument)
@@ -278,6 +352,8 @@ export const useCollaboration = (
       document.destroy()
       setSession(null)
       setIsSynced(false)
+      setWorkingContent('')
+      setIsWorkingContentInitialized(false)
       setBibliography('')
       setBibliographyPath('references.bib')
       setMystConfig('')
@@ -287,15 +363,17 @@ export const useCollaboration = (
       setIsBibliographyInitialized(false)
       setIsMystConfigInitialized(false)
       setAreProjectFilesInitialized(false)
+      setProposalContributors([])
+      setProposalHistory([])
     }
-  }, [enabled, initialContent, readOnly, roomName])
+  }, [enabled, initialContent, profile.id, readOnly, roomName])
 
   useEffect(() => {
     const provider = providerRef.current
     if (!provider) return
     if (shouldConnect) provider.connect()
     else provider.disconnect()
-  }, [enabled, initialContent, readOnly, roomName, shouldConnect])
+  }, [enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -306,8 +384,11 @@ export const useCollaboration = (
     if (!session || readOnly || !trimmedBody) return
 
     const id = crypto.randomUUID()
+    const anchorText = session.metadata.get('workingContentInitialized') === true
+      ? session.workingText
+      : session.text
     const anchor = selection
-      ? createCommentAnchor(session.text, selection.from, selection.to)
+      ? createCommentAnchor(anchorText, selection.from, selection.to)
       : undefined
     session.comments.set(id, {
       id,
@@ -317,6 +398,7 @@ export const useCollaboration = (
       body: trimmedBody,
       createdAt: new Date().toISOString(),
       resolved: false,
+      ...(anchor ? { anchorTarget: 'working' as const } : {}),
       ...(anchor ? { anchor } : {}),
     })
     return id
@@ -336,6 +418,41 @@ export const useCollaboration = (
       createdAt: new Date().toISOString(),
     })
     return id
+  }
+
+  const editComment = (commentId: string, body: string) => {
+    const trimmedBody = body.trim()
+    const comment = session?.comments.get(commentId)
+    if (
+      !session ||
+      readOnly ||
+      !comment ||
+      comment.suggestion ||
+      !trimmedBody
+    ) return false
+    session.comments.set(commentId, {
+      ...comment,
+      body: trimmedBody,
+      editedAt: new Date().toISOString(),
+    })
+    return true
+  }
+
+  const editCommentReply = (messageId: string, body: string) => {
+    const trimmedBody = body.trim()
+    const message = session?.commentMessages.get(messageId)
+    if (
+      !session ||
+      readOnly ||
+      !message ||
+      !trimmedBody
+    ) return false
+    session.commentMessages.set(messageId, {
+      ...message,
+      body: trimmedBody,
+      editedAt: new Date().toISOString(),
+    })
+    return true
   }
 
   const toggleComment = (comment: SharedComment) => {
@@ -368,9 +485,12 @@ export const useCollaboration = (
 
   const resolveAnchor = useCallback((comment: SharedComment) => {
     if (!session || !comment.anchor) return null
+    const anchorText = comment.anchorTarget === 'working'
+      ? session.workingText
+      : session.text
     return resolveCommentAnchor(
       session.document,
-      session.text,
+      anchorText,
       comment.anchor,
       {
         allowEmpty: comment.suggestion?.kind === 'insert',
@@ -378,6 +498,11 @@ export const useCollaboration = (
       },
     )
   }, [session])
+
+  const initializeWorkingContent = useCallback((nextContent: string) => {
+    if (!session || readOnly) return false
+    return initializeLiveProposal(session.document, nextContent)
+  }, [readOnly, session])
 
   const applyGitHubCommentSync = useCallback((sync: PullRequestCommentSync) => {
     if (!session || readOnly) return
@@ -410,8 +535,12 @@ export const useCollaboration = (
     session.document.transact(() => {
       session.text.delete(0, session.text.length)
       session.text.insert(0, normalized.content)
+      session.workingText.delete(0, session.workingText.length)
+      session.workingText.insert(0, normalized.content)
+      session.proposalContributors.clear()
       session.metadata.set('lineEnding', normalized.lineEnding)
       session.metadata.set('initialized', true)
+      session.metadata.set('workingContentInitialized', true)
     })
   }
 
@@ -508,8 +637,13 @@ export const useCollaboration = (
 
   const getSharedText = useCallback((path: string, primaryPath: string) => {
     if (!session) return null
-    return path === primaryPath ? session.text : session.projectFiles.get(path) ?? null
-  }, [session])
+    return path === primaryPath
+      ? session.metadata.get('workingContentInitialized') === true &&
+        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        ? session.workingText
+        : session.text
+      : session.projectFiles.get(path) ?? null
+  }, [primaryEditMode, session])
 
   const commitPublicationMetadata = useCallback((input: {
     pagePath: string
@@ -597,11 +731,14 @@ export const useCollaboration = (
     if (!session || readOnly) return null
     const text = path && primaryPath && path !== primaryPath
       ? session.projectFiles.get(path)
-      : session.text
+      : session.metadata.get('workingContentInitialized') === true &&
+        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        ? session.workingText
+        : session.text
     return text
       ? createCollaborativeTextEditAnchor(text, from, to, expectedText)
       : null
-  }, [readOnly, session])
+  }, [primaryEditMode, readOnly, session])
 
   const commitTextEdit = useCallback((
     anchor: CollaborativeTextEditAnchor,
@@ -612,7 +749,10 @@ export const useCollaboration = (
     if (!session || readOnly) return 'unavailable'
     const text = path && primaryPath && path !== primaryPath
       ? session.projectFiles.get(path)
-      : session.text
+      : session.metadata.get('workingContentInitialized') === true &&
+        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        ? session.workingText
+        : session.text
     if (!text) return 'unavailable'
     return applyCollaborativeTextEdit(
       session.document,
@@ -620,7 +760,7 @@ export const useCollaboration = (
       anchor,
       replacement.replace(/\r\n?/g, '\n'),
     )
-  }, [readOnly, session])
+  }, [primaryEditMode, readOnly, session])
 
   const createTextSuggestion = useCallback((
     anchor: CollaborativeTextEditAnchor,
@@ -803,9 +943,11 @@ export const useCollaboration = (
 
   return {
     sharedText: session?.text ?? null,
+    sharedWorkingText: session?.workingText ?? null,
     sharedBibliography: session?.bibliography ?? null,
     provider: session?.provider ?? null,
     content,
+    workingContent: isWorkingContentInitialized ? workingContent : content,
     bibliography,
     bibliographyPath,
     mystConfig,
@@ -814,19 +956,27 @@ export const useCollaboration = (
     projectManifestVersion,
     comments,
     commentMessages,
+    proposalContributors,
+    proposalHistory,
     collaborators,
     status: enabled ? status : 'disconnected',
     isSynced,
+    isWorkingContentInitialized,
+    hasPendingWorkingChanges:
+      isWorkingContentInitialized && workingContent !== content,
     isBibliographyInitialized,
     isMystConfigInitialized,
     areProjectFilesInitialized,
     addComment,
     addCommentReply,
+    editComment,
+    editCommentReply,
     toggleComment,
     applyCommentMirror,
     applyCommentMessageMirror,
     applyGitHubCommentSync,
     resolveAnchor,
+    initializeWorkingContent,
     beginTextEdit,
     commitTextEdit,
     createTextSuggestion,

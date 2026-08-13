@@ -275,7 +275,11 @@ try {
     `${httpUrl}/api/rooms/${roomName}/collaborator-session`,
     {
       method: 'POST',
-      headers: { 'X-Demystify-Share-Token': collaboratorLink.token },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Demystify-Share-Token': collaboratorLink.token,
+      },
+      body: JSON.stringify({ actorName: 'Guest scientist' }),
     },
   )
   assert.equal(collaboratorSessionResponse.status, 204)
@@ -287,7 +291,9 @@ try {
     headers: { Cookie: collaboratorCookie },
   })
   assert.equal(collaboratorClaim.status, 200)
-  assert.equal((await collaboratorClaim.json()).access, 'collaborator')
+  const collaboratorRoom = await collaboratorClaim.json()
+  assert.equal(collaboratorRoom.access, 'collaborator')
+  assert.match(collaboratorRoom.actorId, /^share:[0-9a-f-]{36}$/)
 
   const unboundSnapshotResponse = await fetch(
     `${httpUrl}/api/rooms/${roomName}/snapshots`,
@@ -461,7 +467,7 @@ try {
   const guestSuggestionId = crypto.randomUUID()
   const guestSuggestion = {
     id: guestSuggestionId,
-    authorId: 'guest:integration-test',
+    authorId: collaboratorRoom.actorId,
     authorName: 'Guest scientist',
     authorColor: '#8a4337',
     body: 'Suggested edit',
@@ -492,7 +498,7 @@ try {
   const guestCommentId = crypto.randomUUID()
   const guestComment = {
     id: guestCommentId,
-    authorId: 'guest:integration-test',
+    authorId: collaboratorRoom.actorId,
     authorName: 'Guest scientist',
     authorColor: '#8a4337',
     body: 'Please clarify this result.',
@@ -545,6 +551,21 @@ try {
   })
   await Promise.all([editorReceived, viewerReceived, collaboratorReceived])
 
+  const liveExpectedText = `${editorExpectedText} guest-live`
+  const firstWorkingText = firstDocument.getText('workingContent')
+  const viewerWorkingText = viewerDocument.getText('workingContent')
+  const collaboratorWorkingText = collaboratorDocument.getText('workingContent')
+  await Promise.all([
+    waitForText(firstWorkingText, editorExpectedText),
+    waitForText(viewerWorkingText, editorExpectedText),
+    waitForText(collaboratorWorkingText, editorExpectedText),
+  ])
+  const maintainerReceivedLive = waitForText(firstWorkingText, liveExpectedText)
+  const viewerReceivedLive = waitForText(viewerWorkingText, liveExpectedText)
+  collaboratorWorkingText.insert(collaboratorWorkingText.length, ' guest-live')
+  await Promise.all([maintainerReceivedLive, viewerReceivedLive])
+  assert.equal(secondText.toString(), editorExpectedText)
+
   const collaboratorDisconnected = waitForStatus(collaboratorProvider, 'disconnected')
   const revokeCollaborator = await fetch(
     `${httpUrl}/api/rooms/${roomName}/collaborator-links`,
@@ -584,7 +605,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized writes rejected; maintainers accepted attributed suggestions; viewers stayed read-only.')
+  console.log('Unauthorized writes rejected; live proposals synchronized; maintainers controlled canonical text and viewers stayed read-only.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()

@@ -22,9 +22,7 @@ const insertNote = async (page: Parameters<typeof authenticateMaintainer>[0]) =>
 }
 
 const noteCount = (page: Parameters<typeof authenticateMaintainer>[0]) =>
-  page.locator('.cm-content').evaluate((element) =>
-    (element.textContent?.match(/:::\{note\}/g) ?? []).length,
-  )
+  page.locator('.myst-preview aside').count()
 
 const replaceFirstVisualParagraph = async (
   page: Parameters<typeof authenticateMaintainer>[0],
@@ -41,7 +39,7 @@ const replaceFirstVisualParagraph = async (
   const editor = page.getByRole('textbox', { name: 'Edit paragraph' })
   await expect(editor).toBeVisible()
   await editor.fill(replacement)
-  await page.getByTitle('Save visual edit').click()
+  await page.getByTitle('Finish visual edit').click()
 }
 
 test('viewer receives live changes but cannot edit', async ({ browser, page }, testInfo) => {
@@ -65,7 +63,7 @@ test('viewer receives live changes but cannot edit', async ({ browser, page }, t
   }
 })
 
-test('suggestion participant proposes an attributed edit for maintainer review', async ({ browser, page }, testInfo) => {
+test('suggestion participant edits live for maintainer acceptance or rejection', async ({ browser, page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile'), 'Covered by desktop browser engines')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
@@ -74,9 +72,6 @@ test('suggestion participant proposes an attributed edit for maintainer review',
   const collaboratorContext = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
   const collaboratorPage = await collaboratorContext.newPage()
   try {
-    const canonicalEditor = page.getByRole('textbox', { name: 'MyST source' })
-    await expect(canonicalEditor).toContainText('A shared language for reproducible manuscripts')
-    const canonicalBeforeSuggestion = await canonicalEditor.innerText()
     await collaboratorPage.addInitScript(() => {
       window.localStorage.setItem('demystify.profile', JSON.stringify({
         id: 'e2e-reviewer',
@@ -89,103 +84,64 @@ test('suggestion participant proposes an attributed edit for maintainer review',
     await expect(collaboratorPage.getByText('Suggestion mode', { exact: true }).first()).toBeVisible()
     await expect(collaboratorPage.getByTitle('Insert MyST content')).toBeEnabled()
     await expect(collaboratorPage.getByTitle('Save snapshot to GitHub')).toBeDisabled()
+    await expect(collaboratorPage.getByText('Suggesting live')).toBeVisible()
 
     await collaboratorPage.getByTitle('Visual editor').click()
     const paragraph = collaboratorPage.locator('.myst-preview p.myst-editable-block').first()
     const originalText = await paragraph.textContent()
     expect(originalText).toBeTruthy()
-    await paragraph.click()
+    await paragraph.focus()
+    await paragraph.press('F2')
     const visualEditor = collaboratorPage.getByRole('textbox', { name: 'Edit paragraph' })
     await visualEditor.fill('A reviewer-proposed sentence.')
-    await collaboratorPage.getByTitle('Save visual edit').click()
-
-    await expect(collaboratorPage.getByText('Suggestion ready for review')).toBeVisible()
-    const sourceDeletion = page.locator('.cm-suggestion-deletion').first()
-    const sourceProposal = page.locator('.cm-suggestion-proposal').first()
-    await expect(sourceDeletion).toContainText(originalText ?? '')
-    await expect(sourceProposal.locator('.cm-suggestion-source'))
+    await expect(collaboratorPage.getByText('Live', { exact: true })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'MyST source' }))
       .toContainText('A reviewer-proposed sentence.')
-    await expect(sourceProposal.locator('.cm-suggestion-author')).toHaveText('E2E Reviewer')
-    const originalSource = await sourceDeletion.textContent()
-    const proposedSource = await sourceProposal.locator('.cm-suggestion-source').textContent()
-    await sourceProposal.click()
-    await expect(page.locator('.comment.suggestion-thread').first()).toBeVisible()
-    await page.getByTitle('Close comments').click()
+    await collaboratorPage.getByTitle('Finish visual edit').click()
 
-    const inlineSuggestion = page.locator('.myst-inline-suggestion').first()
-    const inlineProposal = inlineSuggestion.locator('.myst-suggestion-option').first()
-    await expect(inlineSuggestion.locator('del')).toContainText(originalText ?? '')
-    await expect(inlineProposal.locator('ins')).toContainText('A reviewer-proposed sentence.')
-    await expect(inlineProposal.locator('.myst-suggestion-author')).toHaveText('E2E Reviewer')
-    await inlineProposal.click()
-    const suggestion = page.locator('.comment.suggestion-thread').first()
-    await expect(suggestion).toContainText('E2E Reviewer')
-    await expect(suggestion).toContainText('Suggested edit')
-    await expect(suggestion).toContainText('A reviewer-proposed sentence.')
-
-    await suggestion.getByRole('textbox', { name: /Reply to comment by/ })
-      .fill('This wording is clearer.')
-    await suggestion.getByTitle('Reply').click()
-    await expect(collaboratorPage.locator('.comment.suggestion-thread').first())
-      .toContainText('This wording is clearer.')
-
-    await suggestion.getByRole('button', { name: 'Accept', exact: true }).click()
-    await expect(page.locator('.cm-content')).toContainText('A reviewer-proposed sentence.')
-    await expect(page.locator('.cm-suggestion-proposal')).toHaveCount(0)
-    await expect(suggestion).toContainText('Accepted edit')
-
-    await collaboratorPage.getByTitle('Source only').click()
-    await expect(collaboratorPage.locator('.cm-content'))
+    await expect(page.locator('.sync-status')).toHaveText('Suggesting')
+    await expect(page.getByRole('textbox', { name: 'MyST source' }))
       .toContainText('A reviewer-proposed sentence.')
+    await page.getByTitle('Open comments').click()
+    const liveProposal = page.locator('.live-proposal-card')
+    await expect(liveProposal).toContainText('Current live proposal')
+    await expect(liveProposal).toContainText('E2E Reviewer')
+    await expect(liveProposal.locator('.suggestion-line.added').filter({
+      hasText: 'reviewer-proposed',
+    })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Editing' })).toBeDisabled()
+    await expect(page.locator('.document-stats')
+      .getByTitle('Accept or discard the live proposal before saving to GitHub'))
+      .toBeDisabled()
 
-    await collaboratorPage.getByTitle('Close comments').click()
+    await liveProposal.getByRole('button', { name: 'Accept', exact: true }).click()
+    await expect(liveProposal).toHaveCount(0)
+    await expect(page.locator('.sync-status')).toHaveText('Live')
+    await expect(page.getByRole('button', { name: 'Editing' })).toHaveClass(/active/)
+    await expect(page.getByTitle('Save snapshot to GitHub')).toBeEnabled()
+    await expect(page.locator('.proposal-checkpoint').first()).toContainText('Accepted proposal')
+
     await replaceFirstVisualParagraph(
       collaboratorPage,
       'A reviewer-proposed sentence.',
       'A proposal that should be rejected.',
     )
-    const rejectedSuggestion = page.locator('.comment.suggestion-thread')
-      .filter({ hasText: 'A proposal that should be rejected.' })
-    await expect(rejectedSuggestion).toBeVisible()
-    await rejectedSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
-    await expect(rejectedSuggestion).toContainText('Rejected edit')
-    await expect(page.locator('.cm-content')).toContainText('A reviewer-proposed sentence.')
-    await expect(page.locator('.cm-suggestion-proposal')
-      .filter({ hasText: 'A proposal that should be rejected.' })).toHaveCount(0)
-
-    await collaboratorPage.getByTitle('Close comments').click()
-    await replaceFirstVisualParagraph(
-      collaboratorPage,
-      'A reviewer-proposed sentence.',
-      'A proposal with a stale source anchor.',
-    )
-    await page.getByTitle('Close comments').click()
-    await page.getByTitle('Source only').click()
-    const sourceEditor = page.getByRole('textbox', { name: 'MyST source' })
-    const canonicalAfterAcceptance = canonicalBeforeSuggestion.replace(
-      originalSource ?? '',
-      proposedSource ?? '',
-    )
-    await sourceEditor.fill(canonicalAfterAcceptance.replace(
-      proposedSource ?? '',
-      'A concurrent maintainer revision.',
-    ))
-    await expect(sourceEditor).toContainText('A concurrent maintainer revision.')
-    await page.getByTitle('Open comments').click()
-    const conflictedSuggestion = page.locator('.comment.suggestion-thread')
-      .filter({ hasText: 'A proposal with a stale source anchor.' })
-    await conflictedSuggestion.getByRole('button', { name: 'Accept', exact: true }).click()
-    await expect(conflictedSuggestion).toContainText('Conflicted edit')
-    await expect(page.locator('.cm-content')).toContainText('A concurrent maintainer revision.')
-    await expect(page.locator('.cm-suggestion-proposal')
-      .filter({ hasText: 'A proposal with a stale source anchor.' })).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: 'MyST source' }))
+      .toContainText('A proposal that should be rejected.')
+    await liveProposal.getByRole('button', { name: 'Reject', exact: true }).click()
+    await expect(liveProposal).toHaveCount(0)
+    await collaboratorPage.getByTitle('Source only').click()
+    await expect(collaboratorPage.locator('.cm-content')).toContainText('A reviewer-proposed sentence.')
+    await expect(collaboratorPage.locator('.cm-content'))
+      .not.toContainText('A proposal that should be rejected.')
+    await expect(page.locator('.proposal-checkpoint').first()).toContainText('Rejected proposal')
   } finally {
     await collaboratorContext.close()
   }
 })
 
-test('suggestion participant drafts in Source with a live Split preview', async ({ browser, page }, testInfo) => {
-  test.skip(testInfo.project.name.startsWith('mobile-'), 'Desktop Source drafting covers all engines')
+test('Source and Visual share one live proposal with suggesting maintainers', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile-'), 'Desktop live Source editing covers all engines')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
@@ -193,7 +149,6 @@ test('suggestion participant drafts in Source with a live Split preview', async 
   const reviewer = await reviewerContext.newPage()
   const original = 'A manuscript should be as inspectable as the analysis behind it.'
   const replacement = 'A manuscript should keep every source-level proposal inspectable before acceptance.'
-  const replacementFragment = 'keep every source-level proposal inspectable before acceptance'
   const remoteOriginal = 'The repository remains the durable record. Live updates are collected into deliberate snapshots, committed to a branch, and reviewed through a pull request.'
   const remoteReplacement = 'The repository remains the durable record while collaborators review source-level proposals.'
 
@@ -214,10 +169,10 @@ test('suggestion participant drafts in Source with a live Split preview', async 
     const expectedCanonical = sampleManuscript.replace(original, replacement)
     await reviewerSource.fill(expectedCanonical)
 
-    await expect(reviewer.getByText('Drafting a source proposal')).toBeVisible()
+    await expect(reviewer.getByText('Suggesting live')).toBeVisible()
     await expect(reviewer.locator('.myst-preview')).toContainText(replacement)
-    await expect(page.locator('.cm-suggestion-proposal')).toHaveCount(0)
-    await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText(original)
+    await expect(page.locator('.sync-status')).toHaveText('Suggesting')
+    await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText(replacement)
 
     await page.getByTitle('Visual editor').click()
     const remoteParagraph = page.locator('.myst-preview p.myst-editable-block')
@@ -225,86 +180,96 @@ test('suggestion participant drafts in Source with a live Split preview', async 
     await remoteParagraph.focus()
     await remoteParagraph.press('F2')
     await page.getByRole('textbox', { name: 'Edit paragraph' }).fill(remoteReplacement)
-    await page.getByTitle('Save visual edit').click()
+    await expect(reviewer.locator('.myst-preview')).toContainText(remoteReplacement)
+    await page.getByTitle('Finish visual edit').click()
     await expect(reviewer.locator('.myst-preview')).toContainText(replacement)
     await expect(reviewer.locator('.myst-preview')).toContainText(remoteReplacement)
-    await expect(reviewer.getByText('The manuscript changed in the same source range.')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Suggesting' })).toHaveClass(/active/)
 
-    await reviewer.getByRole('button', { name: 'Propose changes' }).click()
-    await expect(reviewer.getByText('Source suggestion ready for review')).toBeVisible()
     await page.getByTitle('Open comments').click()
-    const thread = page.locator('.comment.suggestion-thread')
-      .filter({ hasText: replacementFragment })
-    await expect(thread).toBeVisible()
-    await thread.locator('.comment-anchor-context').click()
-    const sourceProposal = page.locator('.cm-suggestion-proposal')
-      .filter({ hasText: replacementFragment })
-    await expect(sourceProposal).toBeVisible()
-    await expect(sourceProposal.locator('.cm-suggestion-author')).toHaveText('Source Reviewer')
-    await thread.getByRole('button', { name: 'Accept', exact: true }).click()
-    await expect(sourceProposal).toHaveCount(0)
-    await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText(replacement)
-    await expect(reviewer.locator('.myst-preview')).toContainText(replacement)
-
-    await reviewer.getByTitle('Close comments').click()
-    const canonicalWithRemote = expectedCanonical.replace(remoteOriginal, remoteReplacement)
-    const insertion = '\n\nA source-only insertion remains pending until review.'
-    await reviewerSource.fill(`${canonicalWithRemote}${insertion}`)
-    await expect(reviewer.locator('.myst-preview')).toContainText('A source-only insertion remains pending')
-    await reviewer.getByRole('button', { name: 'Propose changes' }).click()
-    const insertionProposal = page.locator('.cm-suggestion-proposal')
-      .filter({ hasText: 'A source-only insertion remains pending' })
-    await expect(insertionProposal).toBeVisible()
-    await insertionProposal.click()
-    const insertionThread = page.locator('.comment.suggestion-thread')
-      .filter({ hasText: 'A source-only insertion remains pending' })
-    await insertionThread.getByRole('button', { name: 'Reject', exact: true }).click()
-    await expect(insertionProposal).toHaveCount(0)
-    await expect(page.getByRole('textbox', { name: 'MyST source' }))
-      .not.toContainText('A source-only insertion remains pending')
+    const liveProposal = page.locator('.live-proposal-card')
+    await expect(liveProposal).toContainText('Source Reviewer')
+    await expect(liveProposal).toContainText('Integration Test')
+    await liveProposal.getByRole('button', { name: 'Accept', exact: true }).click()
+    await expect(liveProposal).toHaveCount(0)
+    await reviewer.getByTitle('Source only').click()
+    await expect(reviewerSource).toContainText(replacement)
+    await expect(reviewerSource).toContainText(remoteReplacement)
   } finally {
     await reviewerContext.close()
   }
 })
 
-test('overlapping Source and Visual edits stop without overwriting either draft', async ({ browser, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'Overlapping source conflict runs once')
+test('only authors edit comments and replies while everyone can reply', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Comment ownership runs once')
+  test.setTimeout(45_000)
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
-  const reviewerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
-  const reviewer = await reviewerContext.newPage()
-  const original = 'A manuscript should be as inspectable as the analysis behind it.'
-  const localReplacement = 'A manuscript should preserve the reviewer source draft.'
-  const remoteReplacement = 'A manuscript should preserve the maintainer visual revision.'
+  const openReviewer = async (name: string) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+    const reviewer = await context.newPage()
+    await reviewer.addInitScript((profileName) => {
+      window.localStorage.setItem('demystify.profile', JSON.stringify({
+        id: profileName,
+        name: profileName,
+        color: '#a64b36',
+        colorLight: '#f8e5df',
+      }))
+    }, name)
+    await reviewer.goto(`/?doc=${roomName}#collaborate=${token}`)
+    await reviewer.getByTitle('Open comments').click()
+    return { context, reviewer }
+  }
+  const first = await openReviewer('Reviewer A')
+  const second = await openReviewer('Reviewer B')
 
   try {
-    await reviewer.goto(`/?doc=${roomName}#collaborate=${token}`)
-    await expect(reviewer.locator('.sync-status')).toHaveText('Suggesting')
-    const reviewerSource = reviewer.getByRole('textbox', { name: 'MyST source' })
-    await reviewerSource.fill(sampleManuscript.replace(original, localReplacement))
-    await expect(reviewer.locator('.myst-preview')).toContainText(localReplacement)
+    await first.reviewer.getByRole('textbox', { name: 'New comment' }).fill('Original comment text.')
+    await first.reviewer.getByRole('button', { name: 'Comment', exact: true }).click()
+    const firstComment = first.reviewer.locator('.comment').filter({
+      has: first.reviewer.getByText('Reviewer A', { exact: true }),
+    })
+    const secondView = second.reviewer.locator('.comment').filter({
+      has: second.reviewer.getByText('Reviewer A', { exact: true }),
+    })
+    await expect(secondView).toBeVisible()
+    await page.getByTitle('Open comments').click()
+    const maintainerView = page.locator('.comment').filter({
+      has: page.getByText('Reviewer A', { exact: true }),
+    })
+    await expect(firstComment.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+    await expect(secondView.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
+    await expect(maintainerView.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
 
-    await page.getByTitle('Visual editor').click()
-    const paragraph = page.locator('.myst-preview p.myst-editable-block')
-      .filter({ hasText: original }).first()
-    await paragraph.focus()
-    await paragraph.press('F2')
-    await page.getByRole('textbox', { name: 'Edit paragraph' }).fill(remoteReplacement)
-    await page.getByTitle('Save visual edit').click()
+    await firstComment.getByRole('button', { name: 'Edit', exact: true }).click()
+    const commentEditor = firstComment.getByRole('textbox', { name: 'Edit comment by Reviewer A' })
+    await commentEditor.fill('Author-edited comment text.')
+    await first.reviewer.keyboard.press('Meta+Enter')
+    await expect(commentEditor).toHaveCount(0)
+    await expect(secondView).toContainText('Author-edited comment text.')
+    await expect(secondView).toContainText('edited')
 
-    await expect(reviewer.getByText('The current proposal changed in the same source range.'))
-      .toBeVisible()
-    await expect(reviewer.getByRole('button', { name: 'Propose changes' })).toBeDisabled()
-    await expect(reviewer.locator('.myst-preview')).toContainText(localReplacement)
-    await expect(page.locator('.myst-preview')).toContainText(remoteReplacement)
-
-    await reviewer.getByRole('button', { name: 'Discard' }).click()
-    await expect(reviewer.getByText('Drafting a source proposal')).toHaveCount(0)
-    await expect(reviewer.locator('.myst-preview')).toContainText(remoteReplacement)
-    await expect(reviewer.locator('.myst-preview')).not.toContainText(localReplacement)
+    await secondView.getByRole('textbox', { name: /Reply to comment by Reviewer A/ })
+      .fill('Reply from Reviewer B.')
+    await secondView.getByTitle('Reply').click()
+    const replyInFirst = firstComment.locator('.comment-reply').filter({
+      has: first.reviewer.getByText('Reviewer B', { exact: true }),
+    })
+    const replyInSecond = secondView.locator('.comment-reply').filter({
+      has: second.reviewer.getByText('Reviewer B', { exact: true }),
+    })
+    await expect(replyInFirst).toBeVisible()
+    await expect(replyInFirst.getByTitle('Edit your reply')).toHaveCount(0)
+    await replyInSecond.getByTitle('Edit your reply').click()
+    const replyEditor = replyInSecond.getByRole('textbox', { name: 'Edit reply by Reviewer B' })
+    await replyEditor.fill('Author-edited reply from Reviewer B.')
+    await second.reviewer.keyboard.press('Meta+Enter')
+    await expect(replyEditor).toHaveCount(0)
+    await expect(replyInFirst).toContainText('Author-edited reply from Reviewer B.')
   } finally {
-    await reviewerContext.close()
+    await first.context.close()
+    await second.context.close()
   }
 })
 
@@ -343,51 +308,31 @@ test('different reviewers edit one current proposal across Source and Visual', a
     await paragraph.focus()
     await paragraph.press('F2')
     await first.reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(firstProposal)
-    await first.reviewer.getByTitle('Save visual edit').click()
+    await first.reviewer.getByTitle('Finish visual edit').click()
 
-    await expect(second.reviewer.locator('.myst-suggestion-option')).toHaveCount(0)
     const sourceDraft = second.reviewer.getByRole('textbox', { name: 'MyST source' })
     await expect(sourceDraft).toContainText(firstProposal)
     await sourceDraft.fill(sampleManuscript.replace(original, revisedProposal))
     await expect(second.reviewer.locator('.myst-preview')).toContainText(revisedProposal)
     await expect(second.reviewer.locator('.myst-preview')).not.toContainText(firstProposal)
-    await second.reviewer.getByRole('button', { name: 'Propose changes' }).click()
 
-    await second.reviewer.getByTitle('Visual editor').click()
-    const currentParagraph = second.reviewer.locator('.myst-preview p.myst-editable-block')
+    await first.reviewer.getByTitle('Visual editor').click()
+    const currentParagraph = first.reviewer.locator('.myst-preview p.myst-editable-block')
       .filter({ hasText: revisedProposal })
     await currentParagraph.focus()
     await currentParagraph.press('F2')
-    await second.reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(finalProposal)
-    await second.reviewer.getByTitle('Save visual edit').click()
-    await second.reviewer.getByTitle('Source only').click()
-    await expect(second.reviewer.getByRole('textbox', { name: 'MyST source' }))
-      .toContainText(finalProposal)
-    await expect(second.reviewer.getByRole('textbox', { name: 'MyST source' }))
-      .not.toContainText(revisedProposal)
+    await first.reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(finalProposal)
+    await first.reviewer.getByTitle('Finish visual edit').click()
+    await expect(second.reviewer.locator('.myst-preview')).toContainText(finalProposal)
+    await expect(second.reviewer.locator('.myst-preview')).not.toContainText(revisedProposal)
 
     await page.getByTitle('Open comments').click()
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: firstProposal }))
-      .toContainText('Earlier revision')
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: revisedProposal }))
-      .toContainText('Earlier revision')
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: finalProposal }))
-      .toContainText('Suggested edit')
-    await page.getByTitle('Close comments').click()
-    await page.getByTitle('Visual editor').click()
-    const alternatives = page.locator('.myst-suggestion-option')
-    await expect(alternatives).toHaveCount(1)
-    await expect(alternatives).toContainText(finalProposal)
-    await expect(alternatives).toContainText('Second Reviewer')
-    await expect(page.locator('.myst-preview')).not.toContainText(firstProposal)
-    await expect(page.locator('.myst-preview')).not.toContainText(revisedProposal)
-
-    await alternatives.click()
-    const revisedThread = page.locator('.comment.suggestion-thread').filter({
-      has: page.getByText('Second Reviewer', { exact: true }),
-    }).filter({ hasText: finalProposal })
-    await revisedThread.getByRole('button', { name: 'Accept', exact: true }).click()
-    await expect(revisedThread).toContainText('Accepted edit')
+    const liveProposal = page.locator('.live-proposal-card')
+    await expect(liveProposal).toContainText('First Reviewer')
+    await expect(liveProposal).toContainText('Second Reviewer')
+    await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText(finalProposal)
+    await expect(page.locator('.myst-suggestion-option')).toHaveCount(0)
+    await liveProposal.getByRole('button', { name: 'Accept', exact: true }).click()
     await page.getByTitle('Visual editor').click()
     await expect(page.locator('.myst-preview')).toContainText(finalProposal)
   } finally {
@@ -396,14 +341,13 @@ test('different reviewers edit one current proposal across Source and Visual', a
   }
 })
 
-test('concurrent same-range proposals project one current version', async ({ browser, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'Concurrent current-version projection runs once')
+test('concurrent Source typing converges into one live proposal', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Concurrent CRDT typing runs once')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
-  const original = 'A manuscript should be as inspectable as the analysis behind it.'
 
-  const createReviewer = async (name: string, proposedText: string) => {
+  const createReviewer = async (name: string) => {
     const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
     const reviewer = await context.newPage()
     await reviewer.addInitScript(({ profileName }) => {
@@ -415,45 +359,44 @@ test('concurrent same-range proposals project one current version', async ({ bro
       }))
     }, { profileName: name })
     await reviewer.goto(`/?doc=${roomName}#collaborate=${token}`)
-    await reviewer.getByTitle('Visual editor').click()
-    const paragraph = reviewer.locator('.myst-preview p.myst-editable-block')
-      .filter({ hasText: original }).first()
-    await paragraph.focus()
-    await paragraph.press('F2')
-    await reviewer.getByRole('textbox', { name: 'Edit paragraph' }).fill(proposedText)
     return { context, reviewer }
   }
 
-  const firstText = 'Reviewer A proposes transparent analysis provenance.'
-  const secondText = 'Reviewer B proposes inspectable evidence and provenance.'
-  const first = await createReviewer('Reviewer A', firstText)
-  const second = await createReviewer('Reviewer B', secondText)
+  const firstText = 'Reviewer A adds transparent analysis provenance.'
+  const secondText = 'Reviewer B adds inspectable supporting evidence.'
+  const first = await createReviewer('Reviewer A')
+  const second = await createReviewer('Reviewer B')
   try {
+    const firstSource = first.reviewer.getByRole('textbox', { name: 'MyST source' })
+    const secondSource = second.reviewer.getByRole('textbox', { name: 'MyST source' })
     await Promise.all([
-      first.reviewer.getByTitle('Save visual edit').click(),
-      second.reviewer.getByTitle('Save visual edit').click(),
+      firstSource.press('Meta+End'),
+      secondSource.press('Meta+End'),
     ])
-    await page.getByTitle('Visual editor').click()
-    const currentProposal = page.locator('.myst-suggestion-option')
-    await expect(currentProposal).toHaveCount(1)
-    const currentText = await currentProposal.locator('.myst-suggestion-insertion').innerText()
-    expect([firstText, secondText]).toContain(currentText)
-    await page.getByTitle('Source only').click()
-    await expect(page.locator('.cm-suggestion-deletion')).toHaveCount(1)
-    await expect(page.locator('.cm-suggestion-proposal')).toHaveCount(1)
+    await Promise.all([
+      firstSource.pressSequentially(`\n\n${firstText}`),
+      secondSource.pressSequentially(`\n\n${secondText}`),
+    ])
+    for (const sessionPage of [first.reviewer, second.reviewer, page]) {
+      await expect(sessionPage.locator('.myst-preview')).toContainText(firstText)
+      await expect(sessionPage.locator('.myst-preview')).toContainText(secondText)
+    }
     await page.getByTitle('Open comments').click()
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: 'Earlier revision' }))
-      .toHaveCount(1)
-    await expect(page.locator('.comment.suggestion-thread').filter({ hasText: 'Suggested edit' }))
-      .toHaveCount(1)
+    const liveProposal = page.locator('.live-proposal-card')
+    await expect(liveProposal).toHaveCount(1)
+    await expect(liveProposal).toContainText('Reviewer A')
+    await expect(liveProposal).toContainText('Reviewer B')
+    await expect(page.getByText('Earlier revision')).toHaveCount(0)
+    await liveProposal.getByRole('button', { name: 'Accept', exact: true }).click()
+    await expect(liveProposal).toHaveCount(0)
   } finally {
     await first.context.close()
     await second.context.close()
   }
 })
 
-test('keeps a pending suggestion in the mobile reading flow', async ({ browser, page }, testInfo) => {
-  test.skip(!testInfo.project.name.startsWith('mobile-'), 'Mobile inline geometry runs on phone projects')
+test('keeps a live proposal in the mobile reading flow', async ({ browser, page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile-'), 'Mobile live review geometry runs on phone projects')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
   const token = await createShareToken(page, roomName, 'collaborator')
@@ -473,50 +416,34 @@ test('keeps a pending suggestion in the mobile reading flow', async ({ browser, 
     await expect(reviewerPage.locator('.sync-status')).toHaveText('Suggesting')
     await reviewerPage.getByTitle('Visual editor').click()
     const target = reviewerPage.locator('.myst-preview p.myst-editable-block').first()
-    const original = await target.textContent()
-    expect(original).toBeTruthy()
     await target.focus()
     await target.press('F2')
     await reviewerPage.getByRole('textbox', { name: 'Edit paragraph' })
       .fill('A long attributed proposal that remains readable and wraps naturally on a narrow phone viewport.')
-    await reviewerPage.getByTitle('Save visual edit').click()
+    await expect(reviewerPage.getByText('Live', { exact: true })).toBeVisible()
 
     await page.getByTitle('Visual editor').click()
-    const inline = page.locator('.myst-inline-suggestion').first()
-    const inlineProposal = inline.locator('.myst-suggestion-option').first()
-    await expect(inline.locator('del')).toContainText(original ?? '')
-    await expect(inlineProposal.locator('ins')).toContainText('A long attributed proposal')
-    await expect(inlineProposal.locator('.myst-suggestion-author')).toHaveText('Mobile Reviewer')
-
+    await expect(page.locator('.myst-preview')).toContainText('A long attributed proposal')
+    await page.getByTitle('Open comments').click()
+    await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+    const liveProposal = page.locator('.live-proposal-card')
+    await expect(liveProposal).toContainText('Mobile Reviewer')
     const viewport = page.viewportSize()
-    const bounds = await inline.boundingBox()
+    const bounds = await liveProposal.boundingBox()
     expect(viewport).not.toBeNull()
     expect(bounds).not.toBeNull()
     if (viewport && bounds) {
       expect(bounds.x).toBeGreaterThanOrEqual(0)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width)
     }
-
-    await inlineProposal.click()
-    await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
-    await expect(page.locator('.comment.suggestion-thread').first())
-      .toContainText('Mobile Reviewer')
     await page.getByTitle('Close comments').click()
 
     await page.getByTitle('Source only').click()
-    const sourceProposal = page.locator('.cm-suggestion-proposal').first()
-    await expect(sourceProposal).toBeVisible()
-    await expect(sourceProposal.locator('.cm-suggestion-source'))
+    await expect(page.getByRole('textbox', { name: 'MyST source' }))
       .toContainText('A long attributed proposal')
-    await expect(sourceProposal.locator('.cm-suggestion-author')).toHaveText('Mobile Reviewer')
-    const sourceBounds = await sourceProposal.boundingBox()
-    expect(sourceBounds).not.toBeNull()
-    if (viewport && sourceBounds) {
-      expect(sourceBounds.x).toBeGreaterThanOrEqual(0)
-      expect(sourceBounds.x + sourceBounds.width).toBeLessThanOrEqual(viewport.width)
-    }
-    await sourceProposal.click()
-    await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(viewport?.width ?? 0)
+    await reviewerPage.getByTitle('Finish visual edit').click()
   } finally {
     await reviewerContext.close()
   }
@@ -543,6 +470,9 @@ test('queues local edits while disconnected and converges after reconnecting', a
   try {
     await viewerPage.goto(`/?doc=${roomName}#view=${token}`)
     await expect(viewerPage.getByText('Viewer access', { exact: true })).toBeVisible()
+    const sampleNote = 'The live preview is generated from the official JavaScript MyST parser.'
+    await expect(page.locator('.myst-preview')).toContainText(sampleNote)
+    await expect(viewerPage.locator('.myst-preview')).toContainText(sampleNote)
     const initialNoteCount = await noteCount(page)
     await expect.poll(() => noteCount(viewerPage)).toBe(initialNoteCount)
 

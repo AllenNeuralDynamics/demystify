@@ -124,6 +124,8 @@ export interface CollaborationRoom {
   review: RoomReview | null
   nextRoomName: string | null
   access: 'editor' | 'viewer' | 'collaborator'
+  actorId: string
+  ownedActorIds: string[]
   viewerLink: {
     createdAt: string
     expiresAt: string | null
@@ -175,12 +177,17 @@ export const activateShareSession = async (
   roomName: string,
   token: string,
   role: AnonymousShareRole,
+  actorName: string,
 ) => {
   const response = await fetch(
     `/api/rooms/${encodeURIComponent(roomName)}/${role}-session`,
     {
       method: 'POST',
-      headers: { 'X-Demystify-Share-Token': token },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Demystify-Share-Token': token,
+      },
+      body: JSON.stringify({ actorName }),
     },
   )
   if (!response.ok) {
@@ -342,6 +349,7 @@ export const createSnapshot = (
   bibliography?: string | ProjectConfigSnapshot,
   mystConfig?: ProjectConfigSnapshot,
   projectFiles?: ProjectConfigSnapshot[],
+  commitMessage?: string,
 ) =>
   apiRequest<SnapshotResult>(`/api/rooms/${encodeURIComponent(roomName)}/snapshots`, {
     method: 'POST',
@@ -350,8 +358,20 @@ export const createSnapshot = (
       ...(bibliography === undefined ? {} : { bibliography }),
       ...(mystConfig === undefined ? {} : { mystConfig }),
       ...(projectFiles?.length ? { projectFiles } : {}),
+      ...(commitMessage ? { commitMessage } : {}),
     }),
   })
+
+export const decideLiveProposal = (
+  roomName: string,
+  status: 'accepted' | 'rejected',
+) => apiRequest<{ id: string; status: 'accepted' | 'rejected' }>(
+  `/api/rooms/${encodeURIComponent(roomName)}/proposal-decision`,
+  {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  },
+)
 
 export const searchPapers = async (roomName: string, query: string) => {
   const parameters = new URLSearchParams({ q: query })

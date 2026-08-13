@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, createRef, forwardRef, useImperativeHandle } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCollaboration } from './useCollaboration'
@@ -57,10 +57,24 @@ const profile = {
   colorLight: '#dcefe9',
 }
 
-const CollaborationHarness = ({ active = true }: { active?: boolean }) => {
-  useCollaboration('visibility-test-room', profile, '# Draft', true, false, active)
+const CollaborationHarness = forwardRef<ReturnType<typeof useCollaboration>, {
+  active?: boolean
+  actorId?: string
+}>(function CollaborationHarness({
+  active = true,
+  actorId = profile.id,
+}, ref) {
+  const collaboration = useCollaboration(
+    'visibility-test-room',
+    { ...profile, id: actorId },
+    '# Draft',
+    true,
+    false,
+    active,
+  )
+  useImperativeHandle(ref, () => collaboration, [collaboration])
   return null
-}
+})
 
 describe('useCollaboration connection lifecycle', () => {
   beforeEach(() => {
@@ -93,5 +107,40 @@ describe('useCollaboration connection lifecycle', () => {
 
     await act(async () => root.unmount())
     expect(provider.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('edits only an existing ordinary comment body without blocking', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+
+    let commentId: string | undefined
+    await act(async () => {
+      commentId = collaborationRef.current?.addComment('Original comment')
+    })
+    expect(commentId).toBeTruthy()
+    await act(async () => {
+      expect(collaborationRef.current?.editComment(commentId ?? '', 'Edited comment')).toBe(true)
+    })
+    expect(collaborationRef.current?.comments).toEqual([
+      expect.objectContaining({ id: commentId, body: 'Edited comment' }),
+    ])
+
+    await act(async () => root.unmount())
+  })
+
+  it('reconnects with a new provider when the authorized actor changes', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () => root.render(<CollaborationHarness actorId="share:guest" />))
+    const guestProvider = providerInstances[0]
+
+    await act(async () => root.render(<CollaborationHarness actorId="github:42" />))
+    expect(guestProvider.destroy).toHaveBeenCalledOnce()
+    expect(providerInstances).toHaveLength(2)
+    expect(providerInstances[1].connect).toHaveBeenCalledOnce()
+
+    await act(async () => root.unmount())
   })
 })
