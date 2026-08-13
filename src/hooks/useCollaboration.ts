@@ -46,6 +46,7 @@ export interface SharedSuggestion {
   filePath: string
   before: string
   after: string
+  supersedes?: string[]
   status: SharedSuggestionStatus
   decidedAt?: string
   decidedById?: string
@@ -626,6 +627,7 @@ export const useCollaboration = (
     replacement: string,
     path: string,
     primaryPath: string,
+    supersedes: string[] = [],
   ): { result: CollaborativeTextEditResult; suggestionId?: string } => {
     if (!session || readOnly) return { result: 'unavailable' }
     const text = path === primaryPath ? session.text : session.projectFiles.get(path)
@@ -654,6 +656,7 @@ export const useCollaboration = (
         filePath: path,
         before: anchor.expectedText,
         after: normalizedReplacement,
+        ...(supersedes.length > 0 ? { supersedes: Array.from(new Set(supersedes)) } : {}),
         status: 'pending',
       },
     })

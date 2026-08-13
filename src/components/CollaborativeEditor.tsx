@@ -15,10 +15,8 @@ import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import { getCommentRange } from '../lib/commentAnchors'
 import {
-  getTextReplacement,
   rebaseTextDraft,
   type CollaborativeTextEditResult,
-  type TextReplacement,
 } from '../lib/collaborativeTextEdit'
 import { getCitationInsertion } from '../lib/citationInsertion'
 import {
@@ -49,12 +47,13 @@ interface CollaborativeEditorProps {
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
-  onProposeSourceEdit?: (replacement: TextReplacement) => {
+  onProposeSourceEdit?: (draft: string) => {
     result: CollaborativeTextEditResult
     suggestionId?: string
   }
   onSourceDraftChange?: (draft: string | null) => void
   readOnly?: boolean
+  suggestionBaseContent?: string
   suggestionMode?: boolean
   suggestionHighlights?: SourceSuggestionHighlight[]
 }
@@ -301,12 +300,14 @@ export const CollaborativeEditor = forwardRef<
   onProposeSourceEdit,
   onSourceDraftChange,
   readOnly = false,
+  suggestionBaseContent,
   suggestionMode = false,
   suggestionHighlights = [],
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
-  const draftBaseRef = useRef(sharedText.toString())
+  const draftBaseRef = useRef(suggestionBaseContent ?? sharedText.toString())
+  const suggestionBaseContentRef = useRef(suggestionBaseContent ?? sharedText.toString())
   const draftDirtyRef = useRef(false)
   const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
@@ -334,7 +335,7 @@ export const CollaborativeEditor = forwardRef<
 
     const undoManager = new Y.UndoManager(sharedText)
     const state = EditorState.create({
-      doc: sharedText.toString(),
+      doc: suggestionMode ? suggestionBaseContentRef.current : sharedText.toString(),
       extensions: [
         basicSetup,
         markdown(),
@@ -385,53 +386,55 @@ export const CollaborativeEditor = forwardRef<
     })
     const view = new EditorView({ state, parent: containerRef.current })
     viewRef.current = view
-    draftBaseRef.current = sharedText.toString()
+    draftBaseRef.current = suggestionMode
+      ? suggestionBaseContentRef.current
+      : sharedText.toString()
     draftDirtyRef.current = false
     setDraftDirty(false)
     setDraftError(null)
     onSourceDraftChangeRef.current?.(null)
 
-    const syncCanonicalSource = () => {
-      if (!suggestionMode) return
-      const canonical = sharedText.toString()
-      if (draftDirtyRef.current) {
-        if (canonical === draftBaseRef.current) return
-        const rebasedDraft = rebaseTextDraft(
-          draftBaseRef.current,
-          view.state.doc.toString(),
-          canonical,
-        )
-        if (rebasedDraft === null) {
-          setDraftError('The manuscript changed in the same source range. Discard and reopen the latest source before proposing.')
-          return
-        }
-        syncingDraftRef.current = true
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: rebasedDraft },
-        })
-        syncingDraftRef.current = false
-        draftBaseRef.current = canonical
-        setDraftError(null)
-        onSourceDraftChangeRef.current?.(rebasedDraft)
-        return
-      }
-      draftBaseRef.current = canonical
-      if (view.state.doc.toString() === canonical) return
-      syncingDraftRef.current = true
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: canonical },
-      })
-      syncingDraftRef.current = false
-    }
-    sharedText.observe(syncCanonicalSource)
-
     return () => {
-      sharedText.unobserve(syncCanonicalSource)
       view.destroy()
       undoManager.destroy()
       viewRef.current = null
     }
   }, [provider, sharedText, suggestionMode])
+
+  useEffect(() => {
+    if (!suggestionMode) return
+    const nextBase = suggestionBaseContent ?? sharedText.toString()
+    suggestionBaseContentRef.current = nextBase
+    const view = viewRef.current
+    if (!view || nextBase === draftBaseRef.current) return
+    if (draftDirtyRef.current) {
+      const rebasedDraft = rebaseTextDraft(
+        draftBaseRef.current,
+        view.state.doc.toString(),
+        nextBase,
+      )
+      if (rebasedDraft === null) {
+        setDraftError('The current proposal changed in the same source range. Discard to load the shared version.')
+        return
+      }
+      syncingDraftRef.current = true
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: rebasedDraft },
+      })
+      syncingDraftRef.current = false
+      draftBaseRef.current = nextBase
+      setDraftError(null)
+      onSourceDraftChangeRef.current?.(rebasedDraft)
+      return
+    }
+    draftBaseRef.current = nextBase
+    if (view.state.doc.toString() === nextBase) return
+    syncingDraftRef.current = true
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: nextBase },
+    })
+    syncingDraftRef.current = false
+  }, [sharedText, suggestionBaseContent, suggestionMode])
 
   useEffect(() => {
     readOnlyRef.current = readOnly
@@ -462,15 +465,16 @@ export const CollaborativeEditor = forwardRef<
         to < from ||
         to > sharedText.length
       ) return false
-      const canonical = sharedText.toString()
-      const draft = `${canonical.slice(0, from)}${replacement}${canonical.slice(to)}`
+      const currentBase = suggestionBaseContentRef.current
+      if (to > currentBase.length) return false
+      const draft = `${currentBase.slice(0, from)}${replacement}${currentBase.slice(to)}`
       syncingDraftRef.current = true
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: draft },
         selection: { anchor: from, head: from + replacement.length },
       })
       syncingDraftRef.current = false
-      draftBaseRef.current = canonical
+      draftBaseRef.current = currentBase
       draftDirtyRef.current = true
       setDraftDirty(true)
       setDraftError(null)
@@ -560,7 +564,9 @@ export const CollaborativeEditor = forwardRef<
   const resetSourceDraft = () => {
     const view = viewRef.current
     if (!view) return
-    const canonical = sharedText.toString()
+    const canonical = suggestionMode
+      ? suggestionBaseContentRef.current
+      : sharedText.toString()
     syncingDraftRef.current = true
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: canonical },
@@ -578,17 +584,13 @@ export const CollaborativeEditor = forwardRef<
   const submitSourceDraft = () => {
     const view = viewRef.current
     if (!view || !suggestionMode || !onProposeSourceEditRef.current) return
-    const canonical = sharedText.toString()
-    if (canonical !== draftBaseRef.current) {
-      setDraftError('The manuscript changed while you were drafting. Discard and reopen the latest source before proposing.')
-      return
-    }
-    const replacement = getTextReplacement(draftBaseRef.current, view.state.doc.toString())
-    if (!replacement) {
+    if (draftError) return
+    const draft = view.state.doc.toString()
+    if (draft === draftBaseRef.current) {
       resetSourceDraft()
       return
     }
-    const proposal = onProposeSourceEditRef.current(replacement)
+    const proposal = onProposeSourceEditRef.current(draft)
     if (proposal.result !== 'applied' || !proposal.suggestionId) {
       setDraftError(
         proposal.result === 'conflict'
@@ -597,7 +599,12 @@ export const CollaborativeEditor = forwardRef<
       )
       return
     }
-    resetSourceDraft()
+    suggestionBaseContentRef.current = draft
+    draftBaseRef.current = draft
+    draftDirtyRef.current = false
+    setDraftDirty(false)
+    setDraftError(null)
+    onSourceDraftChangeRef.current?.(null)
   }
 
   return (
@@ -607,7 +614,7 @@ export const CollaborativeEditor = forwardRef<
         <div className="source-suggestion-draft" role="status">
           <div>
             <strong>{draftDirty ? 'Drafting a source proposal' : 'Suggesting in Source'}</strong>
-            <span>{draftError ?? 'Your typing stays local until you propose it; canonical MyST remains unchanged.'}</span>
+            <span>{draftError ?? 'Source and Visual show the same current proposal; canonical MyST changes only after acceptance.'}</span>
           </div>
           {draftDirty && (
             <div className="source-suggestion-draft-actions">

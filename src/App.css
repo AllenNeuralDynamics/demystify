@@ -1600,6 +1600,11 @@
   border-left-color: #9b5c18;
 }
 
+.suggestion-change.is-superseded {
+  border-left-color: #8a918d;
+  opacity: 0.78;
+}
+
 .suggestion-heading {
   display: flex;
   align-items: baseline;
