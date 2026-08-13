@@ -447,6 +447,12 @@ The August 13, 2026 live-Suggesting release `a85d2313` from application SHA
    mutation. At 1560x900 desktop and 390x844 mobile viewports, the document had
    no horizontal overflow, page exceptions, or server `5xx` responses, and the
    Source/Split/Visual controls remained available.
+- In the retained synthetic acceptance room, an authenticated maintainer created
+   temporary Suggestion and Viewer links. A reviewer proposal converged into the
+   read-only Viewer source with reviewer attribution, the authenticated snapshot
+   endpoint rejected the pending proposal with HTTP `409`, and an authenticated
+   rejection removed the marker from both clients. Both links were then revoked
+   with HTTP `204`, and the room reported no active sharing links.
 - Local and protected validation passed 221 unit/server tests, authenticated
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 52 executed Playwright checks across Chromium,
