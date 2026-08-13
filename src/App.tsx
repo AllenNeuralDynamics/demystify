@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   MessageSquare,
   Minus,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -268,9 +269,10 @@ function App() {
     pageActive,
     primaryEditMode,
   )
+  const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError)
   const isSuggestionMode = primaryEditMode === 'suggesting' ||
     collaboration.hasPendingWorkingChanges
-  const isStructuredEditorReadOnly = isReadOnly || isSuggestionMode
+  const isStructuredEditorReadOnly = effectiveReadOnly || isSuggestionMode
   const primaryFilePath = repositoryBinding?.path ?? 'manuscript.md'
   const projectFilePaths = useMemo(() => Array.from(new Set([
     primaryFilePath,
@@ -285,7 +287,7 @@ function App() {
     : primaryFilePath
   const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
-  const isSourceReadOnly = isReadOnly || (isSuggestionMode && !isPrimaryFile)
+  const isSourceReadOnly = effectiveReadOnly || (isSuggestionMode && !isPrimaryFile)
   const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
     ?? collaboration.sharedText
   const activeContent = isPrimaryFile
@@ -818,6 +820,18 @@ function App() {
     setCommentDraft('')
   }
 
+  const openCommentComposer = () => {
+    if (!isPrimaryFile) {
+      showNotice('Review comments on secondary project files are not available yet.')
+      return
+    }
+    setCommentsOpen(true)
+    setActiveCommentId(null)
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>('[aria-label="New comment"]')?.focus()
+    })
+  }
+
   const submitReply = (comment: SharedComment) => {
     const draft = replyDrafts[comment.id] ?? ''
     if (!collaboration.addCommentReply(comment.id, draft)) return
@@ -909,6 +923,17 @@ function App() {
     window.requestAnimationFrame(() => {
       editorRef.current?.revealRange(change.workingFrom, change.workingTo)
     })
+  }
+
+  const reviewChangesOrEnterEditing = () => {
+    if (!collaboration.hasPendingWorkingChanges) {
+      setMaintainerEditMode('editing')
+      return
+    }
+    const firstChange = liveProposalChanges[0]
+    if (firstChange) openLiveProposalChange(firstChange.id)
+    else setCommentsOpen(true)
+    showNotice('Accept all or discard all proposed changes before returning to Editing')
   }
 
   const retryCommentSync = (comment: SharedComment) => {
@@ -1022,6 +1047,21 @@ function App() {
     setVisualCitationInserter(null)
   }
 
+  useEffect(() => {
+    const openCommentsFromKeyboard = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== 'm' ||
+        !(event.metaKey || event.ctrlKey) ||
+        !event.altKey ||
+        blockingDialogOpen
+      ) return
+      event.preventDefault()
+      openCommentComposer()
+    }
+    window.addEventListener('keydown', openCommentsFromKeyboard)
+    return () => window.removeEventListener('keydown', openCommentsFromKeyboard)
+  })
+
   const openRepositoryFile = async (binding: RepositoryBinding, content: string) => {
     if (!canManageRepository) return
     const projectManifest = await loadRepositoryProjectFiles(binding)
@@ -1089,17 +1129,19 @@ function App() {
 
         <div className="document-identity">
           <span className="document-title">{title}</span>
-          <span className={`sync-status ${isArchived ? 'archived' : sharedAccessRole ? 'viewer' : collaboration.status}`}>
+          <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole ? 'viewer' : collaboration.status}`}>
             <span className="status-dot" />
             {isArchived
               ? 'Archived'
-              : isViewer
+              : collaboration.accessError
+                ? 'Access revoked'
+                : collaboration.status !== 'connected'
+                  ? collaboration.status
+                  : isViewer
                 ? 'Viewing'
                 : isSuggestionMode
                   ? 'Suggesting'
-                  : collaboration.status === 'connected'
-                    ? 'Live'
-                    : collaboration.status}
+                  : 'Live'}
           </span>
         </div>
 
@@ -1374,9 +1416,15 @@ function App() {
             <div className="archive-banner viewer-banner" role="status">
               <Eye size={18} />
               <div>
-                <strong>{isViewer ? 'Viewer access' : 'Suggestion mode'}</strong>
+                <strong>
+                  {collaboration.accessError
+                    ? 'Sharing access ended'
+                    : isViewer ? 'Viewer access' : 'Suggestion mode'}
+                </strong>
                 <span>
-                  {isViewer
+                  {collaboration.accessError
+                    ? collaboration.accessError
+                    : isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
                     : github.session?.user
                       ? 'Your GitHub identity labels live Source and Visual changes. Everyone sees them immediately; accepted MyST changes only when a maintainer accepts the proposal.'
@@ -1392,15 +1440,16 @@ function App() {
           ) : null}
           <div className="editor-toolbar">
             <div className="formatting-tools" aria-label="Authoring tools">
-              <button className="icon-button" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
+              <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
                 <Undo2 size={17} />
               </button>
-              <button className="icon-button" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
+              <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
                 <Redo2 size={17} />
               </button>
-              <span className="toolbar-divider" />
+              <span className="toolbar-divider collapsible-authoring-tool" />
               <MystInsertMenu
                 disabled={isSourceReadOnly || !isActiveMystSource}
+                onAddComment={openCommentComposer}
                 onInsert={(pattern) => editorRef.current?.insertSnippet(
                   pattern.template,
                   pattern.selectedTextPlaceholder,
@@ -1438,30 +1487,77 @@ function App() {
                 <Tags size={16} />
                 <span>Metadata</span>
               </button>
-              <span className="toolbar-divider" />
-              <button className="icon-button" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
+              <span className="toolbar-divider collapsible-authoring-tool" />
+              <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
                 <Bold size={17} />
               </button>
-              <button className="icon-button" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
+              <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
                 <Italic size={17} />
               </button>
-              <button className="icon-button" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
+              <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
                 <Code2 size={17} />
               </button>
             </div>
 
+            <details className="authoring-more">
+              <summary className="icon-button" title="More authoring tools" aria-label="More authoring tools">
+                <MoreHorizontal size={17} />
+              </summary>
+              <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
+                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  editorRef.current?.undo()
+                }}>
+                  <Undo2 size={15} /> Undo
+                </button>
+                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  editorRef.current?.redo()
+                }}>
+                  <Redo2 size={15} /> Redo
+                </button>
+                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  editorRef.current?.wrapSelection('**')
+                }}>
+                  <Bold size={15} /> Bold
+                </button>
+                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  editorRef.current?.wrapSelection('*')
+                }}>
+                  <Italic size={15} /> Italic
+                </button>
+                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  editorRef.current?.wrapSelection('`')
+                }}>
+                  <Code2 size={15} /> Inline code
+                </button>
+                <button type="button" role="menuitem" disabled={!isPrimaryFile} onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  openCommentComposer()
+                }}>
+                  <MessageSquare size={15} /> Add comment
+                </button>
+              </div>
+            </details>
+
             {isMaintainer && isPrimaryFile && (
               <div className="edit-mode-switcher" role="group" aria-label="Maintainer edit mode">
                 <button
-                  className={!isSuggestionMode ? 'active' : ''}
+                  className={!isSuggestionMode ? 'active' : collaboration.hasPendingWorkingChanges ? 'needs-review' : ''}
                   type="button"
                   title={collaboration.hasPendingWorkingChanges
-                    ? 'Accept or discard the live proposal before returning to Editing'
+                    ? 'Review proposed changes before returning to Editing'
                     : 'Editing changes accepted MyST directly'}
-                  disabled={!collaboration.isSynced || collaboration.hasPendingWorkingChanges}
-                  onClick={() => setMaintainerEditMode('editing')}
+                  disabled={!collaboration.isSynced}
+                  onClick={reviewChangesOrEnterEditing}
                 >
-                  <PencilLine size={15} /><span>Editing</span>
+                  {collaboration.hasPendingWorkingChanges
+                    ? <MessageSquare size={15} />
+                    : <PencilLine size={15} />}
+                  <span>{collaboration.hasPendingWorkingChanges ? 'Review changes' : 'Editing'}</span>
                 </button>
                 <button
                   className={isSuggestionMode ? 'active' : ''}
@@ -1545,9 +1641,9 @@ function App() {
               )}
             </section>
 
-            <section className="preview-pane" aria-label={isReadOnly ? 'Browser preview' : 'Visual document editor'}>
+            <section className="preview-pane" aria-label={effectiveReadOnly ? 'Browser preview' : 'Visual document editor'}>
               <div className="preview-label">
-                <span>{isReadOnly ? 'Browser preview' : 'Visual editor'}</span>
+                <span>{effectiveReadOnly ? 'Browser preview' : 'Visual editor'}</span>
                 <span>{collaboration.isSynced ? 'Live draft' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
@@ -1557,7 +1653,7 @@ function App() {
                   content={displayedContent}
                   liveEditing
                   editable={
-                    !isReadOnly &&
+                    !effectiveReadOnly &&
                     collaboration.isSynced &&
                     isActiveMystSource &&
                     (!isSuggestionMode || isPrimaryFile)
@@ -1614,14 +1710,14 @@ function App() {
                   <textarea
                     aria-label="New comment"
                     placeholder="Leave a comment..."
-                    disabled={isReadOnly}
+                    disabled={effectiveReadOnly}
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitComment()
                     }}
                   />
-                  <button className="button comment-button" type="button" disabled={isReadOnly || !commentDraft.trim()} onClick={submitComment}>
+                  <button className="button comment-button" type="button" disabled={effectiveReadOnly || !commentDraft.trim()} onClick={submitComment}>
                     Comment
                   </button>
                 </div>
@@ -1688,7 +1784,7 @@ function App() {
                             }
                             onClick={() => void decideCurrentProposal('rejected')}
                           >
-                            <X size={13} /> Reject
+                            <X size={13} /> Discard all
                           </button>
                           <button
                             className="accept"
@@ -1700,7 +1796,7 @@ function App() {
                             }
                             onClick={() => void decideCurrentProposal('accepted')}
                           >
-                            <Check size={13} /> Accept
+                            <Check size={13} /> Accept all
                           </button>
                         </div>
                       ) : (
@@ -1901,7 +1997,7 @@ function App() {
                         <input
                           aria-label={`Reply to comment by ${comment.authorName}`}
                           placeholder="Reply"
-                          disabled={isReadOnly}
+                          disabled={effectiveReadOnly}
                           value={replyDrafts[comment.id] ?? ''}
                           onFocus={() => setActiveCommentId(comment.id)}
                           onChange={(event) => setReplyDrafts((current) => ({
@@ -1917,7 +2013,7 @@ function App() {
                         <button
                           type="button"
                           title="Reply"
-                          disabled={isReadOnly || !(replyDrafts[comment.id] ?? '').trim()}
+                          disabled={effectiveReadOnly || !(replyDrafts[comment.id] ?? '').trim()}
                           onClick={() => submitReply(comment)}
                         >
                           <Reply size={14} />
@@ -1942,11 +2038,11 @@ function App() {
                         ) : (
                           <>
                             {ownedActorIds.includes(comment.authorId) && (
-                              <button type="button" disabled={isReadOnly} onClick={() => beginCommentEdit(comment)}>
+                              <button type="button" disabled={effectiveReadOnly} onClick={() => beginCommentEdit(comment)}>
                                 <PencilLine size={13} /> Edit
                               </button>
                             )}
-                            <button type="button" disabled={isReadOnly} onClick={() => collaboration.toggleComment(comment)}>
+                            <button type="button" disabled={effectiveReadOnly} onClick={() => collaboration.toggleComment(comment)}>
                               <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
                             </button>
                           </>

@@ -67,6 +67,15 @@ interface ActiveVisualEdit {
 
 const previewDelayMs = 400
 
+const enableSuggestionKeyboardActivation = (element: HTMLElement) => {
+  element.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    event.stopPropagation()
+    element.click()
+  })
+}
+
 export const MystPreview = memo(({
   assetBaseUrl,
   bibliography = '',
@@ -239,6 +248,7 @@ export const MystPreview = memo(({
           'aria-label',
           'Current proposed block. Press Enter to open this change in Review.',
         )
+        enableSuggestionKeyboardActivation(option)
 
         const insertion = document.createElement('ins')
         insertion.className = 'myst-suggestion-insertion'
@@ -277,6 +287,7 @@ export const MystPreview = memo(({
           'aria-label',
           `Suggested edit by ${suggestion.authorName}. Press Enter to open the review discussion.`,
         )
+        enableSuggestionKeyboardActivation(option)
 
         const insertion = document.createElement('ins')
         insertion.className = 'myst-suggestion-insertion'
@@ -389,12 +400,15 @@ export const MystPreview = memo(({
   }
 
   const handlePreviewKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Enter' && event.key !== 'F2') return
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'F2') return
     const target = event.target
     const suggestion = target instanceof Element
       ? target.closest<HTMLElement>('[data-myst-suggestion-id]')
       : null
-    if (suggestion?.dataset.mystSuggestionId && event.key === 'Enter') {
+    if (
+      suggestion?.dataset.mystSuggestionId &&
+      (event.key === 'Enter' || event.key === ' ')
+    ) {
       event.preventDefault()
       onSuggestionClick?.(suggestion.dataset.mystSuggestionId)
       return

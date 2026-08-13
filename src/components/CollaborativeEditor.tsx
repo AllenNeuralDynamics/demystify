@@ -408,6 +408,7 @@ export const CollaborativeEditor = forwardRef<
   const onCommentClickRef = useRef(onCommentClick)
   const readOnlyRef = useRef(readOnly)
   const readOnlyCompartmentRef = useRef(new Compartment())
+  const pointerSelectionRef = useRef<{ from: number; to: number } | null>(null)
 
   useEffect(() => {
     onCommentClickRef.current = onCommentClick
@@ -444,29 +445,75 @@ export const CollaborativeEditor = forwardRef<
             onCommentClickRef.current?.(commentId)
             return true
           },
-          keydown: (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return false
-            const target = event.target
-            if (!(target instanceof HTMLElement)) return false
-            const proposal = target.closest<HTMLElement>([
-              '.cm-suggestion-proposal',
-              '.cm-suggestion-insertion',
-              '.cm-suggestion-deletion-widget',
-            ].join(', '))
-            const commentId = proposal?.dataset.commentId
-            if (!commentId) return false
-            event.preventDefault()
-            onCommentClickRef.current?.(commentId)
-            return true
-          },
         }),
         yCollab(sharedText, provider.awareness, { undoManager }),
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
+    let pointerSelectionAnchor: number | null = null
+    const beginPointerSelection = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      pointerSelectionRef.current = null
+      pointerSelectionAnchor = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    }
+    const finishPointerSelection = (event: PointerEvent) => {
+      const anchor = pointerSelectionAnchor
+      pointerSelectionAnchor = null
+      if (anchor === null) return
+      const head = view.posAtCoords({ x: event.clientX, y: event.clientY })
+      if (head === null || head === anchor) return
+      pointerSelectionRef.current = {
+        from: Math.min(anchor, head),
+        to: Math.max(anchor, head),
+      }
+      window.requestAnimationFrame(() => {
+        view.dispatch({ selection: { anchor, head } })
+      })
+    }
+    const clearPointerSelectionFromKeyboard = (event: KeyboardEvent) => {
+      if (
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        ['Alt', 'Control', 'Meta', 'Shift'].includes(event.key)
+      ) return
+      pointerSelectionRef.current = null
+    }
+    const clearPointerSelection = () => {
+      pointerSelectionRef.current = null
+    }
+    const activateReviewFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const proposal = target.closest<HTMLElement>([
+        '.cm-suggestion-proposal',
+        '.cm-suggestion-insertion',
+        '.cm-suggestion-deletion-widget',
+      ].join(', '))
+      const commentId = proposal?.dataset.commentId
+      if (!commentId) return
+      event.preventDefault()
+      event.stopPropagation()
+      onCommentClickRef.current?.(commentId)
+    }
+    view.contentDOM.addEventListener('pointerdown', beginPointerSelection)
+    view.contentDOM.addEventListener('pointerup', finishPointerSelection)
+    view.contentDOM.addEventListener('keydown', clearPointerSelectionFromKeyboard, true)
+    view.contentDOM.addEventListener('cut', clearPointerSelection)
+    view.contentDOM.addEventListener('input', clearPointerSelection)
+    view.contentDOM.addEventListener('paste', clearPointerSelection)
+    view.dom.addEventListener('keydown', activateReviewFromKeyboard, true)
     viewRef.current = view
 
     return () => {
+      view.contentDOM.removeEventListener('pointerdown', beginPointerSelection)
+      view.contentDOM.removeEventListener('pointerup', finishPointerSelection)
+      view.contentDOM.removeEventListener('keydown', clearPointerSelectionFromKeyboard, true)
+      view.contentDOM.removeEventListener('cut', clearPointerSelection)
+      view.contentDOM.removeEventListener('input', clearPointerSelection)
+      view.contentDOM.removeEventListener('paste', clearPointerSelection)
+      view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
       view.destroy()
       undoManager.destroy()
       viewRef.current = null
@@ -502,7 +549,8 @@ export const CollaborativeEditor = forwardRef<
     wrapSelection: (before, after = before) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current) return
-      const { from, to } = view.state.selection.main
+      const { from, to } = pointerSelectionRef.current ?? view.state.selection.main
+      pointerSelectionRef.current = null
       const selectedText = view.state.sliceDoc(from, to)
       view.dispatch({
         changes: { from, to, insert: `${before}${selectedText}${after}` },
@@ -513,7 +561,8 @@ export const CollaborativeEditor = forwardRef<
     insertSnippet: (template, selectedTextPlaceholder) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current) return
-      const { from, to } = view.state.selection.main
+      const { from, to } = pointerSelectionRef.current ?? view.state.selection.main
+      pointerSelectionRef.current = null
       const selectedText = view.state.sliceDoc(from, to)
       const resolvedTemplate = fillSnippetSelection(
         template,
@@ -526,7 +575,8 @@ export const CollaborativeEditor = forwardRef<
     insertText: (text) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current || !text) return
-      const { from, to } = view.state.selection.main
+      const { from, to } = pointerSelectionRef.current ?? view.state.selection.main
+      pointerSelectionRef.current = null
       view.dispatch({
         changes: { from, to, insert: text },
         selection: { anchor: from + text.length },
@@ -536,7 +586,8 @@ export const CollaborativeEditor = forwardRef<
     insertCitation: (citation) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current || !citation) return
-      const { from, to } = view.state.selection.main
+      const { from, to } = pointerSelectionRef.current ?? view.state.selection.main
+      pointerSelectionRef.current = null
       const insertion = getCitationInsertion(
         view.state.doc.toString(),
         from,
@@ -552,7 +603,7 @@ export const CollaborativeEditor = forwardRef<
     getCommentSelection: () => {
       const view = viewRef.current
       if (!view) return null
-      const selection = view.state.selection.main
+      const selection = pointerSelectionRef.current ?? view.state.selection.main
       const range = getCommentRange(
         view.state.doc.toString(),
         selection.from,

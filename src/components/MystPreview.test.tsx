@@ -200,6 +200,24 @@ describe('MystPreview', () => {
     })
     expect(onSuggestionClick).toHaveBeenCalledWith('live-inline-6-11')
 
+    await act(async () => {
+      paragraph?.querySelector<HTMLElement>('.myst-suggestion-option')
+        ?.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'Enter',
+        }))
+    })
+    expect(onSuggestionClick).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      paragraph?.querySelector<HTMLElement>('.myst-suggestion-option')
+        ?.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: ' ',
+        }))
+    })
+    expect(onSuggestionClick).toHaveBeenCalledTimes(3)
+
     await act(async () => root.unmount())
   })
 

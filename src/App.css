@@ -560,11 +560,12 @@
   z-index: 5;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr);
   align-items: center;
   padding: 0 9px;
   border-bottom: 1px solid var(--line);
   background: white;
+  container-type: inline-size;
 }
 
 .editor-toolbar:has(.myst-insert-trigger.active) {
@@ -596,6 +597,71 @@
 
 .formatting-tools::-webkit-scrollbar {
   display: none;
+}
+
+.authoring-more {
+  position: relative;
+  width: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.authoring-more summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.authoring-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.authoring-more-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 10px 28px rgba(25, 34, 28, 0.18);
+}
+
+.authoring-more-menu button {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+}
+
+.authoring-more-menu button:hover,
+.authoring-more-menu button:focus-visible {
+  background: #edf5f1;
+}
+
+.authoring-more-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@container (max-width: 1240px) {
+  .formatting-tools > .collapsible-authoring-tool {
+    display: none;
+  }
+
+  .authoring-more {
+    width: auto;
+    visibility: visible;
+    pointer-events: auto;
+  }
 }
 
 .myst-insert-menu {
@@ -931,6 +997,12 @@
 .edit-mode-switcher button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.edit-mode-switcher button.needs-review {
+  border-color: #c97b66;
+  background: #fff4f1;
+  color: #843426;
 }
 
 .document-stats {
@@ -3856,7 +3928,7 @@
   }
 
   .editor-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
     gap: 4px;
   }
 

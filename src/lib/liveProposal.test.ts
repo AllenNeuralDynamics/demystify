@@ -89,4 +89,28 @@ describe('getLiveProposalInlineChanges', () => {
     expect(changes.some((change) => change.after.includes('long attributed proposal')))
       .toBe(true)
   })
+
+  it('shows only the removed suffix when deleting within a word', () => {
+    expect(getLiveProposalInlineChanges('studies', 'studie')).toEqual([{
+      id: 'live-inline-6-7',
+      from: 6,
+      to: 7,
+      workingFrom: 6,
+      workingTo: 6,
+      before: 's',
+      after: '',
+    }])
+  })
+
+  it('shows only the inserted suffix when extending a word', () => {
+    expect(getLiveProposalInlineChanges('studie', 'studies')).toEqual([{
+      id: 'live-inline-6-6',
+      from: 6,
+      to: 6,
+      workingFrom: 6,
+      workingTo: 7,
+      before: '',
+      after: 's',
+    }])
+  })
 })

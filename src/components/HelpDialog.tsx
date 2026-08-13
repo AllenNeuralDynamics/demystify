@@ -51,14 +51,14 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
             <span className="help-step-icon"><Radio size={18} /></span>
             <div>
               <strong>Live room</strong>
-              <p>Text, cursors, and comments synchronize immediately. Nothing is committed while you type.</p>
+              <p>Text, cursors, and comments synchronize immediately. Select Source text to copy, cut, format, or anchor a comment; press Command/Control+Option+M to open the comment composer. Nothing is committed while you type.</p>
             </div>
           </li>
           <li>
             <span className="help-step-icon"><Eye size={18} /></span>
             <div>
               <strong>Browser preview</strong>
-              <p>A fast reading aid for the open MyST file. It updates after a short pause and uses committed static figures; repository plugins, styles, and interactive figures remain part of the publication build.</p>
+              <p>A fast reading aid for the open MyST file. It updates after a short pause and uses committed static figures. Split panes scroll independently; use the outline or select an inline review change to align Source. Repository plugins, styles, and interactive figures remain part of the publication build.</p>
             </div>
           </li>
           <li>
@@ -72,7 +72,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
 
         <div className="help-comment-note">
           <MessageSquareText size={17} />
-          <p>Suggestion links open one live working manuscript in Source and Visual. Everyone sees edits immediately; a maintainer accepts or rejects the current checkpoint before submitting accepted MyST to GitHub. Only an author can edit their comment or reply, while everyone with editing access can reply.</p>
+          <p>Suggestion links open one live working manuscript in Source and Visual. Everyone sees edits immediately. Pending changes turn Editing into Review changes; a maintainer then accepts all or discards all before submitting accepted MyST to GitHub. Only an author can edit their comment or reply, while everyone with editing access can reply. Revoked or expired links stop editing immediately.</p>
         </div>
       </section>
     </div>

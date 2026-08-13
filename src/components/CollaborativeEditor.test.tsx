@@ -207,6 +207,24 @@ describe('CollaborativeEditor', () => {
     })
     expect(onCommentClick).toHaveBeenCalledWith('live-inline-6-11')
 
+    await act(async () => {
+      container.querySelector<HTMLElement>('.cm-suggestion-insertion')
+        ?.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: 'Enter',
+        }))
+    })
+    expect(onCommentClick).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('.cm-suggestion-deletion-widget')
+        ?.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          key: ' ',
+        }))
+    })
+    expect(onCommentClick).toHaveBeenCalledTimes(3)
+
     await act(async () => root.unmount())
     awareness.destroy()
     yDocument.destroy()

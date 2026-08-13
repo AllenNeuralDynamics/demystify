@@ -10,6 +10,39 @@ export interface LiveProposalChange {
   after: string
 }
 
+const refineInlineChange = (
+  change: Omit<LiveProposalChange, 'id'>,
+): Omit<LiveProposalChange, 'id'> => {
+  let prefixLength = 0
+  const sharedLength = Math.min(change.before.length, change.after.length)
+  while (
+    prefixLength < sharedLength &&
+    change.before[prefixLength] === change.after[prefixLength]
+  ) prefixLength += 1
+
+  let suffixLength = 0
+  while (
+    suffixLength < sharedLength - prefixLength &&
+    change.before[change.before.length - suffixLength - 1] ===
+      change.after[change.after.length - suffixLength - 1]
+  ) suffixLength += 1
+
+  return {
+    from: change.from + prefixLength,
+    to: change.to - suffixLength,
+    workingFrom: change.workingFrom + prefixLength,
+    workingTo: change.workingTo - suffixLength,
+    before: change.before.slice(
+      prefixLength,
+      suffixLength ? change.before.length - suffixLength : undefined,
+    ),
+    after: change.after.slice(
+      prefixLength,
+      suffixLength ? change.after.length - suffixLength : undefined,
+    ),
+  }
+}
+
 export const getLiveProposalInlineChanges = (
   accepted: string,
   working: string,
@@ -22,9 +55,10 @@ export const getLiveProposalInlineChanges = (
 
   const flush = () => {
     if (!current) return
+    const refined = refineInlineChange(current)
     changes.push({
-      ...current,
-      id: `live-inline-${current.from}-${current.to}`,
+      ...refined,
+      id: `live-inline-${refined.from}-${refined.to}`,
     })
     current = null
   }

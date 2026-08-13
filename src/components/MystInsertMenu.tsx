@@ -8,6 +8,7 @@ import {
   Info,
   Lightbulb,
   Link2,
+  MessageSquareText,
   MonitorPlay,
   PanelsTopLeft,
   Plus,
@@ -27,6 +28,7 @@ import {
 
 interface MystInsertMenuProps {
   disabled?: boolean
+  onAddComment?: () => void
   onInsert: (pattern: MystAuthoringPattern) => void
 }
 
@@ -46,7 +48,11 @@ const patternIcons: Record<MystAuthoringIcon, LucideIcon> = {
   iframe: MonitorPlay,
 }
 
-export const MystInsertMenu = ({ disabled = false, onInsert }: MystInsertMenuProps) => {
+export const MystInsertMenu = ({
+  disabled = false,
+  onAddComment,
+  onInsert,
+}: MystInsertMenuProps) => {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -88,10 +94,13 @@ export const MystInsertMenu = ({ disabled = false, onInsert }: MystInsertMenuPro
       ...pattern.keywords,
     ].join(' ').toLowerCase().includes(normalizedQuery))
     : mystAuthoringPatterns
+  const showCommentAction = Boolean(onAddComment) && (
+    !normalizedQuery || 'add comment review selection discussion'.includes(normalizedQuery)
+  )
 
   const moveListFocus = (event: React.KeyboardEvent, direction: 1 | -1) => {
     const items = Array.from(
-      containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-myst-pattern]') ?? [],
+      containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-myst-pattern], [data-insert-action]') ?? [],
     )
     if (items.length === 0) return
     const activeIndex = items.indexOf(document.activeElement as HTMLButtonElement)
@@ -106,6 +115,12 @@ export const MystInsertMenu = ({ disabled = false, onInsert }: MystInsertMenuPro
     setOpen(false)
     setQuery('')
     onInsert(pattern)
+  }
+
+  const addComment = () => {
+    setOpen(false)
+    setQuery('')
+    onAddComment?.()
   }
 
   return (
@@ -153,6 +168,26 @@ export const MystInsertMenu = ({ disabled = false, onInsert }: MystInsertMenuPro
           </label>
 
           <div className="myst-insert-results">
+            {showCommentAction && (
+              <section className="myst-insert-group" aria-labelledby="myst-group-review">
+                <h3 id="myst-group-review">Review</h3>
+                <button
+                  className="myst-pattern-command"
+                  type="button"
+                  data-insert-action="comment"
+                  onClick={addComment}
+                >
+                  <span className="myst-pattern-icon note">
+                    <MessageSquareText size={16} />
+                  </span>
+                  <span className="myst-pattern-copy">
+                    <strong>Add comment to selection</strong>
+                    <small>Open Review and anchor a discussion to selected Source text.</small>
+                  </span>
+                  <code>⌘⌥M</code>
+                </button>
+              </section>
+            )}
             {mystAuthoringCategories.map((category) => {
               const patterns = visiblePatterns.filter((pattern) => pattern.category === category)
               if (patterns.length === 0) return null
@@ -183,7 +218,7 @@ export const MystInsertMenu = ({ disabled = false, onInsert }: MystInsertMenuPro
                 </section>
               )
             })}
-            {visiblePatterns.length === 0 && (
+            {visiblePatterns.length === 0 && !showCommentAction && (
               <p className="myst-insert-empty">No matching content types</p>
             )}
           </div>
