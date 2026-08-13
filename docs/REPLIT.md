@@ -2,12 +2,12 @@
 
 **Last validated:** August 13, 2026
 
-**Deployed application source:** [`d7e045f8ca78ab59d64e844d5f9d531716a74e0c`](https://github.com/AllenNeuralDynamics/demystify/commit/d7e045f8ca78ab59d64e844d5f9d531716a74e0c)
+**Deployed application source:** [`d72a9802539dafde201fd859f685f5dbee851332`](https://github.com/AllenNeuralDynamics/demystify/commit/d72a9802539dafde201fd859f685f5dbee851332)
 
-**Publication status:** Online. Replit release `a85d2313` was published on
-August 13, 2026, with live attributed Suggesting shared by Source and Visual,
-server-stamped contributors, server-authoritative maintainer decisions, and
-accepted-MyST snapshots blocked while a proposal is unresolved.
+**Publication status:** Online. Replit release `6262f34e` was published on
+August 13, 2026, with atomic Add/Delete/Replace review cards, accepted deletions
+and working insertions rendered inline in Source, accepted/proposed comparisons
+for supported Visual blocks, and server-authoritative whole-proposal decisions.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -35,8 +35,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `d7e045f8ca78ab59d64e844d5f9d531716a74e0c` |
-| Replit release | `a85d2313` |
+| Application source | `d72a9802539dafde201fd859f685f5dbee851332` |
+| Replit release | `6262f34e` |
 | Cloud credits after `fd280947` smoke | 46% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -453,6 +453,36 @@ The August 13, 2026 live-Suggesting release `a85d2313` from application SHA
    rejection removed the marker from both clients. Both links were then revoked
    with HTTP `204`, and the room reported no active sharing links.
 - Local and protected validation passed 221 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 52 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
+   project-specific skips.
+
+The August 13, 2026 inline-Suggesting release `6262f34e` from application SHA
+`d72a9802539dafde201fd859f685f5dbee851332` passed these release checks:
+
+- Protected pull request #23 passed strict required `validate` and `browser`
+   checks on exact head `1a87fead45a82e18f1a2eab21f8676eefff2c889` before
+   squash-merging to `main`.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=d72a9802539dafde201fd859f685f5dbee851332` before republish.
+- Replit's saved no-options redeploy path omitted the destructive development
+   database-copy input, and no database migration prompt appeared. Replit
+   reported success for Provision, Security checks, Build, Bundle, and Promote.
+   The Cloud Run build had an image tag, Autoscale retained one maximum machine,
+   and the retained production database remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-C_sGzARs.js` with stable atomic hunk, inline deletion,
+   and Review-card markers, plus `MystPreview-CB9DBiMs.js` with the Visual
+   accepted/proposed block projection. Crawler exclusion remained enabled.
+- The live anonymous shell loaded, and an anonymous snapshot attempt against the
+   retained synthetic acceptance room was rejected with HTTP `401` before any
+   mutation. At 1560x900 desktop and 390x844 mobile viewports, the document had
+   no horizontal overflow, page exceptions, or server `5xx` responses, and the
+   Source/Split/Visual controls remained available.
+- Local and protected validation passed 227 unit/server tests, authenticated
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 52 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
