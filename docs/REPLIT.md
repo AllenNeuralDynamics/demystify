@@ -1,14 +1,13 @@
 # Replit Pilot
 
-**Last validated:** August 12, 2026
+**Last validated:** August 13, 2026
 
-**Deployed application source:** [`427cf1e544d2eff288b75e762eb7b5e35b8c039c`](https://github.com/AllenNeuralDynamics/demystify/commit/427cf1e544d2eff288b75e762eb7b5e35b8c039c)
+**Deployed application source:** [`de1b2968870ac3314447d1f6fe0afae46074c479`](https://github.com/AllenNeuralDynamics/demystify/commit/de1b2968870ac3314447d1f6fe0afae46074c479)
 
-**Publication status:** Online. Replit release `72b622a5` was published on
-August 12, 2026, with composable Source, Split, and Visual suggestions,
-concurrent alternatives, successive reviewer revisions, safe draft rebasing,
-threaded decisions, GitHub review records, and server-enforced Suggestion-role
-update boundaries.
+**Publication status:** Online. Replit release `fd280947` was published on
+August 13, 2026, with one projected current proposal shared by Source and
+Visual, immutable earlier revisions in Review, canonical-coordinate mapping,
+safe draft rebasing, and server-validated revision lineage.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -29,15 +28,15 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 12, 2026 |
+| Publication | Online; updated August 13, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `427cf1e544d2eff288b75e762eb7b5e35b8c039c` |
-| Replit release | `72b622a5` |
+| Application source | `de1b2968870ac3314447d1f6fe0afae46074c479` |
+| Replit release | `fd280947` |
 | Cloud credits after release smoke | 46% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -392,6 +391,32 @@ SHA `427cf1e544d2eff288b75e762eb7b5e35b8c039c` passed these release checks:
    At 1560 px desktop and 390x844 mobile viewports, the document had no
    horizontal overflow, page exceptions, or server `5xx` responses.
 - Local and protected validation passed 187 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 52 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
+   project-specific skips.
+
+The August 13, 2026 unified-current-proposal release `fd280947` from application
+SHA `de1b2968870ac3314447d1f6fe0afae46074c479` passed these release checks:
+
+- Protected pull request #19 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=de1b2968870ac3314447d1f6fe0afae46074c479` before republish.
+- The destructive development-to-production database copy remained disabled.
+   Replit reported success for Provision, Security checks, Build, Bundle, and
+   Promote. Autoscale remained 2 vCPU / 4 GiB with one maximum machine, and the
+   retained production database remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-aaHIaGzC.js`, which contains the one-current-proposal
+   workflow, earlier-revision Review history, and maintainer-acceptance boundary.
+   Crawler exclusion remained enabled.
+- The live anonymous shell loaded with its expected unauthenticated room claims.
+   At 1560x900 desktop and 390x844 mobile viewports, the document had no
+   horizontal overflow, page exceptions, or server `5xx` responses.
+- Local and protected validation passed 195 unit/server tests, authenticated
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 52 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
