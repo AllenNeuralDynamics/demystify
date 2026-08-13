@@ -21,7 +21,7 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
   await expect(comments.getByRole('textbox', { name: 'New comment' })).toBeFocused()
   await page.getByTitle('Close comments').click()
 
-  await page.keyboard.press('Meta+Alt+M')
+  await page.keyboard.press('ControlOrMeta+Alt+M')
   await expect(comments).toBeVisible()
   await expect(comments.getByRole('textbox', { name: 'New comment' })).toBeFocused()
 
@@ -121,23 +121,23 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   }
 
   await selectPhrase()
-  await source.press('Meta+c')
+  await source.press('ControlOrMeta+c')
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(phrase)
 
-  await source.press('Meta+x')
+  await source.press('ControlOrMeta+x')
   await expect(source).not.toContainText('# A shared language')
-  await source.press('Meta+z')
+  await source.press('ControlOrMeta+z')
   await expect(source).toContainText('# A shared language')
 
   await source.focus()
-  await source.press('Meta+End')
-  await source.press('Meta+v')
+  await source.press('ControlOrMeta+End')
+  await source.press('ControlOrMeta+v')
   await expect.poll(async () => ((await source.textContent())?.match(/A shared/g) ?? []).length)
     .toBe(2)
-  await source.press('Meta+z')
+  await source.press('ControlOrMeta+z')
 
   await selectPhrase()
-  await source.press('Meta+Alt+M')
+  await source.press('ControlOrMeta+Alt+M')
   const comments = page.getByRole('complementary', { name: 'Comments' })
   await comments.getByRole('textbox', { name: 'New comment' }).fill('Selected phrase comment')
   await comments.getByRole('button', { name: 'Comment', exact: true }).click()
