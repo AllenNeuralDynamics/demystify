@@ -164,6 +164,45 @@ describe('MystPreview', () => {
     await act(async () => root.unmount())
   })
 
+  it('renders a live working replacement as one accepted and one proposed block', async () => {
+    const content = 'alpha **INSERT** omega'
+    const onSuggestionClick = vi.fn()
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const from = content.indexOf('**INSERT**')
+
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={content}
+          onSuggestionClick={onSuggestionClick}
+          suggestions={[{
+            id: 'live-inline-6-11',
+            from,
+            to: from + '**INSERT**'.length,
+            before: '*gamma*',
+            after: '**INSERT**',
+            authorName: 'Ada Reviewer',
+            authorColor: '#a64b36',
+            projection: 'working',
+          }]}
+        />,
+      )
+    })
+
+    const paragraph = container.querySelector<HTMLElement>('.myst-inline-suggestion')
+    expect(paragraph?.querySelector('del em')?.textContent).toBe('gamma')
+    expect(paragraph?.querySelector('ins strong')?.textContent).toBe('INSERT')
+    expect(paragraph?.textContent?.match(/INSERT/g)).toHaveLength(1)
+
+    await act(async () => {
+      paragraph?.querySelector<HTMLElement>('.myst-suggestion-option')?.click()
+    })
+    expect(onSuggestionClick).toHaveBeenCalledWith('live-inline-6-11')
+
+    await act(async () => root.unmount())
+  })
+
   it('shows concurrent alternatives against one canonical block', async () => {
     const content = 'Original claim.'
     const container = document.createElement('div')
