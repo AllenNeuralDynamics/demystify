@@ -2,12 +2,12 @@
 
 **Last validated:** August 13, 2026
 
-**Deployed application source:** [`de1b2968870ac3314447d1f6fe0afae46074c479`](https://github.com/AllenNeuralDynamics/demystify/commit/de1b2968870ac3314447d1f6fe0afae46074c479)
+**Deployed application source:** [`d7e045f8ca78ab59d64e844d5f9d531716a74e0c`](https://github.com/AllenNeuralDynamics/demystify/commit/d7e045f8ca78ab59d64e844d5f9d531716a74e0c)
 
-**Publication status:** Online. Replit release `fd280947` was published on
-August 13, 2026, with one projected current proposal shared by Source and
-Visual, immutable earlier revisions in Review, canonical-coordinate mapping,
-safe draft rebasing, and server-validated revision lineage.
+**Publication status:** Online. Replit release `a85d2313` was published on
+August 13, 2026, with live attributed Suggesting shared by Source and Visual,
+server-stamped contributors, server-authoritative maintainer decisions, and
+accepted-MyST snapshots blocked while a proposal is unresolved.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -35,9 +35,9 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `de1b2968870ac3314447d1f6fe0afae46074c479` |
-| Replit release | `fd280947` |
-| Cloud credits after release smoke | 46% used |
+| Application source | `d7e045f8ca78ab59d64e844d5f9d531716a74e0c` |
+| Replit release | `a85d2313` |
+| Cloud credits after `fd280947` smoke | 46% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -417,6 +417,42 @@ SHA `de1b2968870ac3314447d1f6fe0afae46074c479` passed these release checks:
    At 1560x900 desktop and 390x844 mobile viewports, the document had no
    horizontal overflow, page exceptions, or server `5xx` responses.
 - Local and protected validation passed 195 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 52 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
+   project-specific skips.
+
+The August 13, 2026 live-Suggesting release `a85d2313` from application SHA
+`d7e045f8ca78ab59d64e844d5f9d531716a74e0c` passed these release checks:
+
+- Protected pull request #21 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=d7e045f8ca78ab59d64e844d5f9d531716a74e0c` before republish.
+- The destructive development-to-production database copy remained disabled,
+   and no database migration prompt appeared. Replit reported success for
+   Provision, Security checks, Build, Bundle, and Promote. Autoscale remained
+   2 vCPU / 4 GiB with one maximum machine, and the retained production database
+   remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-B5-g83RX.js`, which contains the live attributed
+   Suggesting, current live proposal, and unresolved-proposal Git guard. The HTML
+   retained `noindex, nofollow, noarchive`, and `robots.txt` continued to disallow
+   all crawlers.
+- The live anonymous shell loaded with its expected unauthenticated room claim,
+   and an anonymous snapshot attempt was rejected with HTTP `401` before any
+   mutation. At 1560x900 desktop and 390x844 mobile viewports, the document had
+   no horizontal overflow, page exceptions, or server `5xx` responses, and the
+   Source/Split/Visual controls remained available.
+- In the retained synthetic acceptance room, an authenticated maintainer created
+   temporary Suggestion and Viewer links. A reviewer proposal converged into the
+   read-only Viewer source with reviewer attribution, the authenticated snapshot
+   endpoint rejected the pending proposal with HTTP `409`, and an authenticated
+   rejection removed the marker from both clients. Both links were then revoked
+   with HTTP `204`, and the room reported no active sharing links.
+- Local and protected validation passed 221 unit/server tests, authenticated
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 52 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
