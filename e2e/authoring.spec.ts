@@ -101,21 +101,27 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
         }
         throw new Error('Could not map Source selection offset')
       }
-      const from = locate(start)
-      const to = locate(start + selectedText.length)
-      const range = document.createRange()
-      range.setStart(from.node, from.offset)
-      range.setEnd(to.node, to.offset)
-      const rectangle = range.getBoundingClientRect()
+      const firstCharacterFrom = locate(start)
+      const firstCharacterTo = locate(start + 1)
+      const firstCharacterRange = document.createRange()
+      firstCharacterRange.setStart(firstCharacterFrom.node, firstCharacterFrom.offset)
+      firstCharacterRange.setEnd(firstCharacterTo.node, firstCharacterTo.offset)
+      const firstCharacter = firstCharacterRange.getBoundingClientRect()
+      const lastCharacterFrom = locate(start + selectedText.length - 1)
+      const lastCharacterTo = locate(start + selectedText.length)
+      const lastCharacterRange = document.createRange()
+      lastCharacterRange.setStart(lastCharacterFrom.node, lastCharacterFrom.offset)
+      lastCharacterRange.setEnd(lastCharacterTo.node, lastCharacterTo.offset)
+      const lastCharacter = lastCharacterRange.getBoundingClientRect()
       return {
-        left: rectangle.left,
-        right: rectangle.right,
-        y: rectangle.top + rectangle.height / 2,
+        left: firstCharacter.left + firstCharacter.width * 0.25,
+        right: lastCharacter.right - lastCharacter.width * 0.25,
+        y: firstCharacter.top + firstCharacter.height / 2,
       }
     }, phrase)
-    await page.mouse.move(bounds.left + 1, bounds.y)
+    await page.mouse.move(bounds.left, bounds.y)
     await page.mouse.down()
-    await page.mouse.move(bounds.right - 1, bounds.y, { steps: 8 })
+    await page.mouse.move(bounds.right, bounds.y, { steps: 8 })
     await page.mouse.up()
     await page.evaluate(() => new Promise<void>((resolve) => {
       window.requestAnimationFrame(() => resolve())
