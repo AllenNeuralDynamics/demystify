@@ -5,7 +5,8 @@ import {
   Bold,
   Check,
   ChevronDown,
-  CircleHelp,
+  ChevronLeft,
+  ChevronRight,
   Code2,
   Eye,
   ExternalLink,
@@ -19,8 +20,6 @@ import {
   MessageSquare,
   Minus,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   PencilLine,
   Redo2,
@@ -51,6 +50,7 @@ import {
   type CollaborativeEditorHandle,
 } from './components/CollaborativeEditor'
 import { CitationPicker, type CitationSelection } from './components/CitationPicker'
+import { DocumentMenu } from './components/DocumentMenu'
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
@@ -1105,56 +1105,195 @@ function App() {
     setActiveProjectPath(null)
   }
 
+  const saveOrConnectRepository = () => {
+    if (repositoryBinding) void saveToGitHub()
+    else setGitHubDialogOpen(true)
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar" inert={blockingDialogOpen}>
         <div className="brand-block">
-          <button
-            ref={sidebarToggleRef}
-            className="icon-button sidebar-toggle"
-            type="button"
-            title={sidebarOpen ? 'Hide files' : 'Show files'}
-            aria-controls="project-files-sidebar"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen((open) => !open)}
-          >
-            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-          </button>
-          <div className="brand-mark" aria-hidden="true">D</div>
-          <div>
-            <div className="brand-name">DeMystify</div>
-            <div className="workspace-name">Collaborative MyST</div>
+          <div className="brand-mark" aria-label="DeMystify" role="img">D</div>
+          <div className="document-chrome">
+            <div className="document-heading">
+              <span className="document-title">{title}</span>
+              <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole ? 'viewer' : collaboration.status}`}>
+                <span className="status-dot" />
+                {isArchived
+                  ? 'Archived'
+                  : collaboration.accessError
+                    ? 'Access revoked'
+                    : collaboration.status !== 'connected'
+                      ? collaboration.status
+                      : isViewer
+                        ? 'Viewing'
+                        : isSuggestionMode
+                          ? 'Suggesting'
+                          : 'Live'}
+              </span>
+            </div>
+            <nav className="document-menu-bar" aria-label="Document menu">
+              <DocumentMenu
+                label="File"
+                items={[
+                  {
+                    label: 'New document',
+                    icon: FilePlus2,
+                    onSelect: createDocument,
+                  },
+                  {
+                    label: repositoryBinding ? 'Save to GitHub' : 'Connect repository to save',
+                    icon: Save,
+                    disabled: isSaving || !canManageRepository || collaboration.hasPendingWorkingChanges,
+                    onSelect: saveOrConnectRepository,
+                  },
+                  {
+                    label: repositoryBinding ? 'Change repository or file' : 'Connect GitHub repository',
+                    icon: GitFork,
+                    separatorBefore: true,
+                    disabled: !canManageRepository,
+                    onSelect: () => setGitHubDialogOpen(true),
+                  },
+                ]}
+              />
+              <DocumentMenu
+                label="Edit"
+                items={[
+                  {
+                    label: 'Undo',
+                    icon: Undo2,
+                    shortcut: '⌘Z',
+                    disabled: isSourceReadOnly,
+                    onSelect: () => editorRef.current?.undo(),
+                  },
+                  {
+                    label: 'Redo',
+                    icon: Redo2,
+                    shortcut: '⌘⇧Z',
+                    disabled: isSourceReadOnly,
+                    onSelect: () => editorRef.current?.redo(),
+                  },
+                ]}
+              />
+              <DocumentMenu
+                label="View"
+                items={[
+                  {
+                    label: 'Source',
+                    icon: Code2,
+                    checked: view === 'source',
+                    onSelect: () => setView('source'),
+                  },
+                  {
+                    label: 'Split',
+                    icon: SplitSquareHorizontal,
+                    checked: view === 'split',
+                    disabled: !isActiveMystSource,
+                    onSelect: () => setView('split'),
+                  },
+                  {
+                    label: 'Visual',
+                    icon: Eye,
+                    checked: view === 'preview',
+                    disabled: !isActiveMystSource,
+                    onSelect: () => setView('preview'),
+                  },
+                  {
+                    label: sidebarOpen ? 'Collapse project sidebar' : 'Show project sidebar',
+                    icon: sidebarOpen ? ChevronLeft : ChevronRight,
+                    separatorBefore: true,
+                    onSelect: () => setSidebarOpen((open) => !open),
+                  },
+                ]}
+              />
+              <MystInsertMenu
+                variant="menu"
+                disabled={isSourceReadOnly || !isActiveMystSource}
+                onAddComment={openCommentComposer}
+                onInsert={(pattern) => editorRef.current?.insertSnippet(
+                  pattern.template,
+                  pattern.selectedTextPlaceholder,
+                )}
+              />
+              <DocumentMenu
+                label="Format"
+                items={[
+                  {
+                    label: 'Bold',
+                    icon: Bold,
+                    shortcut: '⌘B',
+                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    onSelect: () => editorRef.current?.wrapSelection('**'),
+                  },
+                  {
+                    label: 'Italic',
+                    icon: Italic,
+                    shortcut: '⌘I',
+                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    onSelect: () => editorRef.current?.wrapSelection('*'),
+                  },
+                  {
+                    label: 'Inline code',
+                    icon: Code2,
+                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    onSelect: () => editorRef.current?.wrapSelection('`'),
+                  },
+                ]}
+              />
+              <DocumentMenu
+                label="Tools"
+                items={[
+                  {
+                    label: 'Review suggested edits',
+                    icon: MessageSquare,
+                    disabled: !isMaintainer || !collaboration.hasPendingWorkingChanges,
+                    onSelect: reviewChangesOrEnterEditing,
+                  },
+                  {
+                    label: 'Citations',
+                    icon: AtSign,
+                    separatorBefore: true,
+                    disabled: isStructuredEditorReadOnly || !isActiveMystSource,
+                    onSelect: () => {
+                      setVisualCitationInserter(null)
+                      setCitationPickerOpen(true)
+                    },
+                  },
+                  {
+                    label: 'Reference library',
+                    icon: BookOpenText,
+                    onSelect: () => setReferenceManagerOpen(true),
+                  },
+                  {
+                    label: 'Publication metadata',
+                    icon: Tags,
+                    disabled: !isActiveMystSource,
+                    onSelect: () => setPublicationMetadataOpen(true),
+                  },
+                  {
+                    label: 'Word count',
+                    icon: TextQuote,
+                    shortcut: `${wordCount.toLocaleString()} words`,
+                    separatorBefore: true,
+                    onSelect: () => showNotice(`${wordCount.toLocaleString()} words`),
+                  },
+                ]}
+              />
+              <button
+                ref={helpTriggerRef}
+                className="document-menu-trigger"
+                type="button"
+                title="How DeMystify works"
+                onClick={() => setHelpOpen(true)}
+              >
+                Help
+              </button>
+            </nav>
           </div>
         </div>
 
-        <div className="document-identity">
-          <span className="document-title">{title}</span>
-          <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole ? 'viewer' : collaboration.status}`}>
-            <span className="status-dot" />
-            {isArchived
-              ? 'Archived'
-              : collaboration.accessError
-                ? 'Access revoked'
-                : collaboration.status !== 'connected'
-                  ? collaboration.status
-                  : isViewer
-                ? 'Viewing'
-                : isSuggestionMode
-                  ? 'Suggesting'
-                  : 'Live'}
-          </span>
-        </div>
-
         <div className="topbar-actions">
-          <button
-            ref={helpTriggerRef}
-            className="icon-button"
-            type="button"
-            title="How DeMystify works"
-            onClick={() => setHelpOpen(true)}
-          >
-            <CircleHelp size={18} />
-          </button>
           <div className="collaborator-stack" role="group" aria-label="Current collaborators">
             {collaboration.collaborators.slice(0, 4).map((collaborator) => (
               <button
@@ -1182,7 +1321,7 @@ function App() {
               <span>Share</span>
             </button>
           )}
-          {isMaintainer ? (
+          {isMaintainer && (isArchived || !repositoryBinding) ? (
             <button
               className="button github-button"
               type="button"
@@ -1214,20 +1353,8 @@ function App() {
                     : 'Connect GitHub'}
               </span>
             </button>
-          ) : (
+          ) : !isMaintainer ? (
             <>
-              {isViewer && (
-                <button className="button viewer-button" type="button" title="Viewer mode" disabled>
-                  <Eye size={16} />
-                  <span>View only</span>
-                </button>
-              )}
-              {isSuggestionMode && !isArchived && (
-                <button className="button suggestion-button" type="button" title="Suggestion mode" disabled>
-                  <UserRound size={16} />
-                  <span>Suggestion mode</span>
-                </button>
-              )}
               <button
                 className={`button ${github.session?.user ? 'secondary-button github-identity-button' : 'github-button'}`}
                 type="button"
@@ -1245,7 +1372,7 @@ function App() {
                 <span>{github.session?.user ? `@${github.session.user.login}` : 'Connect GitHub'}</span>
               </button>
             </>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -1253,6 +1380,17 @@ function App() {
         className={`workspace ${sidebarOpen ? '' : 'sidebar-collapsed'}`}
         inert={blockingDialogOpen}
       >
+        <button
+          ref={sidebarToggleRef}
+          className={`sidebar-edge-toggle ${sidebarOpen ? 'open' : ''}`}
+          type="button"
+          title={sidebarOpen ? 'Hide files' : 'Show files'}
+          aria-controls="project-files-sidebar"
+          aria-expanded={sidebarOpen}
+          onClick={() => setSidebarOpen((open) => !open)}
+        >
+          {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
         {sidebarOpen && (
           <button
             className="sidebar-backdrop"
@@ -1270,9 +1408,6 @@ function App() {
         >
           <div className="sidebar-heading">
             <span>Workspace</span>
-            <button className="icon-button" type="button" title="New document" onClick={createDocument}>
-              <FilePlus2 size={16} />
-            </button>
           </div>
           {repositoryBinding && repositoryGitHubUrl ? (
             <div className={`repository-picker bound ${canManageRepository ? 'changeable' : ''}`}>
@@ -1439,71 +1574,47 @@ function App() {
             </div>
           ) : null}
           <div className="editor-toolbar">
-            <div className="formatting-tools" aria-label="Authoring tools">
-              <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
-                <Undo2 size={17} />
-              </button>
-              <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
-                <Redo2 size={17} />
-              </button>
-              <span className="toolbar-divider collapsible-authoring-tool" />
-              <MystInsertMenu
-                disabled={isSourceReadOnly || !isActiveMystSource}
-                onAddComment={openCommentComposer}
-                onInsert={(pattern) => editorRef.current?.insertSnippet(
-                  pattern.template,
-                  pattern.selectedTextPlaceholder,
-                )}
-              />
-              <button
-                className="citation-trigger"
-                type="button"
-                title="Cite a paper"
-                disabled={isStructuredEditorReadOnly || !isActiveMystSource}
-                onClick={() => {
-                  setVisualCitationInserter(null)
-                  setCitationPickerOpen(true)
-                }}
-              >
-                <AtSign size={16} />
-                <span>Cite</span>
-              </button>
-              <button
-                className="reference-library-trigger"
-                type="button"
-                title="Manage references"
-                onClick={() => setReferenceManagerOpen(true)}
-              >
-                <BookOpenText size={16} />
-                <span>References</span>
-              </button>
-              <button
-                className="publication-metadata-trigger"
-                type="button"
-                title="Publication metadata"
-                disabled={!isActiveMystSource}
-                onClick={() => setPublicationMetadataOpen(true)}
-              >
-                <Tags size={16} />
-                <span>Metadata</span>
-              </button>
-              <span className="toolbar-divider collapsible-authoring-tool" />
-              <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
-                <Bold size={17} />
-              </button>
-              <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
-                <Italic size={17} />
-              </button>
-              <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
-                <Code2 size={17} />
-              </button>
-            </div>
+            <div className="toolbar-left">
+              <div className="formatting-tools" aria-label="Authoring tools">
+                <button
+                  className="icon-button toolbar-save"
+                  type="button"
+                  title={collaboration.hasPendingWorkingChanges
+                    ? 'Accept or discard the live proposal before saving to GitHub'
+                    : 'Save snapshot to GitHub'}
+                  disabled={
+                    isArchived ||
+                    isSaving ||
+                    !canManageRepository ||
+                    collaboration.hasPendingWorkingChanges
+                  }
+                  onClick={saveOrConnectRepository}
+                >
+                  {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
+                </button>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
+                  <Undo2 size={17} />
+                </button>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
+                  <Redo2 size={17} />
+                </button>
+                <span className="toolbar-divider collapsible-authoring-tool" />
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
+                  <Bold size={17} />
+                </button>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
+                  <Italic size={17} />
+                </button>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
+                  <Code2 size={17} />
+                </button>
+              </div>
 
-            <details className="authoring-more">
-              <summary className="icon-button" title="More authoring tools" aria-label="More authoring tools">
-                <MoreHorizontal size={17} />
-              </summary>
-              <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
+              <details className="authoring-more">
+                <summary className="icon-button" title="More authoring tools" aria-label="More authoring tools">
+                  <MoreHorizontal size={17} />
+                </summary>
+                <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
                 <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
                   editorRef.current?.undo()
@@ -1534,42 +1645,9 @@ function App() {
                 }}>
                   <Code2 size={15} /> Inline code
                 </button>
-                <button type="button" role="menuitem" disabled={!isPrimaryFile} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  openCommentComposer()
-                }}>
-                  <MessageSquare size={15} /> Add comment
-                </button>
-              </div>
-            </details>
-
-            {isMaintainer && isPrimaryFile && (
-              <div className="edit-mode-switcher" role="group" aria-label="Maintainer edit mode">
-                <button
-                  className={!isSuggestionMode ? 'active' : collaboration.hasPendingWorkingChanges ? 'needs-review' : ''}
-                  type="button"
-                  title={collaboration.hasPendingWorkingChanges
-                    ? 'Review proposed changes before returning to Editing'
-                    : 'Editing changes accepted MyST directly'}
-                  disabled={!collaboration.isSynced}
-                  onClick={reviewChangesOrEnterEditing}
-                >
-                  {collaboration.hasPendingWorkingChanges
-                    ? <MessageSquare size={15} />
-                    : <PencilLine size={15} />}
-                  <span>{collaboration.hasPendingWorkingChanges ? 'Review changes' : 'Editing'}</span>
-                </button>
-                <button
-                  className={isSuggestionMode ? 'active' : ''}
-                  type="button"
-                  title="Suggesting changes are visible live and require maintainer acceptance"
-                  disabled={!collaboration.isSynced}
-                  onClick={() => setMaintainerEditMode('suggesting')}
-                >
-                  <MessageSquare size={15} /><span>Suggesting</span>
-                </button>
-              </div>
-            )}
+                </div>
+              </details>
+            </div>
 
             <div className="view-switcher" aria-label="Workspace view">
               <button className={view === 'source' ? 'active' : ''} type="button" title="Source only" onClick={() => setView('source')}>
@@ -1583,7 +1661,7 @@ function App() {
               </button>
             </div>
 
-            <div className="document-stats">
+            <div className="review-tools">
               <button
                 ref={commentsTriggerRef}
                 className="icon-button comments-trigger"
@@ -1599,18 +1677,49 @@ function App() {
                   </span>
                 )}
               </button>
-              <span>{wordCount.toLocaleString()} words</span>
-              <button
-                className="icon-button"
-                type="button"
-                title={collaboration.hasPendingWorkingChanges
-                  ? 'Accept or discard the live proposal before saving to GitHub'
-                  : 'Save snapshot to GitHub'}
-                disabled={isSaving || !canManageRepository || collaboration.hasPendingWorkingChanges}
-                onClick={() => void saveToGitHub()}
-              >
-                {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
-              </button>
+
+              {isMaintainer && isPrimaryFile && !isArchived ? (
+                <DocumentMenu
+                  align="right"
+                  className={`mode-menu ${collaboration.hasPendingWorkingChanges ? 'needs-review' : ''}`}
+                  disabled={!collaboration.isSynced}
+                  icon={collaboration.hasPendingWorkingChanges || isSuggestionMode ? MessageSquare : PencilLine}
+                  label={collaboration.hasPendingWorkingChanges
+                    ? 'Review changes'
+                    : isSuggestionMode ? 'Suggesting' : 'Editing'}
+                  showChevron
+                  items={[
+                    ...(collaboration.hasPendingWorkingChanges ? [{
+                      label: 'Review changes',
+                      icon: MessageSquare,
+                      onSelect: reviewChangesOrEnterEditing,
+                    }] : []),
+                    {
+                      label: 'Editing',
+                      icon: PencilLine,
+                      checked: !isSuggestionMode,
+                      separatorBefore: collaboration.hasPendingWorkingChanges,
+                      onSelect: reviewChangesOrEnterEditing,
+                    },
+                    {
+                      label: 'Suggesting',
+                      icon: MessageSquare,
+                      checked: isSuggestionMode,
+                      onSelect: () => setMaintainerEditMode('suggesting'),
+                    },
+                  ]}
+                />
+              ) : (
+                <button
+                  className="mode-status"
+                  type="button"
+                  aria-label={isViewer || isArchived ? 'Viewing' : 'Suggesting'}
+                  disabled
+                >
+                  {isViewer || isArchived ? <Eye size={15} /> : <MessageSquare size={15} />}
+                  <span>{isViewer || isArchived ? 'Viewing' : 'Suggesting'}</span>
+                </button>
+              )}
             </div>
           </div>
 

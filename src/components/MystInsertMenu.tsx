@@ -30,6 +30,7 @@ interface MystInsertMenuProps {
   disabled?: boolean
   onAddComment?: () => void
   onInsert: (pattern: MystAuthoringPattern) => void
+  variant?: 'menu' | 'toolbar'
 }
 
 const patternIcons: Record<MystAuthoringIcon, LucideIcon> = {
@@ -52,6 +53,7 @@ export const MystInsertMenu = ({
   disabled = false,
   onAddComment,
   onInsert,
+  variant = 'toolbar',
 }: MystInsertMenuProps) => {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -124,10 +126,10 @@ export const MystInsertMenu = ({
   }
 
   return (
-    <div className="myst-insert-menu" ref={containerRef}>
+    <div className={`myst-insert-menu ${variant === 'menu' ? 'document-menu menu-variant' : ''}`} ref={containerRef}>
       <button
         ref={triggerRef}
-        className={`myst-insert-trigger ${open ? 'active' : ''}`}
+        className={`myst-insert-trigger ${variant === 'menu' ? 'document-menu-trigger' : ''} ${open ? 'active' : ''}`}
         type="button"
         title="Insert MyST content"
         aria-haspopup="dialog"
@@ -139,9 +141,9 @@ export const MystInsertMenu = ({
           setOpen((current) => !current)
         }}
       >
-        <Plus size={16} />
+        {variant === 'toolbar' && <Plus size={16} />}
         <span>Insert</span>
-        <ChevronDown size={13} />
+        {variant === 'toolbar' && <ChevronDown size={13} />}
       </button>
 
       {open && (
