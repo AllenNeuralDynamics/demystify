@@ -470,21 +470,7 @@ export const CollaborativeEditor = forwardRef<
         view.dispatch({ selection: { anchor, head } })
       })
     }
-    const handlePointerSelectionKeyboard = (event: KeyboardEvent) => {
-      const pointerSelection = pointerSelectionRef.current
-      if (
-        pointerSelection &&
-        (event.metaKey || event.ctrlKey) &&
-        ['c', 'x'].includes(event.key.toLowerCase())
-      ) {
-        view.dispatch({
-          selection: {
-            anchor: pointerSelection.from,
-            head: pointerSelection.to,
-          },
-        })
-        return
-      }
+    const clearPointerSelectionFromKeyboard = (event: KeyboardEvent) => {
       if (
         event.altKey ||
         event.ctrlKey ||
@@ -513,7 +499,7 @@ export const CollaborativeEditor = forwardRef<
     }
     view.contentDOM.addEventListener('pointerdown', beginPointerSelection)
     view.contentDOM.addEventListener('pointerup', finishPointerSelection)
-    view.contentDOM.addEventListener('keydown', handlePointerSelectionKeyboard, true)
+    view.contentDOM.addEventListener('keydown', clearPointerSelectionFromKeyboard, true)
     view.contentDOM.addEventListener('cut', clearPointerSelection)
     view.contentDOM.addEventListener('input', clearPointerSelection)
     view.contentDOM.addEventListener('paste', clearPointerSelection)
@@ -523,7 +509,7 @@ export const CollaborativeEditor = forwardRef<
     return () => {
       view.contentDOM.removeEventListener('pointerdown', beginPointerSelection)
       view.contentDOM.removeEventListener('pointerup', finishPointerSelection)
-      view.contentDOM.removeEventListener('keydown', handlePointerSelectionKeyboard, true)
+      view.contentDOM.removeEventListener('keydown', clearPointerSelectionFromKeyboard, true)
       view.contentDOM.removeEventListener('cut', clearPointerSelection)
       view.contentDOM.removeEventListener('input', clearPointerSelection)
       view.contentDOM.removeEventListener('paste', clearPointerSelection)

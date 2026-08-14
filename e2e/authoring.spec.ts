@@ -117,6 +117,9 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
     await page.mouse.down()
     await page.mouse.move(bounds.right - 1, bounds.y, { steps: 8 })
     await page.mouse.up()
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve())
+    }))
     await expect(page.locator('.cm-selectionBackground')).not.toHaveCount(0)
   }
 
