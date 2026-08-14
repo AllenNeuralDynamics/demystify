@@ -2,11 +2,11 @@
 
 **Last validated:** August 14, 2026
 
-**Deployed application source:** [`90476d160e2099e0036ba90bbf09650f1e45d4bb`](https://github.com/AllenNeuralDynamics/demystify/commit/90476d160e2099e0036ba90bbf09650f1e45d4bb)
+**Deployed application source:** [`efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d`](https://github.com/AllenNeuralDynamics/demystify/commit/efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d)
 
-**Publication status:** Online. Replit release `ca2ec0c8` was published on
-August 14, 2026, with Google Docs-style document menus, familiar toolbar command
-ownership, right-aligned comment and editing modes, and a sidebar-boundary toggle.
+**Publication status:** Online. Replit release `ddef7abf` was published on
+August 14, 2026, with clearer Source text selection, no full-line caret fill,
+and no bright-green repeated-selection match flicker.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `90476d160e2099e0036ba90bbf09650f1e45d4bb` |
-| Replit release | `ca2ec0c8` |
+| Application source | `efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d` |
+| Replit release | `ddef7abf` |
 | Last measured cloud credits (after `ca2ec0c8` smoke) | 60% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -556,6 +556,40 @@ The August 14, 2026 Google Docs chrome release `ca2ec0c8` from application SHA
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 14, 2026 Source-selection release `ddef7abf` from application SHA
+`efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d` passed these release checks:
+
+- Protected pull request #29 passed strict required `validate` and `browser`
+   checks on exact head `242063f4d37cda7220dca3d4d8a3f235cd2bb8a3` before
+   squash-merging to `main`. The resulting protected `main` SHA passed its own
+   post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d` before republish.
+- Replit's saved no-options Republish dialog exposed no checkbox or
+   development-database-copy input, and no database migration prompt appeared.
+   Provision, Security checks, Build, Bundle, and Promote all succeeded. The
+   deployment retained Cloud Run Autoscale with one maximum machine and the
+   production database connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-B3fAHMPI.js` with the explicit blue Source selection
+   and transparent selection-match rules. Its SHA-256 digest
+   `84ed6ded3943b979b7b73400dece22c827470eafd323ebf803cc7fabc1813cb4`
+   exactly matched the locally validated production artifact, and crawler
+   exclusion remained enabled.
+- The live anonymous shell loaded without horizontal overflow, unexpected
+   console errors, or server `5xx` responses at 1560x900. An anonymous snapshot
+   attempt against the retained synthetic acceptance room was rejected with
+   HTTP `401` before mutation.
+- Local selection checks passed five consecutive complete clipboard workflows;
+   the full Chromium authoring and visual slice passed seven tests without
+   baseline changes. Protected validation passed 230 unit/server tests,
+   authenticated PostgreSQL collaboration integration, lint, client/server
+   builds, bundle budgets, dependency audit, and 55 executed Playwright checks
+   across Chromium, Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75
+   intentional project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
