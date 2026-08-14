@@ -479,6 +479,25 @@ export const CollaborativeEditor = forwardRef<
       ) return
       pointerSelectionRef.current = null
     }
+    const copyPointerSelection = (event: ClipboardEvent) => {
+      const selection = pointerSelectionRef.current
+      if (!selection || !event.clipboardData) return
+      event.preventDefault()
+      event.clipboardData.setData(
+        'text/plain',
+        view.state.sliceDoc(selection.from, selection.to),
+      )
+    }
+    const cutPointerSelection = (event: ClipboardEvent) => {
+      const selection = pointerSelectionRef.current
+      if (!selection || !event.clipboardData || readOnlyRef.current) return
+      copyPointerSelection(event)
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert: '' },
+        selection: { anchor: selection.from },
+      })
+      pointerSelectionRef.current = null
+    }
     const clearPointerSelection = () => {
       pointerSelectionRef.current = null
     }
@@ -500,7 +519,8 @@ export const CollaborativeEditor = forwardRef<
     view.contentDOM.addEventListener('pointerdown', beginPointerSelection, true)
     window.addEventListener('pointerup', finishPointerSelection, true)
     view.contentDOM.addEventListener('keydown', clearPointerSelectionFromKeyboard, true)
-    view.contentDOM.addEventListener('cut', clearPointerSelection)
+    view.contentDOM.addEventListener('copy', copyPointerSelection, true)
+    view.contentDOM.addEventListener('cut', cutPointerSelection, true)
     view.contentDOM.addEventListener('input', clearPointerSelection)
     view.contentDOM.addEventListener('paste', clearPointerSelection)
     view.dom.addEventListener('keydown', activateReviewFromKeyboard, true)
@@ -510,7 +530,8 @@ export const CollaborativeEditor = forwardRef<
       view.contentDOM.removeEventListener('pointerdown', beginPointerSelection, true)
       window.removeEventListener('pointerup', finishPointerSelection, true)
       view.contentDOM.removeEventListener('keydown', clearPointerSelectionFromKeyboard, true)
-      view.contentDOM.removeEventListener('cut', clearPointerSelection)
+      view.contentDOM.removeEventListener('copy', copyPointerSelection, true)
+      view.contentDOM.removeEventListener('cut', cutPointerSelection, true)
       view.contentDOM.removeEventListener('input', clearPointerSelection)
       view.contentDOM.removeEventListener('paste', clearPointerSelection)
       view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
