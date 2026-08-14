@@ -85,20 +85,70 @@ test('mobile sidebar Escape policy changes exactly above 820px', async ({ page }
   await expect(sidebar).toHaveClass(/open/)
 })
 
-test('sidebar-constrained toolbar exposes hidden authoring commands through More', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium', 'Responsive authoring overflow runs once in Chromium')
+test('document menus and compact toolbar follow Google Docs ownership', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Document chrome ownership runs once in Chromium')
   await page.setViewportSize({ width: 1180, height: 700 })
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
 
+  for (const label of ['File', 'Edit', 'View', 'Insert', 'Format', 'Tools', 'Help']) {
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible()
+  }
+
+  const fileMenuTrigger = page.getByRole('button', { name: 'File', exact: true })
+  await fileMenuTrigger.click()
+  await expect(page.getByRole('menu', { name: 'File menu' })
+    .getByRole('menuitem', { name: 'New document' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'File menu' })).toBeHidden()
+  await expect(fileMenuTrigger).toBeFocused()
+
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  const tools = page.getByRole('menu', { name: 'Tools menu' })
+  await expect(tools.getByRole('menuitem', { name: /Word count/ })).toContainText('words')
+  await expect(tools.getByRole('menuitem', { name: 'Reference library' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.getByTitle('Insert MyST content').click()
+  const insertDialog = page.getByRole('dialog', { name: 'Insert MyST content' })
+  await insertDialog.getByRole('searchbox', { name: 'Search content types' }).fill('comment')
+  await insertDialog.getByRole('button', { name: /Add comment to selection/ }).click()
+  await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+  await page.getByTitle('Close comments').click()
+
+  const chromeGeometry = await page.evaluate(() => {
+    const bounds = (selector: string) => document.querySelector(selector)?.getBoundingClientRect()
+    const save = bounds('.toolbar-save')
+    const bold = bounds('button[title="Bold"]')
+    const comments = bounds('.comments-trigger')
+    const mode = bounds('.mode-menu')
+    const sidebar = bounds('.file-sidebar')
+    const sidebarToggle = bounds('.sidebar-edge-toggle')
+    return {
+      saveBeforeBold: Boolean(save && bold && save.right <= bold.left),
+      commentsBeforeMode: Boolean(comments && mode && comments.right <= mode.left),
+      toggleAtSidebarEdge: Boolean(
+        sidebar && sidebarToggle &&
+        Math.abs(sidebar.right - (sidebarToggle.left + sidebarToggle.width / 2)) <= 2,
+      ),
+    }
+  })
+  expect(chromeGeometry).toEqual({
+    saveBeforeBold: true,
+    commentsBeforeMode: true,
+    toggleAtSidebarEdge: true,
+  })
+
   const more = page.getByTitle('More authoring tools')
+  await expect(more).toBeHidden()
+
+  await page.setViewportSize({ width: 667, height: 700 })
   await expect(more).toBeVisible()
   await more.click()
   const menu = page.getByRole('menu', { name: 'More authoring tools' })
   await expect(menu).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Bold' })).toBeEnabled()
-  await menu.getByRole('menuitem', { name: 'Add comment' }).click()
-  await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+  await page.keyboard.press('Escape')
 
   await page.setViewportSize({ width: 1600, height: 700 })
   await expect(more).toBeHidden()

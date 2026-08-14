@@ -16,7 +16,7 @@ test('loads the anonymous application shell', async ({ page }, testInfo) => {
     'content',
     'noindex, nofollow, noarchive',
   )
-  await expect(page.getByText('DeMystify', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'DeMystify' })).toBeVisible()
   await expect(page.getByRole('main')).toBeVisible()
   await expect(page.getByText('Connect GitHub to access this room.')).toBeVisible()
 })
