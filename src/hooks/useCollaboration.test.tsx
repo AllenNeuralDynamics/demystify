@@ -13,6 +13,8 @@ const providerInstances = vi.hoisted(() => [] as Array<{
   connect: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
   disconnect: ReturnType<typeof vi.fn>
+  emit: (event: string, value: unknown) => void
+  shouldConnect: boolean
 }>)
 
 vi.mock('y-websocket', () => ({
@@ -25,6 +27,8 @@ vi.mock('y-websocket', () => ({
       on: vi.fn(),
       setLocalStateField: vi.fn(),
     }
+
+    shouldConnect = true
 
     connect = vi.fn(() => this.emit('status', { status: 'connected' }))
     destroy = vi.fn()
@@ -44,7 +48,7 @@ vi.mock('y-websocket', () => ({
       this.listeners.set(event, listeners)
     }
 
-    private emit(event: string, value: unknown) {
+    emit(event: string, value: unknown) {
       this.listeners.get(event)?.forEach((listener) => listener(value))
     }
   },
@@ -140,6 +144,30 @@ describe('useCollaboration connection lifecycle', () => {
     expect(guestProvider.destroy).toHaveBeenCalledOnce()
     expect(providerInstances).toHaveLength(2)
     expect(providerInstances[1].connect).toHaveBeenCalledOnce()
+
+    await act(async () => root.unmount())
+  })
+
+  it('stops reconnecting when share access is revoked', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    const provider = providerInstances[0]
+
+    await act(async () => {
+      provider.emit('connection-close', {
+        code: 1008,
+        reason: 'collaborator access was revoked',
+      })
+      provider.emit('status', { status: 'disconnected' })
+    })
+
+    expect(provider.shouldConnect).toBe(false)
+    expect(collaborationRef.current?.status).toBe('disconnected')
+    expect(collaborationRef.current?.accessError).toBe(
+      'Suggestion access was revoked. Open a current sharing link to continue.',
+    )
 
     await act(async () => root.unmount())
   })

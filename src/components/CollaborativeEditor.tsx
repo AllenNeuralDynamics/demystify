@@ -444,29 +444,31 @@ export const CollaborativeEditor = forwardRef<
             onCommentClickRef.current?.(commentId)
             return true
           },
-          keydown: (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return false
-            const target = event.target
-            if (!(target instanceof HTMLElement)) return false
-            const proposal = target.closest<HTMLElement>([
-              '.cm-suggestion-proposal',
-              '.cm-suggestion-insertion',
-              '.cm-suggestion-deletion-widget',
-            ].join(', '))
-            const commentId = proposal?.dataset.commentId
-            if (!commentId) return false
-            event.preventDefault()
-            onCommentClickRef.current?.(commentId)
-            return true
-          },
         }),
         yCollab(sharedText, provider.awareness, { undoManager }),
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
+    const activateReviewFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const proposal = target.closest<HTMLElement>([
+        '.cm-suggestion-proposal',
+        '.cm-suggestion-insertion',
+        '.cm-suggestion-deletion-widget',
+      ].join(', '))
+      const commentId = proposal?.dataset.commentId
+      if (!commentId) return
+      event.preventDefault()
+      event.stopPropagation()
+      onCommentClickRef.current?.(commentId)
+    }
+    view.dom.addEventListener('keydown', activateReviewFromKeyboard, true)
     viewRef.current = view
 
     return () => {
+      view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
       view.destroy()
       undoManager.destroy()
       viewRef.current = null

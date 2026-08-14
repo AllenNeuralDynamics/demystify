@@ -119,17 +119,21 @@ that same text. All connected reviewers therefore edit one convergent manuscript
 without a submit button. Review derives readable before/after hunks from accepted
 and working source and shows the server-stamped contributor set. Source keeps the
 working text editable while projecting accepted deletions as struck-through
-widgets and marking proposed insertions in place. Supported Visual blocks show
-one accepted and one proposed rendering; changes that cross MyST block boundaries
-remain explicit in Source and Review. A maintainer may edit the same working text
-in **Suggesting**, then accept or reject the entire proposal as an immutable
-checkpoint. Direct **Editing** updates accepted source and is unavailable while a
-proposal is pending.
+widgets and marking proposed insertions in place. Word hunks are refined to the
+smallest changed characters, so suffix edits do not duplicate the unchanged word.
+Supported Visual blocks show one accepted and one proposed rendering; changes
+that cross MyST block boundaries remain explicit in Source and Review. A
+maintainer may edit the same working text in **Suggesting**, then **Accept all**
+or **Discard all** as an immutable checkpoint. Pending changes replace the
+Editing control with **Review changes**. Direct **Editing** updates accepted
+source and is unavailable while a proposal is pending.
 References, metadata, YAML project files, publishing, and maintainer decisions
 remain read-only for that role. The WebSocket gateway validates incoming
 Suggestion updates against a shadow Yjs document, permits only the working text
 and review discussion roots, stamps contribution identity from the authorized
 socket, and rejects canonical, decision, repository, and Git mutations.
+Rotated, revoked, or expired capability links close affected sockets; the client
+immediately becomes read-only and identifies the ended sharing session.
 
 When a bibliography is present, **Save to GitHub** creates the manuscript blob,
 the managed `.bib` blob, one Git tree, and one commit before advancing the room

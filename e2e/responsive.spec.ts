@@ -85,6 +85,25 @@ test('mobile sidebar Escape policy changes exactly above 820px', async ({ page }
   await expect(sidebar).toHaveClass(/open/)
 })
 
+test('sidebar-constrained toolbar exposes hidden authoring commands through More', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Responsive authoring overflow runs once in Chromium')
+  await page.setViewportSize({ width: 1180, height: 700 })
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+
+  const more = page.getByTitle('More authoring tools')
+  await expect(more).toBeVisible()
+  await more.click()
+  const menu = page.getByRole('menu', { name: 'More authoring tools' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Bold' })).toBeEnabled()
+  await menu.getByRole('menuitem', { name: 'Add comment' }).click()
+  await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+
+  await page.setViewportSize({ width: 1600, height: 700 })
+  await expect(more).toBeHidden()
+})
+
 test('GitHub primary action remains usable in a short landscape viewport', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Short-landscape geometry runs once in Chromium')
   await page.setViewportSize({ width: 667, height: 320 })

@@ -169,6 +169,7 @@ export const useCollaboration = (
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
   const [isWorkingContentInitialized, setIsWorkingContentInitialized] = useState(false)
+  const [accessError, setAccessError] = useState<string | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
 
   useEffect(() => {
@@ -314,9 +315,24 @@ export const useCollaboration = (
 
     const updateStatus = ({ status: nextStatus }: { status: ConnectionStatus }) => {
       setStatus(nextStatus)
+      if (nextStatus === 'connected') setAccessError(null)
       setSession((currentSession) => currentSession ?? nextSession)
     }
+    const handleConnectionClose = (event: CloseEvent | null) => {
+      if (event?.code !== 1008 || !/access (?:was revoked|expired)/i.test(event.reason)) return
+      provider.shouldConnect = false
+      setIsSynced(false)
+      setStatus('disconnected')
+      setAccessError(
+        event.reason.includes('expired')
+          ? 'Sharing access expired. Open a current sharing link to continue.'
+          : event.reason.startsWith('collaborator')
+            ? 'Suggestion access was revoked. Open a current sharing link to continue.'
+            : 'Viewer access was revoked. Open a current sharing link to continue.',
+      )
+    }
     provider.on('status', updateStatus)
+    provider.on('connection-close', handleConnectionClose)
     provider.on('sync', initializeEmptyDocument)
     provider.awareness.on('change', updateCollaborators)
     text.observe(updateContent)
@@ -345,6 +361,7 @@ export const useCollaboration = (
       proposalContributorMap.unobserve(updateProposalContributors)
       proposalHistoryMap.unobserve(updateProposalHistory)
       provider.off('status', updateStatus)
+      provider.off('connection-close', handleConnectionClose)
       provider.awareness.off('change', updateCollaborators)
       provider.off('sync', initializeEmptyDocument)
       provider.destroy()
@@ -354,6 +371,7 @@ export const useCollaboration = (
       setIsSynced(false)
       setWorkingContent('')
       setIsWorkingContentInitialized(false)
+      setAccessError(null)
       setBibliography('')
       setBibliographyPath('references.bib')
       setMystConfig('')
@@ -371,9 +389,10 @@ export const useCollaboration = (
   useEffect(() => {
     const provider = providerRef.current
     if (!provider) return
-    if (shouldConnect) provider.connect()
+    if (accessError) provider.disconnect()
+    else if (shouldConnect) provider.connect()
     else provider.disconnect()
-  }, [enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
+  }, [accessError, enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -960,6 +979,7 @@ export const useCollaboration = (
     proposalHistory,
     collaborators,
     status: enabled ? status : 'disconnected',
+    accessError,
     isSynced,
     isWorkingContentInitialized,
     hasPendingWorkingChanges:
