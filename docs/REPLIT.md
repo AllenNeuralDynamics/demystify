@@ -2,12 +2,12 @@
 
 **Last validated:** August 13, 2026
 
-**Deployed application source:** [`d72a9802539dafde201fd859f685f5dbee851332`](https://github.com/AllenNeuralDynamics/demystify/commit/d72a9802539dafde201fd859f685f5dbee851332)
+**Deployed application source:** [`beb9267fb8eb97fbb098b5556e218eae3ed8e444`](https://github.com/AllenNeuralDynamics/demystify/commit/beb9267fb8eb97fbb098b5556e218eae3ed8e444)
 
-**Publication status:** Online. Replit release `6262f34e` was published on
-August 13, 2026, with atomic Add/Delete/Replace review cards, accepted deletions
-and working insertions rendered inline in Source, accepted/proposed comparisons
-for supported Visual blocks, and server-authoritative whole-proposal decisions.
+**Publication status:** Online. Replit release `14fd0c56` was published on
+August 13, 2026, with refined inline changes, an actionable Review changes flow,
+standard Source selection workflows, discoverable comments and responsive
+authoring controls, and immediate read-only handling for revoked sharing access.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -35,9 +35,9 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `d72a9802539dafde201fd859f685f5dbee851332` |
-| Replit release | `6262f34e` |
-| Cloud credits after `fd280947` smoke | 46% used |
+| Application source | `beb9267fb8eb97fbb098b5556e218eae3ed8e444` |
+| Replit release | `14fd0c56` |
+| Last measured cloud credits (after `fd280947` smoke) | 46% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -486,6 +486,39 @@ The August 13, 2026 inline-Suggesting release `6262f34e` from application SHA
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 52 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 63 intentional
+   project-specific skips.
+
+The August 13, 2026 reviewer-feedback release `14fd0c56` from application SHA
+`beb9267fb8eb97fbb098b5556e218eae3ed8e444` passed these release checks:
+
+- Protected pull request #25 passed strict required `validate` and `browser`
+   checks on exact head `55cbeb42dff767cfb85cfb0f8a0148ebdb7f7c0a` before
+   squash-merging to `main`. The resulting protected `main` SHA passed its own
+   post-merge workflow.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=beb9267fb8eb97fbb098b5556e218eae3ed8e444` before republish.
+- Replit's saved no-options redeploy path omitted the destructive development
+   database-copy input, and no database migration prompt appeared. Replit
+   reported success for Provision, Security checks, Build, Bundle, and Promote.
+   Build `14fd0c56-97a6-4b00-a22f-8478ef6f85ea` used Cloud Run with an image
+   tag, one maximum machine, and the retained production database connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-wPZG7xs_.js` with Review changes, Accept all,
+   Discard all, access-revocation, comment-discovery, and More-menu markers, plus
+   `MystPreview-mteHA47e.js` with Visual suggestion and keyboard-review markers.
+   Crawler exclusion remained enabled.
+- The live anonymous shell loaded, and an anonymous snapshot attempt against the
+   retained synthetic acceptance room was rejected with HTTP `401` before any
+   mutation. At 1560x900 desktop, 1180x700 constrained desktop, and 390x844
+   mobile viewports, the document had no horizontal overflow, page exceptions,
+   or server `5xx` responses. Source/Split/Visual remained available, and the
+   constrained More menu exposed all six expected commands.
+- Local and protected validation passed 230 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 55 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
