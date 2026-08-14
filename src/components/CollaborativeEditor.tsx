@@ -286,14 +286,25 @@ const editorTheme = EditorView.theme({
     border: 'none',
     color: '#68716c',
   },
-  '.cm-activeLine, .cm-activeLineGutter': {
-    background: '#f4f7f4',
+  '.cm-activeLine': {
+    background: 'transparent',
+  },
+  '.cm-activeLineGutter': {
+    background: '#edf5f1',
+    color: '#202723',
+    fontWeight: '600',
   },
   '&.cm-focused': {
     outline: 'none',
   },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    background: '#cfe7df',
+  '.cm-selectionLayer .cm-selectionBackground': {
+    backgroundColor: '#d9e9f8',
+  },
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+    backgroundColor: '#b7d8f6',
+  },
+  '.cm-selectionMatch, .cm-selectionMatch-main': {
+    backgroundColor: 'transparent',
   },
   '.cm-comment-anchor': {
     background: '#ffe9a8',

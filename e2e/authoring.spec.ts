@@ -85,14 +85,22 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
     origin: 'http://127.0.0.1:4173',
   })
-  const selectPhrase = async () => {
+  await source.focus()
+  await source.press('ControlOrMeta+Home')
+  await expect(page.locator('.cm-activeLine')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  )
+  await expect(page.locator('.cm-lineNumbers .cm-activeLineGutter')).toHaveCSS(
+    'background-color',
+    'rgb(237, 245, 241)',
+  )
+  const selectPhrase = async (selectedText = phrase) => {
     await source.focus()
     await source.press('ControlOrMeta+Home')
-    const headingLine = page.locator('.cm-line').filter({
-      hasText: '# A shared language for reproducible manuscripts',
-    })
-    await expect(headingLine).toBeVisible()
-    const bounds = await headingLine.evaluate((line, selectedText) => {
+    const targetLine = page.locator('.cm-line').filter({ hasText: selectedText }).first()
+    await expect(targetLine).toBeVisible()
+    const bounds = await targetLine.evaluate((line, selectedText) => {
       const text = line.textContent ?? ''
       const start = text.indexOf(selectedText)
       if (start < 0) throw new Error(`Could not find ${selectedText} in Source heading`)
@@ -117,7 +125,7 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
         right: rectangle.right,
         y: rectangle.top + rectangle.height / 2,
       }
-    }, phrase)
+    }, selectedText)
     await page.mouse.move(bounds.left + 1, bounds.y)
     await page.mouse.down()
     await page.mouse.move(bounds.right - 1, bounds.y, { steps: 8 })
@@ -128,7 +136,17 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
     await expect(page.locator('.cm-selectionBackground')).not.toHaveCount(0)
   }
 
+  await selectPhrase('MyST')
+  await expect(page.locator('.cm-selectionMatch')).not.toHaveCount(0)
+  await expect(page.locator('.cm-selectionMatch').first()).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  )
   await selectPhrase()
+  await expect(page.locator('.cm-selectionBackground').first()).toHaveCSS(
+    'background-color',
+    'rgb(183, 216, 246)',
+  )
   await source.press('ControlOrMeta+c')
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(phrase)
 
