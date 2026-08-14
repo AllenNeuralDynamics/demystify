@@ -80,9 +80,8 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
     origin: 'http://127.0.0.1:4173',
   })
   const selectPhrase = async () => {
-    await page.getByRole('button', {
-      name: 'H1 A shared language for reproducible manuscripts',
-    }).click()
+    await source.focus()
+    await source.press('ControlOrMeta+Home')
     const headingLine = page.locator('.cm-line').filter({
       hasText: '# A shared language for reproducible manuscripts',
     })
@@ -132,14 +131,6 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   await source.press('ControlOrMeta+z')
   await expect(source).toContainText('# A shared language')
 
-  await source.focus()
-  await source.press('ControlOrMeta+End')
-  await source.press('ControlOrMeta+v')
-  await expect.poll(async () => ((await source.textContent())?.match(/A shared/g) ?? []).length)
-    .toBe(2)
-  await source.press('ControlOrMeta+z')
-
-  await selectPhrase()
   await source.press('ControlOrMeta+Alt+M')
   const comments = page.getByRole('complementary', { name: 'Comments' })
   await comments.getByRole('textbox', { name: 'New comment' }).fill('Selected phrase comment')
@@ -147,12 +138,17 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   await page.getByTitle('Close comments').click()
   await expect(page.locator('.cm-comment-anchor').filter({ hasText: phrase })).toHaveCount(1)
 
-  await selectPhrase()
   await page.getByTitle('More authoring tools').click()
   await page.getByRole('menu', { name: 'More authoring tools' })
     .getByRole('menuitem', { name: 'Bold' })
     .click()
   await expect(source).toContainText('# **A shared** language')
+
+  await source.press('ControlOrMeta+z')
+  await source.press('ControlOrMeta+End')
+  await source.press('ControlOrMeta+v')
+  await expect.poll(async () => ((await source.textContent())?.match(/A shared/g) ?? []).length)
+    .toBe(2)
 })
 
 test('preserves rendered text selection before entering visual editing', async ({ page }, testInfo) => {
