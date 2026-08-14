@@ -497,8 +497,8 @@ export const CollaborativeEditor = forwardRef<
       event.stopPropagation()
       onCommentClickRef.current?.(commentId)
     }
-    view.contentDOM.addEventListener('pointerdown', beginPointerSelection)
-    view.contentDOM.addEventListener('pointerup', finishPointerSelection)
+    view.contentDOM.addEventListener('pointerdown', beginPointerSelection, true)
+    window.addEventListener('pointerup', finishPointerSelection, true)
     view.contentDOM.addEventListener('keydown', clearPointerSelectionFromKeyboard, true)
     view.contentDOM.addEventListener('cut', clearPointerSelection)
     view.contentDOM.addEventListener('input', clearPointerSelection)
@@ -507,8 +507,8 @@ export const CollaborativeEditor = forwardRef<
     viewRef.current = view
 
     return () => {
-      view.contentDOM.removeEventListener('pointerdown', beginPointerSelection)
-      view.contentDOM.removeEventListener('pointerup', finishPointerSelection)
+      view.contentDOM.removeEventListener('pointerdown', beginPointerSelection, true)
+      window.removeEventListener('pointerup', finishPointerSelection, true)
       view.contentDOM.removeEventListener('keydown', clearPointerSelectionFromKeyboard, true)
       view.contentDOM.removeEventListener('cut', clearPointerSelection)
       view.contentDOM.removeEventListener('input', clearPointerSelection)
