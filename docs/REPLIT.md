@@ -1,13 +1,12 @@
 # Replit Pilot
 
-**Last validated:** August 13, 2026
+**Last validated:** August 14, 2026
 
-**Deployed application source:** [`beb9267fb8eb97fbb098b5556e218eae3ed8e444`](https://github.com/AllenNeuralDynamics/demystify/commit/beb9267fb8eb97fbb098b5556e218eae3ed8e444)
+**Deployed application source:** [`90476d160e2099e0036ba90bbf09650f1e45d4bb`](https://github.com/AllenNeuralDynamics/demystify/commit/90476d160e2099e0036ba90bbf09650f1e45d4bb)
 
-**Publication status:** Online. Replit release `14fd0c56` was published on
-August 13, 2026, with refined inline changes, an actionable Review changes flow,
-standard Source selection workflows, discoverable comments and responsive
-authoring controls, and immediate read-only handling for revoked sharing access.
+**Publication status:** Online. Replit release `ca2ec0c8` was published on
+August 14, 2026, with Google Docs-style document menus, familiar toolbar command
+ownership, right-aligned comment and editing modes, and a sidebar-boundary toggle.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -28,16 +27,16 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 13, 2026 |
+| Publication | Online; updated August 14, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `beb9267fb8eb97fbb098b5556e218eae3ed8e444` |
-| Replit release | `14fd0c56` |
-| Last measured cloud credits (after `fd280947` smoke) | 46% used |
+| Application source | `90476d160e2099e0036ba90bbf09650f1e45d4bb` |
+| Replit release | `ca2ec0c8` |
+| Last measured cloud credits (after `ca2ec0c8` smoke) | 60% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -515,6 +514,43 @@ The August 13, 2026 reviewer-feedback release `14fd0c56` from application SHA
    mobile viewports, the document had no horizontal overflow, page exceptions,
    or server `5xx` responses. Source/Split/Visual remained available, and the
    constrained More menu exposed all six expected commands.
+- Local and protected validation passed 230 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 55 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
+   project-specific skips.
+
+The August 14, 2026 Google Docs chrome release `ca2ec0c8` from application SHA
+`90476d160e2099e0036ba90bbf09650f1e45d4bb` passed these release checks:
+
+- Protected pull request #27 passed strict required `validate` and `browser`
+   checks on exact head `63cf72b9d6a251c8e7c1a8116b9387d9b72a5c81` before
+   squash-merging to `main`. The resulting protected `main` SHA passed its own
+   post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=90476d160e2099e0036ba90bbf09650f1e45d4bb` before republish.
+- Replit's saved no-options Republish dialog exposed no checkbox or
+   development-database-copy input, and no database migration prompt appeared.
+   Provision, Security checks, Build, Bundle, and Promote all succeeded. The
+   deployment retained Cloud Run Autoscale with one maximum machine and the
+   production database connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-CrHUF36D.js` with document-menu, Review changes,
+   Word count, and sidebar-collapse markers. Its SHA-256 digest
+   `e7360e01bb431258825d36bbe3b5ce8664aa2f5304f6e42375af534af7b4938d`
+   exactly matched the locally validated production artifact, and crawler
+   exclusion remained enabled.
+- The live anonymous shell exposed File, Edit, View, Insert, Format, Tools, and
+   Help menus. File contained New document, Tools reported Word count, and an
+   anonymous snapshot attempt against the retained synthetic acceptance room
+   was rejected with HTTP `401` before mutation.
+- At 1560x900 desktop, 1180x700 constrained desktop, and 390x844 mobile
+   viewports, the document had no horizontal overflow, out-of-viewport controls,
+   incoherent toolbar overlap, unexpected console errors, or server `5xx`
+   responses. The shipped header measured 64 pixels on desktop and 88 pixels on
+   mobile, with the 43-pixel authoring toolbar directly below it.
 - Local and protected validation passed 230 unit/server tests, authenticated
    PostgreSQL collaboration integration, lint, client/server builds, bundle
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
