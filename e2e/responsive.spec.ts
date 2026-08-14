@@ -144,7 +144,8 @@ test('document menus and compact toolbar follow Google Docs ownership', async ({
 
   await page.setViewportSize({ width: 667, height: 700 })
   await expect(more).toBeVisible()
-  await more.click()
+  await more.focus()
+  await more.press('Enter')
   const menu = page.getByRole('menu', { name: 'More authoring tools' })
   await expect(menu).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Bold' })).toBeEnabled()
