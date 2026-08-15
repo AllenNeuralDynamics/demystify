@@ -182,7 +182,7 @@ export const ShareDialog = ({
             <div className="share-access-icon"><PencilLine size={16} /></div>
             <div className="share-access-copy">
               <strong>Suggestion mode</strong>
-              <span>Anyone with the link can coedit one live working manuscript in Source or Visual and reply to comments. Accepted source changes only when a maintainer accepts the checkpoint, and only maintainers submit to GitHub.</span>
+              <span>Anyone with the link can submit attributed Source or Visual suggestions and reply to comments. Maintainers accept or reject each suggestion independently, and only maintainers submit accepted source to GitHub.</span>
 
               {generatedUrls.collaborator && (
                 <div className="share-link-control generated-collaborator-link">

@@ -89,7 +89,8 @@ describe('CollaborativeEditor', () => {
     container.remove()
   })
 
-  it('shares Source edits immediately while accepted Y.Text remains unchanged', async () => {
+  it('auto-saves a Source edit as a suggestion without mutating shared text', async () => {
+    vi.useFakeTimers()
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList
     Range.prototype.getBoundingClientRect = () => ({
       bottom: 0,
@@ -112,6 +113,10 @@ describe('CollaborativeEditor', () => {
     const awareness = new Awareness(yDocument)
     const provider = { awareness } as unknown as WebsocketProvider
     const editorRef = createRef<CollaborativeEditorHandle>()
+    const onProposeSourceEdit = vi.fn(() => ({
+      result: 'applied' as const,
+      suggestionId: 'source-suggestion',
+    }))
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -123,6 +128,8 @@ describe('CollaborativeEditor', () => {
           sharedText={sharedText}
           provider={provider}
           suggestionMode
+          suggestionBaseContent={currentProposal}
+          onProposeSourceEdit={onProposeSourceEdit}
         />,
       )
     })
@@ -131,14 +138,26 @@ describe('CollaborativeEditor', () => {
     expect(editor?.textContent).toContain('Current proposed claim.')
     expect(editor?.textContent).not.toContain('Original claim.')
     await act(async () => editorRef.current?.insertText('Live '))
-    expect(sharedText.toString()).toBe(`Live ${currentProposal}`)
+    expect(sharedText.toString()).toBe(currentProposal)
     expect(acceptedText.toString()).toBe(source)
-    expect(container.textContent).toContain('Suggesting live')
-    expect(container.textContent).not.toContain('Propose changes')
+    expect(container.textContent).toContain('Saving suggestion...')
+    await act(async () => vi.advanceTimersByTime(450))
+    expect(onProposeSourceEdit).toHaveBeenCalledWith(`Live ${currentProposal}`)
+    expect(sharedText.toString()).toBe(currentProposal)
+    expect(container.textContent).toContain('Suggesting')
 
-    const sharedFollowUp = '\nRemote follow-up claim.'
+    const sharedFollowUp = `${currentProposal}\nRemote follow-up claim.`
     await act(async () => {
-      sharedText.insert(sharedText.length, sharedFollowUp)
+      root.render(
+        <CollaborativeEditor
+          ref={editorRef}
+          sharedText={sharedText}
+          provider={provider}
+          suggestionMode
+          suggestionBaseContent={sharedFollowUp}
+          onProposeSourceEdit={onProposeSourceEdit}
+        />,
+      )
     })
     expect(container.querySelector<HTMLElement>('.cm-content')?.textContent)
       .toContain('Remote follow-up claim.')
@@ -148,6 +167,7 @@ describe('CollaborativeEditor', () => {
     awareness.destroy()
     yDocument.destroy()
     container.remove()
+    vi.useRealTimers()
   })
 
   it('renders a live replacement inline without duplicating working text', async () => {

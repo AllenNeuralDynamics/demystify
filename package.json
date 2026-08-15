@@ -15,6 +15,7 @@
     "start": "NODE_ENV=production node dist-server/server/index.js",
     "test": "vitest run",
     "test:collaboration": "node scripts/test-collaboration.mjs",
+    "test:collaboration:load": "node scripts/test-collaboration-load.mjs",
     "test:bundle": "node scripts/check-bundle-size.mjs",
     "test:e2e": "playwright test",
     "test:e2e:quick": "playwright test --project=chromium",

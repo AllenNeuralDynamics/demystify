@@ -72,7 +72,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
 
         <div className="help-comment-note">
           <MessageSquareText size={17} />
-          <p>Suggestion links open one live working manuscript in Source and Visual. Everyone sees edits immediately. Pending changes turn Editing into Review changes; a maintainer then accepts all or discards all before submitting accepted MyST to GitHub. Only an author can edit their comment or reply, while everyone with editing access can reply. Revoked or expired links stop editing immediately.</p>
+          <p>Suggestion links create attributed Source and Visual proposals without changing accepted MyST. Source saves a proposal after a short pause; Visual saves when the edit finishes. Maintainers accept or reject each suggestion independently. Only an author can edit their comment or reply, while everyone with editing access can reply. Revoked or expired links stop editing immediately.</p>
         </div>
       </section>
     </div>
