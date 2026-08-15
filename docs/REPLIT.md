@@ -2,11 +2,11 @@
 
 **Last validated:** August 15, 2026
 
-**Deployed application source:** [`0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85`](https://github.com/AllenNeuralDynamics/demystify/commit/0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85)
+**Deployed application source:** [`c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed`](https://github.com/AllenNeuralDynamics/demystify/commit/c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed)
 
-**Publication status:** Online. Replit release `85eec6b4` was published on
-August 15, 2026, with protected Markdown-to-Visual content synchronization and
-deterministic linked scrolling for Split view.
+**Publication status:** Online. Replit release `5262bf63` was published on
+August 15, 2026, with semantic same-content alignment between Markdown Source
+and Visual in Split view.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85` |
-| Replit release | `85eec6b4` |
+| Application source | `c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed` |
+| Replit release | `5262bf63` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -625,6 +625,41 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 15, 2026 semantic linked-scroll release `5262bf63` from application
+SHA `c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed` passed these release checks:
+
+- Protected pull request #45 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`. The resulting protected `main` SHA
+   passed its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed` and
+   `FINAL_DIRTY=0` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Build `5262bf63`
+   completed successfully on Cloud Run with one maximum machine and an image tag;
+   the production database remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-BChxP407.js` and `index-Car6muc-.css`; their SHA-256
+   digests, `64c85c838decb475d81e6a986b4ec28c5366d7bc1358ad20801a0ce27dea3b1e`
+   and `d1597a4368620edb6e84547c60a89d2ee24f560cde466f88da39feed1962f46c`,
+   exactly matched the guarded Replit workspace build. Crawler exclusion remained
+   enabled.
+- In the retained read-only acceptance room, navigating Source to the exact
+   `What gap this dataset fills` Markdown heading placed the matching rendered
+   heading within 31 pixels of the Visual pane center. Unlinking then kept the
+   Visual heading at exactly the same position while Source navigation changed.
+- An anonymous snapshot request against that room was rejected with HTTP `401`
+   before any mutation.
+- Local and protected validation passed 253 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 54
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 71 intentional project-specific skips. The semantic
+   integration test uses a 900-pixel Visual-only layout distortion to prove
+   alignment follows Markdown block positions rather than scroll percentages.
 
 The August 15, 2026 deterministic linked-scroll release `85eec6b4` from
 application SHA `0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85` passed these
