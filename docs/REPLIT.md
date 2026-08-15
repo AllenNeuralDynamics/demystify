@@ -1,12 +1,13 @@
 # Replit Pilot
 
-**Last validated:** August 14, 2026
+**Last validated:** August 15, 2026
 
-**Deployed application source:** [`99db02926b6c98cd8d18fd048346cde422148602`](https://github.com/AllenNeuralDynamics/demystify/commit/99db02926b6c98cd8d18fd048346cde422148602)
+**Deployed application source:** [`cc8ab0abedda787ff18d31559fe7e1a6770db072`](https://github.com/AllenNeuralDynamics/demystify/commit/cc8ab0abedda787ff18d31559fe7e1a6770db072)
 
-**Publication status:** Online. Replit release `709a36ad` was published on
-August 14, 2026, with independently attributed suggestions, a compact review
-inbox, participant navigation, and a validated 5-editor/95-viewer load profile.
+**Publication status:** Online. Replit release `50cc9a0a` was published on
+August 15, 2026, with compact Google Docs-like review threads, working
+participant mentions, consolidated reply sync status, and an expanded Help
+guide.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -27,15 +28,15 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 14, 2026 |
+| Publication | Online; updated August 15, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `99db02926b6c98cd8d18fd048346cde422148602` |
-| Replit release | `709a36ad` |
+| Application source | `cc8ab0abedda787ff18d31559fe7e1a6770db072` |
+| Replit release | `50cc9a0a` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -625,6 +626,36 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 15, 2026 review-polish release `50cc9a0a` from application SHA
+`cc8ab0abedda787ff18d31559fe7e1a6770db072` passed these release checks:
+
+- Protected pull requests #35, #36, and #37 passed strict required `validate`
+   and `browser` checks before squash-merging to `main`. Each resulting protected
+   `main` SHA passed its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=cc8ab0abedda787ff18d31559fe7e1a6770db072` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded. Autoscale retained one
+   maximum machine and the production database remained connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-D6cyeDrn.js` and `index-Bp6XkXgx.css`; their SHA-256
+   digests, `bb553779b9a2ee5c078812312ffd7b4b6f2ad813a4949ef7c0e12506737633b4`
+   and `f974e6fe54314b96990cc67a2fa53cfad13582a5e97f64d83e3b424721229cca`,
+   exactly matched the locally validated production artifacts. Crawler exclusion
+   remained enabled.
+- The live anonymous shell and expanded six-topic Help guide loaded without page
+   exceptions, server `5xx` responses, or horizontal overflow at 1280x800 and
+   390x844 viewports. The Help dialog remained inside both viewports, and its
+   content did not overflow horizontally.
+- Local and protected validation passed 249 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 51
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 69 intentional project-specific skips.
 
 The August 14, 2026 collaborative-review release `709a36ad` from application
 SHA `99db02926b6c98cd8d18fd048346cde422148602` passed these release checks:
