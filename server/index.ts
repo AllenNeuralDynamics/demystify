@@ -272,13 +272,17 @@ if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_AUTH === '1') {
       typeof request.body.login === 'string' && request.body.login.trim()
         ? request.body.login.trim()
         : 'integration-test'
+    const avatarUrl =
+      typeof request.body.avatarUrl === 'string'
+        ? request.body.avatarUrl.trim()
+        : ''
     request.session.github = {
       accessToken: liveTestAccessToken ?? 'test-token',
       user: {
         id,
         login,
         name: 'Integration Test',
-        avatarUrl: '',
+        avatarUrl,
       },
     }
     request.session.save((error) => {

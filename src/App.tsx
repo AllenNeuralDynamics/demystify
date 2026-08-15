@@ -1558,6 +1558,32 @@ function App() {
               revealCollaborator(collaborator, `Jumped to ${collaborator.name}.`)
             }}
           />
+          {github.session?.user ? (
+            <button
+              aria-label={`GitHub identity @${github.session.user.login}`}
+              className="button secondary-button github-profile-button"
+              type="button"
+              title={`GitHub identity @${github.session.user.login}`}
+              onClick={() => setGitHubDialogOpen(true)}
+            >
+              {github.session.user.avatarUrl ? (
+                <img src={github.session.user.avatarUrl} alt="" />
+              ) : (
+                <UserRound size={17} aria-hidden="true" />
+              )}
+            </button>
+          ) : !isMaintainer ? (
+            <button
+              className="button github-button"
+              type="button"
+              disabled={github.isLoading}
+              title="Connect GitHub identity"
+              onClick={() => setGitHubDialogOpen(true)}
+            >
+              <GitFork size={16} />
+              <span>Connect GitHub</span>
+            </button>
+          ) : null}
           {isMaintainer && !isArchived && (
             <button className="button secondary-button" type="button" title="Share access" onClick={shareDocument}>
               <Share2 size={16} />
@@ -1596,25 +1622,6 @@ function App() {
                     : 'Connect GitHub'}
               </span>
             </button>
-          ) : !isMaintainer ? (
-            <>
-              <button
-                className={`button ${github.session?.user ? 'secondary-button github-identity-button' : 'github-button'}`}
-                type="button"
-                disabled={github.isLoading}
-                title={github.session?.user ? 'GitHub identity' : 'Connect GitHub identity'}
-                onClick={() => setGitHubDialogOpen(true)}
-              >
-                {github.session?.user?.avatarUrl ? (
-                  <img src={github.session.user.avatarUrl} alt="" />
-                ) : (
-                  github.session?.user
-                    ? <UserRound size={16} />
-                    : <GitFork size={16} />
-                )}
-                <span>{github.session?.user ? `@${github.session.user.login}` : 'Connect GitHub'}</span>
-              </button>
-            </>
           ) : null}
         </div>
       </header>

@@ -33,6 +33,7 @@ export const authenticateMaintainer = async (
   page: Page,
   roomName: string,
   testInfo: TestInfo,
+  avatarUrl = '',
 ) => {
   const identity = 10_000 + testInfo.workerIndex
   await page.addInitScript((profileId) => {
@@ -44,7 +45,7 @@ export const authenticateMaintainer = async (
     }))
   }, identity)
   const sessionResponse = await page.request.post('/api/test/session', {
-    data: { id: identity, login: `e2e-editor-${testInfo.workerIndex}` },
+    data: { id: identity, login: `e2e-editor-${testInfo.workerIndex}`, avatarUrl },
   })
   expect(sessionResponse.status()).toBe(204)
 
