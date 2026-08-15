@@ -56,6 +56,7 @@ import { DocumentMenu } from './components/DocumentMenu'
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
+import { MentionInput } from './components/MentionInput'
 import type { MystPreviewSuggestion } from './components/MystPreview'
 import { ParticipantsMenu } from './components/ParticipantsMenu'
 import { ReferenceManager } from './components/ReferenceManager'
@@ -100,6 +101,7 @@ import {
   type ReviewStatusFilter,
   type ReviewTypeFilter,
 } from './lib/reviewInbox'
+import { resolveMentions, type MentionCandidate } from './lib/mentions'
 import {
   detectCitationSyntax,
   formatCitation,
@@ -577,6 +579,41 @@ function App() {
     })
     return messages
   }, [sharedCommentMessages])
+  const mentionCandidates = useMemo(() => {
+    const candidates = new Map<string, MentionCandidate>()
+    const addCandidate = (
+      actorId: string,
+      name: string,
+      color: string,
+      colorLight = `${color}1f`,
+      displayName = name,
+    ) => {
+      if (ownedActorIds.includes(actorId) || candidates.has(actorId)) return
+      candidates.set(actorId, { actorId, name, displayName, color, colorLight })
+    }
+    collaborators.forEach((collaborator) => {
+      const githubLogin = collaborator.name.match(/\(@([^)]+)\)$/)?.[1]
+      addCandidate(
+        collaborator.id,
+        githubLogin ?? collaborator.name,
+        collaborator.color,
+        collaborator.colorLight,
+        collaborator.name,
+      )
+    })
+    sharedComments.forEach((comment) => addCandidate(
+      comment.authorId,
+      comment.authorName,
+      comment.authorColor,
+    ))
+    sharedCommentMessages.forEach((message) => addCandidate(
+      message.authorId,
+      message.authorName,
+      message.authorColor,
+    ))
+    return Array.from(candidates.values()).sort((left, right) =>
+      left.name.localeCompare(right.name))
+  }, [collaborators, ownedActorIds, sharedCommentMessages, sharedComments])
 
   const showNotice = (message: string) => {
     setNotice(message)
@@ -1030,7 +1067,11 @@ function App() {
 
   const submitReply = (comment: SharedComment) => {
     const draft = replyDrafts[comment.id] ?? ''
-    if (!collaboration.addCommentReply(comment.id, draft)) return
+    if (!collaboration.addCommentReply(
+      comment.id,
+      draft,
+      resolveMentions(draft, mentionCandidates),
+    )) return
     setReplyDrafts((current) => ({ ...current, [comment.id]: '' }))
   }
 
@@ -2318,6 +2359,20 @@ function App() {
                     const isActiveThread = activeCommentId === comment.id
                     const isEarlierRevision = comment.suggestion?.status === 'pending' &&
                       inactiveSuggestionIds.has(comment.id)
+                    const suggestionAction = comment.suggestion?.kind === 'insert'
+                      ? 'Insert'
+                      : comment.suggestion?.kind === 'delete'
+                        ? 'Delete'
+                        : 'Replace'
+                    const suggestionState = isEarlierRevision
+                      ? 'Earlier revision'
+                      : comment.suggestion?.status === 'accepted'
+                        ? 'Accepted'
+                        : comment.suggestion?.status === 'rejected'
+                          ? 'Rejected'
+                          : comment.suggestion?.status === 'conflicted'
+                            ? 'Needs attention'
+                            : null
                     return (
                     <article
                       aria-expanded={isActiveThread}
@@ -2346,65 +2401,53 @@ function App() {
                       tabIndex={0}
                     >
                       <div className="comment-meta">
-                        <span className="mini-avatar" style={{ background: `${comment.authorColor}1f`, color: comment.authorColor }}>
+                        <span aria-hidden="true" className="mini-avatar" style={{ background: `${comment.authorColor}1f`, color: comment.authorColor }}>
                           {comment.authorName.slice(0, 1).toUpperCase()}
                         </span>
                         <strong>{comment.authorName}</strong>
                         <time dateTime={comment.createdAt}>{formatRelativeTime(comment.createdAt)}</time>
-                        <span className="comment-thread-state">
-                          {replies.length > 0
-                            ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`
-                            : comment.resolved ? 'Resolved' : 'Open'}
-                        </span>
+                        {(replies.length > 0 || comment.resolved) && (
+                          <span className="comment-thread-state">
+                            {replies.length > 0
+                              ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`
+                              : 'Resolved'}
+                          </span>
+                        )}
                       </div>
-                      {comment.anchor ? (
+                      {!comment.suggestion && comment.anchor ? (
                         <button
                           className="comment-anchor-context"
                           type="button"
                           onClick={() => openCommentThread(comment.id, true)}
                         >
-                          <TextQuote size={13} />
                           <span>{location?.orphaned ? comment.anchor.quote : location?.quote ?? comment.anchor.quote}</span>
                           {location?.orphaned && <em>Original text deleted</em>}
                         </button>
-                      ) : (
+                      ) : !comment.suggestion ? (
                         <div className="comment-document-context">Document comment</div>
-                      )}
+                      ) : null}
                       {comment.suggestion ? (
-                        <div className={`suggestion-change is-${isEarlierRevision ? 'superseded' : comment.suggestion.status}`}>
-                          <div className="suggestion-heading">
-                            <strong>
-                              {isEarlierRevision
-                                ? 'Earlier revision'
-                                : comment.suggestion.status === 'pending'
-                                ? 'Suggested edit'
-                                : comment.suggestion.status === 'accepted'
-                                  ? 'Accepted edit'
-                                  : comment.suggestion.status === 'rejected'
-                                    ? 'Rejected edit'
-                                    : 'Conflicted edit'}
-                            </strong>
-                            <span>{isEarlierRevision ? 'superseded' : comment.suggestion.status}</span>
-                          </div>
-                          {comment.suggestion.before && (
-                            <div className="suggestion-line removed">
-                              <Minus size={13} aria-hidden="true" />
-                              <del>{comment.suggestion.before}</del>
-                            </div>
-                          )}
-                          {comment.suggestion.after && (
-                            <div className="suggestion-line added">
-                              <Plus size={13} aria-hidden="true" />
-                              <ins>{comment.suggestion.after}</ins>
-                            </div>
-                          )}
-                          {comment.suggestion.decidedByName && (
-                            <small>
+                        <>
+                          <p className={`suggestion-summary is-${isEarlierRevision ? 'superseded' : comment.suggestion.status}`}>
+                            {suggestionState && <><span>{suggestionState}</span>{' '}</>}
+                            <strong>{suggestionAction}:</strong>{' '}
+                            {comment.suggestion.kind === 'replace' ? (
+                              <>
+                                <q>{comment.suggestion.before}</q> with <q>{comment.suggestion.after}</q>
+                              </>
+                            ) : (
+                              <q>{comment.suggestion.kind === 'delete'
+                                ? comment.suggestion.before
+                                : comment.suggestion.after}</q>
+                            )}
+                          </p>
+                          {isActiveThread && comment.suggestion.decidedByName && (
+                            <small className="suggestion-decision">
                               {comment.suggestion.status === 'accepted' ? 'Accepted' : 'Rejected'} by{' '}
                               {comment.suggestion.decidedByName}
                             </small>
                           )}
-                        </div>
+                        </>
                       ) : (
                         editingReviewItem?.kind === 'comment' && editingReviewItem.id === comment.id ? (
                           <div className="comment-edit-composer">
@@ -2439,7 +2482,7 @@ function App() {
                           {replies.map((message) => (
                             <div className="comment-reply" key={message.id}>
                               <div className="comment-meta">
-                                <span className="mini-avatar" style={{ background: `${message.authorColor}1f`, color: message.authorColor }}>
+                                <span aria-hidden="true" className="mini-avatar" style={{ background: `${message.authorColor}1f`, color: message.authorColor }}>
                                   {message.authorName.slice(0, 1).toUpperCase()}
                                 </span>
                                 <strong>{message.authorName}</strong>
@@ -2511,20 +2554,19 @@ function App() {
                       )}
                       {isActiveThread && (
                         <div className="comment-reply-composer">
-                          <input
-                            aria-label={`Reply to comment by ${comment.authorName}`}
-                            placeholder="Reply or add others with @"
+                          <MentionInput
+                            ariaLabel={`Reply to comment by ${comment.authorName}`}
+                            candidates={mentionCandidates}
                             disabled={effectiveReadOnly}
+                            placeholder={mentionCandidates.length > 0
+                              ? 'Reply or add others with @'
+                              : 'Reply'}
                             value={replyDrafts[comment.id] ?? ''}
-                            onChange={(event) => setReplyDrafts((current) => ({
+                            onChange={(value) => setReplyDrafts((current) => ({
                               ...current,
-                              [comment.id]: event.target.value,
+                              [comment.id]: value,
                             }))}
-                            onKeyDown={(event) => {
-                              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                                submitReply(comment)
-                              }
-                            }}
+                            onSubmit={() => submitReply(comment)}
                           />
                           <button
                             type="button"

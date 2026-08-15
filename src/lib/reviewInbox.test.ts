@@ -39,6 +39,15 @@ const messages: SharedCommentMessage[] = [{
   authorColor: '#174f3f',
   body: 'I can revise the methods paragraph.',
   createdAt: '2026-08-14T11:00:00.000Z',
+}, {
+  id: 'mention-reply',
+  threadId: 'resolved-suggestion',
+  authorId: 'reviewer-c',
+  authorName: 'Reviewer C',
+  authorColor: '#94641f',
+  body: '@Maintainer could you check this edit?',
+  mentions: [{ actorId: 'maintainer', name: 'Maintainer' }],
+  createdAt: '2026-08-14T11:05:00.000Z',
 }]
 
 describe('filterReviewThreads', () => {
@@ -70,13 +79,13 @@ describe('filterReviewThreads', () => {
     }).map((comment) => comment.id)).toEqual(['resolved-suggestion'])
   })
 
-  it('limits For you to threads authored or joined by the current actor', () => {
+  it('limits For you to threads authored, joined, or mentioning the current actor', () => {
     expect(filterReviewThreads(comments, messages, {
       query: '',
       status: 'all',
       type: 'all',
       forActorIds: ['maintainer'],
-    }).map((comment) => comment.id)).toEqual(['open-comment'])
+    }).map((comment) => comment.id)).toEqual(['open-comment', 'resolved-suggestion'])
   })
 
   it('keeps a selected thread inside a bounded review window', () => {
