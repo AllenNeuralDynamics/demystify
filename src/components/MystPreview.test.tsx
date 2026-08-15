@@ -625,4 +625,40 @@ ${figure}`
 
     await act(async () => root.unmount())
   })
+
+  it('exposes source ranges for semantic scrolling and reports layout updates', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const onLayoutChange = vi.fn()
+    const content = '# Draft\n\nFirst paragraph.'
+
+    await act(async () => {
+      root.render(<MystPreview content={content} onLayoutChange={onLayoutChange} />)
+    })
+
+    const heading = container.querySelector<HTMLElement>('h1[data-myst-source-from]')
+    const paragraph = container.querySelector<HTMLElement>('p[data-myst-source-from]')
+    expect(heading?.dataset.mystSourceFrom).toBe(String(content.indexOf('Draft')))
+    expect(heading?.dataset.mystSourceTo).toBe(String(content.indexOf('Draft') + 'Draft'.length))
+    expect(paragraph?.dataset.mystSourceFrom).toBe(String(content.indexOf('First paragraph.')))
+    expect(onLayoutChange).toHaveBeenCalledOnce()
+    const initialLayoutCalls = onLayoutChange.mock.calls.length
+
+    const updatedContent = '# Draft\n\nUpdated paragraph.'
+    await act(async () => {
+      root.render(
+        <MystPreview
+          content={updatedContent}
+          onLayoutChange={onLayoutChange}
+        />,
+      )
+      await new Promise((resolve) => window.setTimeout(resolve, 500))
+    })
+    const updatedParagraph = container.querySelector<HTMLElement>('p[data-myst-source-from]')
+    expect(updatedParagraph?.dataset.mystSourceFrom)
+      .toBe(String(updatedContent.indexOf('Updated paragraph.')))
+    expect(onLayoutChange.mock.calls.length).toBeGreaterThan(initialLayoutCalls)
+
+    await act(async () => root.unmount())
+  })
 })

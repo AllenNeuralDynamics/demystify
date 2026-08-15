@@ -23,6 +23,7 @@ import {
   rebaseTextDraft,
   type CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
+import type { LinkedScrollAnchor } from '../lib/linkedScroll'
 
 export interface CommentHighlight {
   id: string
@@ -53,7 +54,7 @@ interface CollaborativeEditorProps {
     result: CollaborativeTextEditResult
     suggestionId?: string
   }
-  onScrollProgress?: (progress: number) => void
+  onScrollAnchor?: (anchor: LinkedScrollAnchor) => void
   onSourceDraftChange?: (draft: string | null) => void
   readOnly?: boolean
   suggestionBaseContent?: string
@@ -71,8 +72,8 @@ export interface CollaborativeEditorHandle {
   getCommentSelection: () => { from: number; to: number } | null
   revealRange: (from: number, to: number, focus?: boolean) => void
   revealPosition: (position: number) => void
-  getScrollProgress: () => number
-  setScrollProgress: (progress: number) => void
+  getScrollAnchor: () => LinkedScrollAnchor
+  setScrollAnchor: (anchor: LinkedScrollAnchor) => void
   focus: () => void
 }
 
@@ -83,6 +84,38 @@ interface ReviewDecorations {
 
 const setReviewDecorations = StateEffect.define<ReviewDecorations>()
 const suggestionSaveDelayMs = 450
+const linkedScrollTolerance = 0.002
+
+const getViewScrollAnchor = (view: EditorView): LinkedScrollAnchor => {
+  const scrollRange = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
+  const progress = scrollRange > 0 ? view.scrollDOM.scrollTop / scrollRange : 0
+  const documentHeight = Math.max(
+    0,
+    view.scrollDOM.scrollTop + view.scrollDOM.clientHeight / 2 - view.documentPadding.top,
+  )
+  return {
+    position: view.lineBlockAtHeight(documentHeight).from,
+    progress,
+  }
+}
+
+const setViewScrollAnchor = (view: EditorView, anchor: LinkedScrollAnchor) => {
+  const scrollRange = Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight)
+  let scrollTop = Math.max(0, Math.min(1, anchor.progress)) * scrollRange
+  if (anchor.progress <= linkedScrollTolerance) {
+    scrollTop = 0
+  } else if (anchor.position !== null) {
+    const position = Math.max(0, Math.min(view.state.doc.length, anchor.position))
+    const block = view.lineBlockAt(position)
+    scrollTop = view.documentPadding.top + block.top + block.height / 2 -
+      view.scrollDOM.clientHeight / 2
+  }
+  const nextProgress = scrollRange > 0
+    ? Math.max(0, Math.min(scrollRange, scrollTop)) / scrollRange
+    : 0
+  view.scrollDOM.scrollTop = nextProgress * scrollRange
+  return nextProgress
+}
 
 class SuggestionWidget extends WidgetType {
   private readonly suggestion: SourceSuggestionHighlight
@@ -426,7 +459,7 @@ export const CollaborativeEditor = forwardRef<
   commentHighlights = [],
   onCommentClick,
   onProposeSourceEdit,
-  onScrollProgress,
+  onScrollAnchor,
   onSourceDraftChange,
   readOnly = false,
   suggestionBaseContent,
@@ -441,7 +474,8 @@ export const CollaborativeEditor = forwardRef<
   const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
   const onProposeSourceEditRef = useRef(onProposeSourceEdit)
-  const onScrollProgressRef = useRef(onScrollProgress)
+  const onScrollAnchorRef = useRef(onScrollAnchor)
+  const expectedScrollProgressRef = useRef<number | null>(null)
   const onSourceDraftChangeRef = useRef(onSourceDraftChange)
   const readOnlyRef = useRef(readOnly)
   const readOnlyCompartmentRef = useRef(new Compartment())
@@ -458,8 +492,8 @@ export const CollaborativeEditor = forwardRef<
   }, [onProposeSourceEdit])
 
   useEffect(() => {
-    onScrollProgressRef.current = onScrollProgress
-  }, [onScrollProgress])
+    onScrollAnchorRef.current = onScrollAnchor
+  }, [onScrollAnchor])
 
   useEffect(() => {
     onSourceDraftChangeRef.current = onSourceDraftChange
@@ -510,11 +544,16 @@ export const CollaborativeEditor = forwardRef<
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
-    const reportScrollProgress = () => {
-      const range = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
-      onScrollProgressRef.current?.(range > 0 ? view.scrollDOM.scrollTop / range : 0)
+    const reportScrollAnchor = () => {
+      const anchor = getViewScrollAnchor(view)
+      const expectedProgress = expectedScrollProgressRef.current
+      if (expectedProgress !== null) {
+        expectedScrollProgressRef.current = null
+        if (Math.abs(anchor.progress - expectedProgress) <= linkedScrollTolerance) return
+      }
+      onScrollAnchorRef.current?.(anchor)
     }
-    view.scrollDOM.addEventListener('scroll', reportScrollProgress, { passive: true })
+    view.scrollDOM.addEventListener('scroll', reportScrollAnchor, { passive: true })
     const activateReviewFromKeyboard = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' && event.key !== ' ') return
       const target = event.target
@@ -541,7 +580,7 @@ export const CollaborativeEditor = forwardRef<
     onSourceDraftChangeRef.current?.(null)
 
     return () => {
-      view.scrollDOM.removeEventListener('scroll', reportScrollProgress)
+      view.scrollDOM.removeEventListener('scroll', reportScrollAnchor)
       view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
       view.destroy()
       undoManager.destroy()
@@ -719,17 +758,13 @@ export const CollaborativeEditor = forwardRef<
         effects: EditorView.scrollIntoView(position, { y: 'center' }),
       })
     },
-    getScrollProgress: () => {
-      const scrollDOM = viewRef.current?.scrollDOM
-      if (!scrollDOM) return 0
-      const range = scrollDOM.scrollHeight - scrollDOM.clientHeight
-      return range > 0 ? scrollDOM.scrollTop / range : 0
-    },
-    setScrollProgress: (progress) => {
-      const scrollDOM = viewRef.current?.scrollDOM
-      if (!scrollDOM) return
-      const range = scrollDOM.scrollHeight - scrollDOM.clientHeight
-      scrollDOM.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
+    getScrollAnchor: () => viewRef.current
+      ? getViewScrollAnchor(viewRef.current)
+      : { position: null, progress: 0 },
+    setScrollAnchor: (anchor) => {
+      const view = viewRef.current
+      if (!view) return
+      expectedScrollProgressRef.current = setViewScrollAnchor(view, anchor)
     },
     focus: () => viewRef.current?.focus(),
   }))

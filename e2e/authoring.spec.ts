@@ -1,3 +1,5 @@
+import type { Locator } from '@playwright/test'
+import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
 test('supports core maintainer authoring and dialog workflows', async ({ page }, testInfo) => {
@@ -104,7 +106,7 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
   await expect(page.getByRole('dialog', { name: 'Publication metadata' })).toBeHidden()
 })
 
-test('keeps Source content and optional Split scrolling synchronized with Visual', async ({ page }, testInfo) => {
+test('keeps Source and Visual aligned to the same content when Split scrolling is linked', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile-'), 'The linked divider control is desktop-only')
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)
@@ -113,52 +115,64 @@ test('keeps Source content and optional Split scrolling synchronized with Visual
   const visual = page.locator('.myst-preview')
   const original = 'A manuscript should be as inspectable as the analysis behind it.'
   const replacement = 'The Visual manuscript follows every accepted Source edit.'
+  const renderedSpacer = '<div class="scroll-test-spacer" style="height: 900px">Rendered spacing</div>'
   await expect(source).toContainText(original)
-  const sourceContent = await source.textContent()
-  expect(sourceContent).not.toBeNull()
-  if (!sourceContent) return
-
-  await source.fill(sourceContent.replace(original, replacement))
+  await source.fill(sampleManuscript
+    .replace(original, replacement)
+    .replace('## Results', `${renderedSpacer}\n\n## Results`))
   await expect(visual).toContainText(replacement)
   await expect(visual).not.toContainText(original)
+  await expect(page.locator('.scroll-test-spacer')).toHaveCSS('height', '900px')
 
   const linkedScroll = page.locator('.pane-scroll-link')
   await expect(linkedScroll).toBeVisible()
   await expect(linkedScroll).toHaveAttribute('title', 'Unlink pane scrolling')
   await expect(linkedScroll).toHaveAttribute('aria-pressed', 'true')
-  const sourceScroller = page.locator('.cm-scroller')
   const previewScroller = page.locator('.preview-pane')
-  const scrollProgress = async (locator: typeof sourceScroller) => locator.evaluate((element) => {
-    const range = element.scrollHeight - element.clientHeight
-    return range > 0 ? element.scrollTop / range : 0
+  const centerElement = async (locator: Locator) => locator.evaluate((element) => {
+    const scroller = element.closest<HTMLElement>('.cm-scroller, .preview-pane')
+    if (!scroller) throw new Error('Could not find the pane scroller')
+    const elementBounds = element.getBoundingClientRect()
+    const scrollerBounds = scroller.getBoundingClientRect()
+    scroller.scrollTop += elementBounds.top + elementBounds.height / 2 -
+      (scrollerBounds.top + scroller.clientHeight / 2)
+    scroller.dispatchEvent(new Event('scroll'))
+  })
+  const centerDistance = async (locator: Locator) => locator.evaluate((element) => {
+    const scroller = element.closest<HTMLElement>('.cm-scroller, .preview-pane')
+    if (!scroller) throw new Error('Could not find the pane scroller')
+    const elementBounds = element.getBoundingClientRect()
+    const scrollerBounds = scroller.getBoundingClientRect()
+    return Math.abs(
+      elementBounds.top + elementBounds.height / 2 -
+      (scrollerBounds.top + scroller.clientHeight / 2),
+    )
+  })
+  const sourceHeading = (heading: string) => page.locator('.cm-line')
+    .filter({ hasText: `## ${heading}` }).first()
+  const visualHeading = (heading: string) => visual.getByRole('heading', {
+    level: 2,
+    name: heading,
   })
 
-  await sourceScroller.evaluate((element) => {
-    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.7
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await expect.poll(() => scrollProgress(previewScroller)).toBeGreaterThan(0.6)
+  await centerElement(sourceHeading('Results'))
+  await expect.poll(() => centerDistance(visualHeading('Results'))).toBeLessThan(60)
 
   await linkedScroll.click()
   await expect(linkedScroll).toHaveAttribute('aria-pressed', 'false')
   await expect(linkedScroll).toHaveAttribute('title', 'Link pane scrolling')
-  const independentPreviewProgress = await scrollProgress(previewScroller)
-  await sourceScroller.evaluate((element) => {
-    element.scrollTop = 0
-    element.dispatchEvent(new Event('scroll'))
-  })
+  const independentPreviewTop = await previewScroller.evaluate((element) => element.scrollTop)
+  await centerElement(sourceHeading('Introduction'))
   await page.waitForTimeout(100)
-  expect(await scrollProgress(previewScroller)).toBeCloseTo(independentPreviewProgress, 2)
+  expect(await previewScroller.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(independentPreviewTop, 1)
 
   await linkedScroll.click()
   await expect(linkedScroll).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => scrollProgress(previewScroller)).toBeLessThan(0.05)
+  await expect.poll(() => centerDistance(visualHeading('Introduction'))).toBeLessThan(60)
 
-  await previewScroller.evaluate((element) => {
-    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.45
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await expect.poll(() => scrollProgress(sourceScroller)).toBeGreaterThan(0.35)
+  await centerElement(visualHeading('A simple model'))
+  await expect.poll(() => centerDistance(sourceHeading('A simple model'))).toBeLessThan(60)
 
   const splitDivider = await linkedScroll.boundingBox()
   await page.getByTitle('Open comments').click()
@@ -167,11 +181,11 @@ test('keeps Source content and optional Split scrolling synchronized with Visual
   expect(splitDivider).not.toBeNull()
   expect(reviewDivider).not.toBeNull()
   if (splitDivider && reviewDivider) expect(reviewDivider.x).toBeLessThan(splitDivider.x - 100)
-  await sourceScroller.evaluate((element) => {
-    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.6
-    element.dispatchEvent(new Event('scroll'))
-  })
-  await expect.poll(() => scrollProgress(previewScroller)).toBeGreaterThan(0.5)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+  }))
+  await centerElement(visualHeading('Results'))
+  await expect.poll(() => centerDistance(sourceHeading('Results'))).toBeLessThan(140)
   await page.getByTitle('Close comments').click()
 
   await page.getByTitle('Source only').click()
