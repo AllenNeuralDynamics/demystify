@@ -2,6 +2,7 @@ import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 
 export interface DocumentMenuItem {
+  description?: string
   label: string
   icon?: LucideIcon
   shortcut?: string
@@ -122,16 +123,22 @@ export const DocumentMenu = ({
             }
           }}
         >
-          {items.map((item) => {
+          {items.map((item, index) => {
             const ItemIcon = item.icon
+            const descriptionId = item.description
+              ? `${menuId}-description-${index}`
+              : undefined
             return (
               <button
                 className={item.separatorBefore ? 'separator-before' : ''}
                 key={item.label}
                 type="button"
                 role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+                aria-label={item.label}
+                aria-describedby={descriptionId}
                 aria-checked={item.checked}
                 disabled={item.disabled}
+                title={item.description}
                 onClick={() => {
                   setOpen(false)
                   item.onSelect()
@@ -142,7 +149,16 @@ export const DocumentMenu = ({
                 </span>
                 {ItemIcon ? <ItemIcon size={15} /> : <span className="document-menu-icon" />}
                 <span className="document-menu-label">{item.label}</span>
-                {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                {(item.description || item.shortcut) && (
+                  <span className="document-menu-meta">
+                    {item.description && (
+                      <span className="document-menu-description" id={descriptionId}>
+                        {item.description}
+                      </span>
+                    )}
+                    {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                  </span>
+                )}
               </button>
             )
           })}

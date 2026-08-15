@@ -86,8 +86,8 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 
 ## Citations And Visual Editing
 
-Select **Cite** in the authoring toolbar to search the manuscript's local
-reference library first, then Crossref by title, author, year, or DOI. Multiple
+Select **Tools -> Citations** to search the manuscript's local reference library
+first, then Crossref by title, author, year, or DOI. Multiple
 papers can be inserted as one parenthetical or narrative MyST citation, with
 optional MyST prefix and locator/suffix text. New records are deduplicated by DOI and added to a collaborative `references.bib`
 beside the bound manuscript (for example, `paper/references.bib` for
@@ -96,7 +96,12 @@ preserved. Citation insertion follows the manuscript's dominant syntax, using
 Markdown/Pandoc `@key` forms or MyST `{cite:*}` roles as appropriate; combinations
 that Markdown cannot represent safely fall back to roles.
 
-Select **References** to search and inspect the whole library, import or export
+While proposed changes are pending, Source and Visual may insert keys already in
+the manuscript library. Crossref and other new-reference additions remain
+available only in direct Editing because bibliography changes are canonical and
+are not part of Accept all or Discard all proposal decisions.
+
+Select **Tools -> Reference library** to search and inspect the whole library, import or export
 standard BibTeX, edit one raw entry, remove uncited entries, or merge unused DOI
 duplicates into an explicitly retained key. Destructive operations are blocked
 when they would leave an existing manuscript citation unresolved. Collaborative
