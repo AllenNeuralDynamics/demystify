@@ -2,12 +2,11 @@
 
 **Last validated:** August 15, 2026
 
-**Deployed application source:** [`cc8ab0abedda787ff18d31559fe7e1a6770db072`](https://github.com/AllenNeuralDynamics/demystify/commit/cc8ab0abedda787ff18d31559fe7e1a6770db072)
+**Deployed application source:** [`7b82017975d5cba9eff7bbc13aa5f01e6064bbfa`](https://github.com/AllenNeuralDynamics/demystify/commit/7b82017975d5cba9eff7bbc13aa5f01e6064bbfa)
 
-**Publication status:** Online. Replit release `50cc9a0a` was published on
-August 15, 2026, with compact Google Docs-like review threads, working
-participant mentions, consolidated reply sync status, and an expanded Help
-guide.
+**Publication status:** Online. Replit release `318b82a3` was published on
+August 15, 2026, with a stable GitHub profile control that remains visible after
+room-role resolution and reload.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -35,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `cc8ab0abedda787ff18d31559fe7e1a6770db072` |
-| Replit release | `50cc9a0a` |
+| Application source | `7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` |
+| Replit release | `318b82a3` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -626,6 +625,39 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 15, 2026 profile-persistence release `318b82a3` from application SHA
+`7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` passed these release checks:
+
+- Protected pull request #39 passed strict required `validate` and `browser`
+   checks on exact head `a0be33996bb7fdadeceaf29a72e067acf66f5c9c`
+   before squash-merging to `main`. The resulting protected `main` SHA passed its
+   own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded in release `318b82a3`.
+   Autoscale retained one maximum machine and the production database remained
+   connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-BaR2S9S7.js` and `index-BQiUdOWg.css`; their SHA-256
+   digests, `e25620683c70bf58596dfdf541fcfda9adf8d4b2a4c8415aca1914085dba0fa9`
+   and `415b35a85847923a59f75b443115bc6f1a7f4c8571269ea1c2f0b178bcfaf433`,
+   exactly matched the locally validated production artifacts. The deployed
+   JavaScript contained the stable profile-control marker, and crawler exclusion
+   remained enabled.
+- An anonymous snapshot request against the retained synthetic acceptance room
+   was rejected with HTTP `401` before any mutation.
+- Local and protected validation passed 249 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 51
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 69 intentional project-specific skips. The focused
+   authenticated reload test verified that the same profile image remains visible
+   after the room becomes live and after a full page reload.
 
 The August 15, 2026 review-polish release `50cc9a0a` from application SHA
 `cc8ab0abedda787ff18d31559fe7e1a6770db072` passed these release checks:
