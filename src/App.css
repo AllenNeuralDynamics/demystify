@@ -1359,6 +1359,7 @@
 }
 
 .document-panes {
+  position: relative;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -1366,6 +1367,43 @@
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr);
   background: #eef1ee;
+}
+
+.pane-scroll-link {
+  position: absolute;
+  z-index: 6;
+  top: 5px;
+  left: 50%;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: white;
+  color: var(--muted);
+  box-shadow: 0 1px 4px rgba(31, 42, 35, 0.12);
+  cursor: pointer;
+}
+
+.pane-scroll-link:hover,
+.pane-scroll-link:focus-visible {
+  outline: none;
+  border-color: #9eb8ad;
+  background: #f3f8f5;
+  color: var(--green-dark);
+}
+
+.pane-scroll-link.active {
+  border-color: #8fb9a8;
+  background: #e6f2ed;
+  color: var(--green-dark);
+}
+
+.document-panes.comments-open .pane-scroll-link {
+  left: calc((100% - 320px) / 2);
 }
 
 .document-panes.comments-open {
@@ -4659,6 +4697,10 @@
     display: none;
   }
 
+  .document-panes.comments-open .pane-scroll-link {
+    display: none;
+  }
+
   .document-panes.view-preview.comments-open .preview-pane {
     display: block;
   }
@@ -4799,6 +4841,10 @@
   .document-panes,
   .document-panes.comments-open {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pane-scroll-link {
+    display: none;
   }
 
   .document-panes.view-source.comments-open,
