@@ -118,6 +118,7 @@ const isMystSourcePath = (path: string) => /\.(?:md|myst)$/i.test(path)
 const projectManifestVersion = 1
 const githubPollIntervalMs = 60_000
 const reviewBatchSize = 50
+const linkedScrollTolerance = 0.002
 
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
@@ -233,8 +234,8 @@ function App() {
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const previewPaneRef = useRef<HTMLElement>(null)
-  const linkedScrollTargetRef = useRef<'source' | 'preview' | null>(null)
-  const linkedScrollFrameRef = useRef<number | null>(null)
+  const expectedSourceScrollRef = useRef<number | null>(null)
+  const expectedPreviewScrollRef = useRef<number | null>(null)
   const visualSuggestionSupersedesRef = useRef<string[]>([])
   const reviewThreadRefs = useRef(new Map<string, HTMLElement>())
   const commentSyncAttempts = useRef(new Map<string, string>())
@@ -707,60 +708,56 @@ function App() {
     return () => window.cancelAnimationFrame(frame)
   }, [activeCommentId, commentsOpen, visibleReviewComments])
 
-  const releaseLinkedScrollTarget = (target: 'source' | 'preview') => {
-    if (linkedScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(linkedScrollFrameRef.current)
-    }
-    linkedScrollFrameRef.current = window.requestAnimationFrame(() => {
-      if (linkedScrollTargetRef.current === target) linkedScrollTargetRef.current = null
-      linkedScrollFrameRef.current = null
-    })
-  }
-
   const synchronizePreviewScroll = (progress: number) => {
+    const expectedSourceProgress = expectedSourceScrollRef.current
+    if (expectedSourceProgress !== null) {
+      expectedSourceScrollRef.current = null
+      if (Math.abs(progress - expectedSourceProgress) <= linkedScrollTolerance) return
+    }
     const previewScroller = previewPaneRef.current
     if (
       view !== 'split' ||
       !linkedPaneScrolling ||
       !previewScroller ||
-      window.getComputedStyle(previewScroller).display === 'none' ||
-      linkedScrollTargetRef.current === 'source'
+      window.getComputedStyle(previewScroller).display === 'none'
     ) return
     const range = previewScroller.scrollHeight - previewScroller.clientHeight
-    linkedScrollTargetRef.current = 'preview'
-    previewScroller.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
-    releaseLinkedScrollTarget('preview')
+    const nextProgress = Math.max(0, Math.min(1, progress))
+    const currentProgress = range > 0 ? previewScroller.scrollTop / range : 0
+    if (Math.abs(currentProgress - nextProgress) <= linkedScrollTolerance) return
+    expectedPreviewScrollRef.current = nextProgress
+    previewScroller.scrollTop = nextProgress * Math.max(0, range)
   }
 
   const synchronizeSourceScroll = (previewScroller: HTMLElement) => {
-    if (
-      view !== 'split' ||
-      !linkedPaneScrolling ||
-      linkedScrollTargetRef.current === 'preview'
-    ) return
     const range = previewScroller.scrollHeight - previewScroller.clientHeight
     const progress = range > 0 ? previewScroller.scrollTop / range : 0
-    linkedScrollTargetRef.current = 'source'
+    const expectedPreviewProgress = expectedPreviewScrollRef.current
+    if (expectedPreviewProgress !== null) {
+      expectedPreviewScrollRef.current = null
+      if (Math.abs(progress - expectedPreviewProgress) <= linkedScrollTolerance) return
+    }
+    if (view !== 'split' || !linkedPaneScrolling) return
+    const currentProgress = editorRef.current?.getScrollProgress() ?? 0
+    if (Math.abs(currentProgress - progress) <= linkedScrollTolerance) return
+    expectedSourceScrollRef.current = progress
     editorRef.current?.setScrollProgress(progress)
-    releaseLinkedScrollTarget('source')
   }
 
-  useEffect(() => () => {
-    if (linkedScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(linkedScrollFrameRef.current)
-    }
-  }, [])
-
   useEffect(() => {
+    expectedSourceScrollRef.current = null
+    expectedPreviewScrollRef.current = null
     if (view !== 'split' || !linkedPaneScrolling) return
     const frame = window.requestAnimationFrame(() => {
       const previewScroller = previewPaneRef.current
       if (!previewScroller || window.getComputedStyle(previewScroller).display === 'none') return
       const progress = editorRef.current?.getScrollProgress() ?? 0
       const range = previewScroller.scrollHeight - previewScroller.clientHeight
-      linkedScrollTargetRef.current = 'preview'
-      previewScroller.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
-      releaseLinkedScrollTarget('preview')
+      const nextProgress = Math.max(0, Math.min(1, progress))
+      const currentProgress = range > 0 ? previewScroller.scrollTop / range : 0
+      if (Math.abs(currentProgress - nextProgress) <= linkedScrollTolerance) return
+      expectedPreviewScrollRef.current = nextProgress
+      previewScroller.scrollTop = nextProgress * Math.max(0, range)
     })
     return () => window.cancelAnimationFrame(frame)
   }, [activeFilePath, commentsOpen, linkedPaneScrolling, view])
@@ -2114,7 +2111,11 @@ function App() {
                 className={`pane-scroll-link ${linkedPaneScrolling ? 'active' : ''}`}
                 type="button"
                 title={linkedPaneScrolling ? 'Unlink pane scrolling' : 'Link pane scrolling'}
-                onClick={() => setLinkedPaneScrolling((current) => !current)}
+                onClick={() => {
+                  expectedSourceScrollRef.current = null
+                  expectedPreviewScrollRef.current = null
+                  setLinkedPaneScrolling((current) => !current)
+                }}
               >
                 {linkedPaneScrolling
                   ? <Link2 size={14} aria-hidden="true" />
