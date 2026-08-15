@@ -2,11 +2,11 @@
 
 **Last validated:** August 15, 2026
 
-**Deployed application source:** [`7b82017975d5cba9eff7bbc13aa5f01e6064bbfa`](https://github.com/AllenNeuralDynamics/demystify/commit/7b82017975d5cba9eff7bbc13aa5f01e6064bbfa)
+**Deployed application source:** [`cd9095579c9a79fadb84e71a62512ef054a86ebe`](https://github.com/AllenNeuralDynamics/demystify/commit/cd9095579c9a79fadb84e71a62512ef054a86ebe)
 
-**Publication status:** Online. Replit release `318b82a3` was published on
-August 15, 2026, with a stable GitHub profile control that remains visible after
-room-role resolution and reload.
+**Publication status:** Online. Replit release `140252c5` was published on
+August 15, 2026, with protected Source-to-Visual content synchronization and a
+default-on linked-scroll control for Split view.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` |
-| Replit release | `318b82a3` |
+| Application source | `cd9095579c9a79fadb84e71a62512ef054a86ebe` |
+| Replit release | `140252c5` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -625,6 +625,40 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 15, 2026 linked-scroll release `140252c5` from application SHA
+`cd9095579c9a79fadb84e71a62512ef054a86ebe` passed these release checks:
+
+- Protected pull request #41 passed strict required `validate` and `browser`
+   checks on exact head `c9ae0eb837fc106f60f7b5404bbcb09788129d44`
+   before squash-merging to `main`. The resulting protected `main` SHA passed its
+   own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=cd9095579c9a79fadb84e71a62512ef054a86ebe` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded in release `140252c5`.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-DPmXpYYg.js` and `index-Car6muc-.css`; their SHA-256
+   digests, `f7d24ddc0dc6a9a440be0940e394469ce8c5613d4d7470aac897f07d8528f75c`
+   and `d1597a4368620edb6e84547c60a89d2ee24f560cde466f88da39feed1962f46c`,
+   exactly matched the guarded Replit workspace build. The deployed JavaScript
+   contained the linked-scroll marker, and crawler exclusion remained enabled.
+- In the retained read-only acceptance room, production reached `Viewing`, the
+   Split divider control was visible, linked Source scrolling moved Visual to the
+   same normalized position, and unlinking kept Visual fixed while Source moved
+   independently. No production mutation was required for this smoke test.
+- An anonymous snapshot request against that room was rejected with HTTP `401`
+   before any mutation.
+- Local and protected validation passed 249 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 54
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 71 intentional project-specific skips. The focused
+   integration test protects Markdown-to-Visual updates, both scroll directions,
+   unlink/relink behavior, the Review layout transition, and non-Split views.
 
 The August 15, 2026 profile-persistence release `318b82a3` from application SHA
 `7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` passed these release checks:
