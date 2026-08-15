@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SharedComment, SharedCommentMessage } from '../hooks/useCollaboration'
-import { filterReviewThreads } from './reviewInbox'
+import { filterReviewThreads, getVisibleReviewThreads } from './reviewInbox'
 
 const comments: SharedComment[] = [
   {
@@ -77,5 +77,22 @@ describe('filterReviewThreads', () => {
       type: 'all',
       forActorIds: ['maintainer'],
     }).map((comment) => comment.id)).toEqual(['open-comment'])
+  })
+
+  it('keeps a selected thread inside a bounded review window', () => {
+    const manyComments = Array.from({ length: 60 }, (_, index): SharedComment => ({
+      id: `comment-${index}`,
+      authorId: 'reviewer',
+      authorName: 'Reviewer',
+      authorColor: '#16705d',
+      body: `Comment ${index}`,
+      createdAt: '2026-08-14T10:00:00.000Z',
+      resolved: false,
+    }))
+
+    const visible = getVisibleReviewThreads(manyComments, 50, 'comment-55')
+    expect(visible).toHaveLength(50)
+    expect(visible[0].id).toBe('comment-55')
+    expect(new Set(visible.map((comment) => comment.id)).size).toBe(50)
   })
 })

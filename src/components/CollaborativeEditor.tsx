@@ -68,7 +68,7 @@ export interface CollaborativeEditorHandle {
   insertText: (text: string) => void
   insertCitation: (citation: string) => void
   getCommentSelection: () => { from: number; to: number } | null
-  revealRange: (from: number, to: number) => void
+  revealRange: (from: number, to: number, focus?: boolean) => void
   revealPosition: (position: number) => void
   focus: () => void
 }
@@ -688,14 +688,14 @@ export const CollaborativeEditor = forwardRef<
       )
       return range.to > range.from ? { from: range.from, to: range.to } : null
     },
-    revealRange: (from, to) => {
+    revealRange: (from, to, focus = true) => {
       const view = viewRef.current
       if (!view) return
       view.dispatch({
         selection: { anchor: from, head: to },
         effects: EditorView.scrollIntoView(from, { y: 'center' }),
       })
-      view.focus()
+      if (focus) view.focus()
     },
     revealPosition: (position) => {
       const view = viewRef.current

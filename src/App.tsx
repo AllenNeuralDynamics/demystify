@@ -96,6 +96,7 @@ import {
 import { getLiveProposalInlineChanges } from './lib/liveProposal'
 import {
   filterReviewThreads,
+  getVisibleReviewThreads,
   type ReviewStatusFilter,
   type ReviewTypeFilter,
 } from './lib/reviewInbox'
@@ -174,6 +175,7 @@ function App() {
   const [view, setView] = useState<WorkspaceView>('split')
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 820)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
   const [reviewQuery, setReviewQuery] = useState('')
   const [reviewStatus, setReviewStatus] = useState<ReviewStatusFilter>('open')
@@ -226,6 +228,7 @@ function App() {
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const visualSuggestionSupersedesRef = useRef<string[]>([])
+  const reviewThreadRefs = useRef(new Map<string, HTMLElement>())
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
   const narrowViewport = useRef(window.innerWidth <= 820)
@@ -479,9 +482,10 @@ function App() {
         after: suggestion.after,
         authorName: comment.authorName,
         authorColor: comment.authorColor,
+        active: activeCommentId === suggestion.id,
       }] : []
     }) : [],
-    [isPrimaryFile, primarySuggestionProjection.suggestions, sharedComments],
+    [activeCommentId, isPrimaryFile, primarySuggestionProjection.suggestions, sharedComments],
   )
   const atomicSourceSuggestions = useMemo<SourceSuggestionHighlight[]>(
     () => isPrimaryFile ? primarySuggestionProjection.suggestions.flatMap((suggestion) => {
@@ -556,7 +560,14 @@ function App() {
       sharedComments,
     ],
   )
-  const visibleReviewComments = filteredReviewComments.slice(0, reviewVisibleLimit)
+  const visibleReviewComments = useMemo(
+    () => getVisibleReviewThreads(
+      filteredReviewComments,
+      reviewVisibleLimit,
+      activeCommentId,
+    ),
+    [activeCommentId, filteredReviewComments, reviewVisibleLimit],
+  )
   const commentMessagesByThread = useMemo(() => {
     const messages = new Map<string, SharedCommentMessage[]>()
     sharedCommentMessages.forEach((message) => {
@@ -638,6 +649,20 @@ function App() {
       sidebarOpen,
     }
   }, [blockingDialogOpen, commentsOpen, editingProfile, sidebarOpen])
+
+  useLayoutEffect(() => {
+    if (!commentsOpen || !activeCommentId) return
+    const frame = window.requestAnimationFrame(() => {
+      const visualSuggestion = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-myst-suggestion-id]'),
+      ).find((element) => element.dataset.mystSuggestionId === activeCommentId)
+      visualSuggestion?.scrollIntoView({ block: 'center' })
+      const thread = reviewThreadRefs.current.get(activeCommentId)
+      thread?.scrollIntoView({ block: 'nearest' })
+      thread?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeCommentId, commentsOpen, visibleReviewComments])
 
   useEffect(() => {
     const handleResize = () => {
@@ -983,7 +1008,10 @@ function App() {
       commentDraft,
       editorRef.current?.getCommentSelection() ?? undefined,
     )
-    if (commentId) setActiveCommentId(commentId)
+    if (commentId) {
+      setActiveCommentId(commentId)
+      setCommentComposerOpen(false)
+    }
     setCommentDraft('')
   }
 
@@ -993,6 +1021,7 @@ function App() {
       return
     }
     setCommentsOpen(true)
+    setCommentComposerOpen(true)
     setActiveCommentId(null)
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLTextAreaElement>('[aria-label="New comment"]')?.focus()
@@ -1065,21 +1094,24 @@ function App() {
     )
   }
 
-  const openCommentThread = (commentId: string) => {
+  const openCommentThread = (commentId: string, preserveReviewFilters = false) => {
     const comment = sharedComments.find((candidate) => candidate.id === commentId)
     setCommentsOpen(true)
-    setReviewQuery('')
-    setReviewStatus(comment?.resolved ? 'resolved' : 'open')
-    setReviewType('all')
-    setReviewForMe(false)
-    setReviewVisibleLimit(Number.MAX_SAFE_INTEGER)
+    setCommentComposerOpen(false)
+    if (!preserveReviewFilters) {
+      setReviewQuery('')
+      setReviewStatus(comment?.resolved ? 'resolved' : 'open')
+      setReviewType('all')
+      setReviewForMe(false)
+      setReviewVisibleLimit(reviewBatchSize)
+    }
     setActiveCommentId(commentId)
     setActiveLiveProposalChangeId(null)
     const location = commentLocations.get(commentId)
     if (!location || location.orphaned) return
     if (view === 'preview') setView('split')
     window.requestAnimationFrame(() => {
-      editorRef.current?.revealRange(location.from, location.to)
+      editorRef.current?.revealRange(location.from, location.to, false)
     })
   }
 
@@ -1838,7 +1870,12 @@ function App() {
                 type="button"
                 title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
                 disabled={!isPrimaryFile}
-                onClick={() => setCommentsOpen((open) => !open)}
+                onClick={() => {
+                  setCommentsOpen((open) => {
+                    if (open) setCommentComposerOpen(false)
+                    return !open
+                  })
+                }}
               >
                 <MessageSquare size={17} />
                 {openCommentCount > 0 && (
@@ -2038,7 +2075,10 @@ function App() {
             </section>
 
             {commentsOpen && (
-              <aside className="comments-panel" aria-label="Comments">
+              <aside
+                className={`comments-panel ${commentComposerOpen ? 'composer-open' : ''}`}
+                aria-label="Comments"
+              >
                 <div className="comments-heading">
                   <div>
                     <strong>Review</strong>
@@ -2047,17 +2087,30 @@ function App() {
                       {commentPollError ? ' | GitHub sync retrying' : ''}
                     </span>
                   </div>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title="Close comments"
-                    onClick={() => {
-                      setCommentsOpen(false)
-                      window.requestAnimationFrame(() => commentsTriggerRef.current?.focus())
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
+                  <div className="comments-heading-actions">
+                    {!effectiveReadOnly && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Add comment to selection"
+                        onClick={openCommentComposer}
+                      >
+                        <Plus size={16} />
+                      </button>
+                    )}
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="Close comments"
+                      onClick={() => {
+                        setCommentsOpen(false)
+                        setCommentComposerOpen(false)
+                        window.requestAnimationFrame(() => commentsTriggerRef.current?.focus())
+                      }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
                 <div className="review-inbox-controls">
                   <label className="review-search">
@@ -2120,21 +2173,39 @@ function App() {
                     </span>
                   </div>
                 </div>
-                <div className="comment-composer">
-                  <textarea
-                    aria-label="New comment"
-                    placeholder="Leave a comment..."
-                    disabled={effectiveReadOnly}
-                    value={commentDraft}
-                    onChange={(event) => setCommentDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitComment()
-                    }}
-                  />
-                  <button className="button comment-button" type="button" disabled={effectiveReadOnly || !commentDraft.trim()} onClick={submitComment}>
-                    Comment
-                  </button>
-                </div>
+                {commentComposerOpen && (
+                  <div className="comment-composer">
+                    <textarea
+                      aria-label="New comment"
+                      placeholder="Comment on the current selection..."
+                      disabled={effectiveReadOnly}
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitComment()
+                      }}
+                    />
+                    <div className="comment-composer-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCommentDraft('')
+                          setCommentComposerOpen(false)
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="button comment-button"
+                        type="button"
+                        disabled={effectiveReadOnly || !commentDraft.trim()}
+                        onClick={submitComment}
+                      >
+                        Comment
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="comment-list">
                   {collaboration.hasPendingWorkingChanges && (
                     <article className="live-proposal-card">
@@ -2244,12 +2315,35 @@ function App() {
                   ) : visibleReviewComments.map((comment) => {
                     const location = commentLocations.get(comment.id)
                     const replies = commentMessagesByThread.get(comment.id) ?? []
+                    const isActiveThread = activeCommentId === comment.id
                     const isEarlierRevision = comment.suggestion?.status === 'pending' &&
                       inactiveSuggestionIds.has(comment.id)
                     return (
                     <article
-                      className={`comment ${comment.suggestion ? 'suggestion-thread' : ''} ${comment.resolved ? 'resolved' : ''} ${activeCommentId === comment.id ? 'active' : ''}`}
+                      aria-expanded={isActiveThread}
+                      aria-label={`${comment.suggestion ? 'Suggestion' : 'Comment'} thread by ${comment.authorName}, ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+                      className={`comment ${comment.suggestion ? 'suggestion-thread' : ''} ${comment.resolved ? 'resolved' : ''} ${isActiveThread ? 'active' : ''}`}
+                      data-review-thread-id={comment.id}
                       key={comment.id}
+                      onClick={(event) => {
+                        const target = event.target
+                        if (
+                          target instanceof Element &&
+                          target.closest('button, a, input, textarea, select, summary')
+                        ) return
+                        openCommentThread(comment.id, true)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        openCommentThread(comment.id, true)
+                      }}
+                      ref={(element) => {
+                        if (element) reviewThreadRefs.current.set(comment.id, element)
+                        else reviewThreadRefs.current.delete(comment.id)
+                      }}
+                      tabIndex={0}
                     >
                       <div className="comment-meta">
                         <span className="mini-avatar" style={{ background: `${comment.authorColor}1f`, color: comment.authorColor }}>
@@ -2257,12 +2351,17 @@ function App() {
                         </span>
                         <strong>{comment.authorName}</strong>
                         <time dateTime={comment.createdAt}>{formatRelativeTime(comment.createdAt)}</time>
+                        <span className="comment-thread-state">
+                          {replies.length > 0
+                            ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`
+                            : comment.resolved ? 'Resolved' : 'Open'}
+                        </span>
                       </div>
                       {comment.anchor ? (
                         <button
                           className="comment-anchor-context"
                           type="button"
-                          onClick={() => openCommentThread(comment.id)}
+                          onClick={() => openCommentThread(comment.id, true)}
                         >
                           <TextQuote size={13} />
                           <span>{location?.orphaned ? comment.anchor.quote : location?.quote ?? comment.anchor.quote}</span>
@@ -2335,7 +2434,7 @@ function App() {
                           </p>
                         )
                       )}
-                      {replies.length > 0 && (
+                      {isActiveThread && replies.length > 0 && (
                         <div className="comment-replies">
                           {replies.map((message) => (
                             <div className="comment-reply" key={message.id}>
@@ -2410,33 +2509,34 @@ function App() {
                           ))}
                         </div>
                       )}
-                      <div className="comment-reply-composer">
-                        <input
-                          aria-label={`Reply to comment by ${comment.authorName}`}
-                          placeholder="Reply"
-                          disabled={effectiveReadOnly}
-                          value={replyDrafts[comment.id] ?? ''}
-                          onFocus={() => setActiveCommentId(comment.id)}
-                          onChange={(event) => setReplyDrafts((current) => ({
-                            ...current,
-                            [comment.id]: event.target.value,
-                          }))}
-                          onKeyDown={(event) => {
-                            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                              submitReply(comment)
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          title="Reply"
-                          disabled={effectiveReadOnly || !(replyDrafts[comment.id] ?? '').trim()}
-                          onClick={() => submitReply(comment)}
-                        >
-                          <Reply size={14} />
-                        </button>
-                      </div>
-                      <div className="comment-actions">
+                      {isActiveThread && (
+                        <div className="comment-reply-composer">
+                          <input
+                            aria-label={`Reply to comment by ${comment.authorName}`}
+                            placeholder="Reply or add others with @"
+                            disabled={effectiveReadOnly}
+                            value={replyDrafts[comment.id] ?? ''}
+                            onChange={(event) => setReplyDrafts((current) => ({
+                              ...current,
+                              [comment.id]: event.target.value,
+                            }))}
+                            onKeyDown={(event) => {
+                              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                                submitReply(comment)
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            title="Reply"
+                            disabled={effectiveReadOnly || !(replyDrafts[comment.id] ?? '').trim()}
+                            onClick={() => submitReply(comment)}
+                          >
+                            <Reply size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {isActiveThread && <div className="comment-actions">
                         {comment.suggestion ? (
                           isMaintainer && (
                             comment.suggestion.status === 'pending' ||
@@ -2494,7 +2594,7 @@ function App() {
                             </span>
                           ) : null}
                         </div>
-                      </div>
+                      </div>}
                     </article>
                   )})}
                   {visibleReviewComments.length < filteredReviewComments.length && (

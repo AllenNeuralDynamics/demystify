@@ -50,3 +50,18 @@ export const filterReviewThreads = (
     ].some((value) => value && normalize(value).includes(query))
   })
 }
+
+export const getVisibleReviewThreads = (
+  comments: SharedComment[],
+  limit: number,
+  activeCommentId: string | null,
+) => {
+  const visible = comments.slice(0, limit)
+  if (!activeCommentId || visible.some((comment) => comment.id === activeCommentId)) {
+    return visible
+  }
+  const active = comments.find((comment) => comment.id === activeCommentId)
+  return active
+    ? [active, ...visible.slice(0, Math.max(0, limit - 1))]
+    : visible
+}

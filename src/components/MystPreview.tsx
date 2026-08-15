@@ -274,10 +274,15 @@ export const MystPreview = memo(({
       }
       originalNodes.forEach((node) => deletion.append(node))
       const insertionGroup = blockSuggestions.every((suggestion) => !suggestion.before)
+      const active = blockSuggestions.some((suggestion) => suggestion.active)
+      if (active) deletion.classList.add('is-active')
 
       const alternatives = blockSuggestions.map((suggestion) => {
         const option = document.createElement('span')
-        option.className = 'myst-suggestion-option'
+        option.className = [
+          'myst-suggestion-option',
+          suggestion.active ? 'is-active' : '',
+        ].filter(Boolean).join(' ')
         option.dataset.mystSuggestionId = suggestion.id
         option.style.setProperty('--myst-suggestion-color', suggestion.authorColor)
         option.tabIndex = 0
@@ -324,6 +329,7 @@ export const MystPreview = memo(({
         ...afterAlternatives.flatMap((alternative) => [document.createTextNode(' '), alternative]),
       )
       target.classList.add('myst-inline-suggestion')
+      if (active) target.classList.add('is-active')
       target.style.setProperty('--myst-suggestion-color', blockSuggestions[0].authorColor)
       target.title = 'Select a change to review it; press F2 to suggest another edit.'
     }
