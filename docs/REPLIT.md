@@ -2,11 +2,11 @@
 
 **Last validated:** August 14, 2026
 
-**Deployed application source:** [`89039278330e4bb2cc9095298a181af9c3d5bd47`](https://github.com/AllenNeuralDynamics/demystify/commit/89039278330e4bb2cc9095298a181af9c3d5bd47)
+**Deployed application source:** [`99db02926b6c98cd8d18fd048346cde422148602`](https://github.com/AllenNeuralDynamics/demystify/commit/99db02926b6c98cd8d18fd048346cde422148602)
 
-**Publication status:** Online. Replit release `48dec3b8` was published on
-August 14, 2026, with manuscript-library citations available in Suggesting
-while new Crossref references remain restricted to direct Editing.
+**Publication status:** Online. Replit release `709a36ad` was published on
+August 14, 2026, with independently attributed suggestions, a compact review
+inbox, participant navigation, and a validated 5-editor/95-viewer load profile.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,9 +34,9 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `89039278330e4bb2cc9095298a181af9c3d5bd47` |
-| Replit release | `48dec3b8` |
-| Last measured cloud credits (after `ca2ec0c8` smoke) | 60% used |
+| Application source | `99db02926b6c98cd8d18fd048346cde422148602` |
+| Replit release | `709a36ad` |
+| Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
@@ -625,6 +625,42 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 14, 2026 collaborative-review release `709a36ad` from application
+SHA `99db02926b6c98cd8d18fd048346cde422148602` passed these release checks:
+
+- Protected pull request #33 passed strict required `validate` and `browser`
+   checks on exact head `5ff9492422a498cf386fce22e7e3e38149de91ff`
+   before squash-merging to `main`. The resulting protected `main` SHA passed
+   its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=99db02926b6c98cd8d18fd048346cde422148602` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all completed successfully. Build
+   `709a36ad-707b-491c-a92d-abc2156ed16a` retained Cloud Run Autoscale with one
+   maximum machine and the production database connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-BLBCVRPr.js` with the compact review inbox,
+   participant list, incremental history, and atomic-suggestion markers. Its
+   SHA-256 digest
+   `d9223ac3c1d0ba827b42445197383fbed0915b3e73d413d8b043ce41bf0df45d`
+   exactly matched the locally rebuilt production artifact, and crawler
+   exclusion remained enabled.
+- An anonymous snapshot attempt against the retained synthetic acceptance room
+   was rejected with HTTP `401` before any mutation. At 1560x900 desktop,
+   1180x700 constrained desktop, and 390x844 mobile viewports, the document had
+   no horizontal overflow, page exceptions, out-of-viewport active controls, or
+   server `5xx` responses. The mobile file drawer was fully off-canvas when
+   closed; the 34-pixel participant control remained visible, and desktop/mobile
+   header and toolbar geometry remained 64/88 and 43 pixels respectively.
+- Local and protected validation passed 242 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 51
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 69 intentional project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
