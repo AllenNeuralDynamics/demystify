@@ -135,6 +135,7 @@ describe('MystPreview', () => {
             after: 'Revised **claim**.',
             authorName: 'Ada Reviewer',
             authorColor: '#a64b36',
+            active: true,
           }]}
         />,
       )
@@ -147,6 +148,8 @@ describe('MystPreview', () => {
     expect(paragraph?.querySelector('ins strong')?.textContent).toBe('claim')
     expect(paragraph?.querySelector('.myst-suggestion-author')?.textContent)
       .toBe('Ada Reviewer')
+    expect(paragraph?.classList).toContain('is-active')
+    expect(proposal?.classList).toContain('is-active')
     expect(proposal?.getAttribute('aria-label')).toContain('Ada Reviewer')
 
     await act(async () => proposal?.click())

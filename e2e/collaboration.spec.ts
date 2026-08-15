@@ -141,6 +141,10 @@ test('suggestion participant submits individually accepted or rejected Visual ed
       hasText: 'A reviewer-proposed sentence.',
     })
     await expect(acceptedSuggestion).toContainText('E2E Reviewer')
+    await acceptedSuggestion.click()
+    await expect(acceptedSuggestion).toHaveAttribute('aria-expanded', 'true')
+    await expect(acceptedSuggestion).toBeFocused()
+    await expect(page.locator('.myst-suggestion-option.is-active')).toHaveCount(1)
     await acceptedSuggestion.getByRole('button', { name: 'Accept', exact: true }).click()
     await expect(acceptedSuggestion).toHaveCount(0)
     await page.getByRole('button', { name: 'Resolved', exact: true }).click()
@@ -162,6 +166,7 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     const rejectedSuggestion = page.locator('.comment.suggestion-thread').filter({
       hasText: 'A proposal that should be rejected.',
     })
+    await rejectedSuggestion.click()
     await rejectedSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect(rejectedSuggestion).toHaveCount(0)
     await page.getByRole('button', { name: 'Resolved', exact: true }).click()
@@ -244,7 +249,10 @@ test('two Source reviewers keep independent attributed suggestions', async ({ br
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
       .toContainText(replacement)
 
-    await page.getByTitle('Open comments').click()
+    await page.getByRole('button', {
+      name: /Suggested insertion by Source Reviewer/,
+    }).first().click()
+    await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
     const firstSuggestion = page.locator('.comment.suggestion-thread').filter({
       has: page.getByText('Source Reviewer', { exact: true }),
     })
@@ -253,9 +261,15 @@ test('two Source reviewers keep independent attributed suggestions', async ({ br
     })
     await expect(firstSuggestion).toContainText('Source Reviewer')
     await expect(secondSuggestion).toContainText('Methods Reviewer')
+    await expect(firstSuggestion).toHaveAttribute('aria-expanded', 'true')
+    await expect(firstSuggestion).toBeFocused()
+    await expect(page.locator('.myst-suggestion-option.is-active')).toHaveCount(1)
     await firstSuggestion.getByRole('button', { name: 'Accept', exact: true }).click()
     await expect(firstSuggestion).toHaveCount(0)
     await expect(secondSuggestion).toContainText('Suggested edit')
+    await secondSuggestion.focus()
+    await secondSuggestion.press('Enter')
+    await expect(secondSuggestion).toHaveAttribute('aria-expanded', 'true')
     await secondSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect(secondSuggestion).toHaveCount(0)
     await page.getByRole('button', { name: 'Resolved', exact: true }).click()
@@ -298,6 +312,7 @@ test('only authors edit comments and replies while everyone can reply', async ({
   const second = await openReviewer('Reviewer B')
 
   try {
+    await first.reviewer.getByTitle('Add comment to selection').click()
     await first.reviewer.getByRole('textbox', { name: 'New comment' }).fill('Original comment text.')
     await first.reviewer.getByRole('button', { name: 'Comment', exact: true }).click()
     const firstComment = first.reviewer.locator('.comment').filter({
@@ -324,6 +339,8 @@ test('only authors edit comments and replies while everyone can reply', async ({
     await expect(secondView).toContainText('Author-edited comment text.')
     await expect(secondView).toContainText('edited')
 
+    await secondView.click()
+    await expect(secondView).toHaveAttribute('aria-expanded', 'true')
     await secondView.getByRole('textbox', { name: /Reply to comment by Reviewer A/ })
       .fill('Reply from Reviewer B.')
     await secondView.getByTitle('Reply').click()
