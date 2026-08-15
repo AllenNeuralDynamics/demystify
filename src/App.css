@@ -326,9 +326,17 @@
   color: var(--green-dark);
 }
 
-.github-identity-button img {
-  width: 18px;
-  height: 18px;
+.github-profile-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+}
+
+.github-profile-button img {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
   border-radius: 50%;
 }
 
