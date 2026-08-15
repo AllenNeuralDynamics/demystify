@@ -2,11 +2,11 @@
 
 **Last validated:** August 15, 2026
 
-**Deployed application source:** [`7b82017975d5cba9eff7bbc13aa5f01e6064bbfa`](https://github.com/AllenNeuralDynamics/demystify/commit/7b82017975d5cba9eff7bbc13aa5f01e6064bbfa)
+**Deployed application source:** [`0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85`](https://github.com/AllenNeuralDynamics/demystify/commit/0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85)
 
-**Publication status:** Online. Replit release `318b82a3` was published on
-August 15, 2026, with a stable GitHub profile control that remains visible after
-room-role resolution and reload.
+**Publication status:** Online. Replit release `85eec6b4` was published on
+August 15, 2026, with protected Markdown-to-Visual content synchronization and
+deterministic linked scrolling for Split view.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` |
-| Replit release | `318b82a3` |
+| Application source | `0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85` |
+| Replit release | `85eec6b4` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -625,6 +625,43 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 15, 2026 deterministic linked-scroll release `85eec6b4` from
+application SHA `0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85` passed these
+release checks:
+
+- Protected pull requests #41 and #43 passed strict required `validate` and
+   `browser` checks before squash-merging to `main`. Each resulting protected
+   `main` SHA passed its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=0a6c5c91f78f51fe6c1ecc5a7891e5e333088d85` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded in release `85eec6b4`.
+   Autoscale retained one maximum machine and the production database remained
+   connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-CAXu1TQn.js` and `index-Car6muc-.css`; their SHA-256
+   digests, `92ccc0e9b529a19bb788bbd75a2f5ec9439a8f17d738e997b793e84a0f719cb8`
+   and `d1597a4368620edb6e84547c60a89d2ee24f560cde466f88da39feed1962f46c`,
+   exactly matched the locally validated production artifacts. Crawler exclusion
+   remained enabled.
+- In the retained read-only acceptance room, an immediate Visual scroll after
+   unlinking and relinking moved Source to the same normalized position. At a
+   1440x900 viewport with Review open, the divider remained on the Source/Visual
+   boundary, Visual followed Source bidirectionally, and the page had no
+   horizontal overflow.
+- An anonymous snapshot request against that room was rejected with HTTP `401`
+   before any mutation.
+- Local and protected validation passed 249 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 54
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 71 intentional project-specific skips. The formerly
+   failing WebKit relink sequence also passed five consecutive parallel stress
+   repetitions.
 
 The August 15, 2026 profile-persistence release `318b82a3` from application SHA
 `7b82017975d5cba9eff7bbc13aa5f01e6064bbfa` passed these release checks:
