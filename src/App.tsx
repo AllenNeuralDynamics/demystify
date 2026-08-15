@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Reply,
   Save,
+  Search,
   Share2,
   SplitSquareHorizontal,
   TextQuote,
@@ -48,17 +49,21 @@ import './App.css'
 import {
   CollaborativeEditor,
   type CollaborativeEditorHandle,
+  type SourceSuggestionHighlight,
 } from './components/CollaborativeEditor'
 import { CitationPicker, type CitationSelection } from './components/CitationPicker'
 import { DocumentMenu } from './components/DocumentMenu'
 import { GitHubDialog } from './components/GitHubDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { MystInsertMenu } from './components/MystInsertMenu'
+import type { MystPreviewSuggestion } from './components/MystPreview'
+import { ParticipantsMenu } from './components/ParticipantsMenu'
 import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import {
   useCollaboration,
+  type Collaborator,
   type PrimaryEditMode,
   type SharedComment,
   type SharedCommentMessage,
@@ -83,8 +88,17 @@ import {
 } from './lib/github'
 import { loadProfile, saveProfile } from './lib/profile'
 import { getMystOutline } from './lib/mystOutline'
-import { projectPendingSuggestions } from './lib/suggestionProjection'
+import {
+  getProjectedSuggestionReplacement,
+  mapProjectedRange,
+  projectPendingSuggestions,
+} from './lib/suggestionProjection'
 import { getLiveProposalInlineChanges } from './lib/liveProposal'
+import {
+  filterReviewThreads,
+  type ReviewStatusFilter,
+  type ReviewTypeFilter,
+} from './lib/reviewInbox'
 import {
   detectCitationSyntax,
   formatCitation,
@@ -98,6 +112,7 @@ type WorkspaceView = 'source' | 'split' | 'preview'
 const isMystSourcePath = (path: string) => /\.(?:md|myst)$/i.test(path)
 const projectManifestVersion = 1
 const githubPollIntervalMs = 60_000
+const reviewBatchSize = 50
 
 const MystPreview = lazy(async () => {
   const module = await import('./components/MystPreview')
@@ -160,6 +175,16 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 820)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [reviewQuery, setReviewQuery] = useState('')
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatusFilter>('open')
+  const [reviewType, setReviewType] = useState<ReviewTypeFilter>('all')
+  const [reviewForMe, setReviewForMe] = useState(false)
+  const [reviewVisibleLimit, setReviewVisibleLimit] = useState(reviewBatchSize)
+  const [followedCollaboratorClientId, setFollowedCollaboratorClientId] = useState<number | null>(null)
+  const [sourceDraftPreview, setSourceDraftPreview] = useState<{
+    filePath: string
+    content: string
+  } | null>(null)
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
   const [activeLiveProposalChangeId, setActiveLiveProposalChangeId] = useState<string | null>(null)
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
@@ -200,6 +225,7 @@ function App() {
   const [commentPollError, setCommentPollError] = useState<string | null>(null)
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
+  const visualSuggestionSupersedesRef = useRef<string[]>([])
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
   const narrowViewport = useRef(window.innerWidth <= 820)
@@ -259,7 +285,10 @@ function App() {
         ...profile,
         id: roomAccess.room?.actorId ?? profile.id,
       }
-  const ownedActorIds = roomAccess.room?.ownedActorIds ?? [collaborationProfile.id]
+  const ownedActorIds = useMemo(
+    () => roomAccess.room?.ownedActorIds ?? [collaborationProfile.id],
+    [collaborationProfile.id, roomAccess.room?.ownedActorIds],
+  )
   const collaboration = useCollaboration(
     roomName,
     collaborationProfile,
@@ -267,11 +296,12 @@ function App() {
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
     pageActive,
-    primaryEditMode,
   )
   const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError)
   const isSuggestionMode = primaryEditMode === 'suggesting' ||
     collaboration.hasPendingWorkingChanges
+  const isAtomicSuggestionMode = primaryEditMode === 'suggesting' &&
+    !collaboration.hasPendingWorkingChanges
   const isStructuredEditorReadOnly = effectiveReadOnly || isSuggestionMode
   const primaryFilePath = repositoryBinding?.path ?? 'manuscript.md'
   const projectFilePaths = useMemo(() => Array.from(new Set([
@@ -315,6 +345,8 @@ function App() {
       isMystSourcePath(path) ? [fileContent] : []),
   ].join('\n'), [collaboration.projectFiles, collaboration.workingContent])
   const sharedComments = collaboration.comments
+  const collaborators = collaboration.collaborators
+  const getCollaboratorCursor = collaboration.getCollaboratorCursor
   const initializeBibliography = collaboration.initializeBibliography
   const initializeMystConfig = collaboration.initializeMystConfig
   const initializeProjectFiles = collaboration.initializeProjectFiles
@@ -350,7 +382,7 @@ function App() {
     }) : [],
     [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
   )
-  const legacySuggestionProjection = useMemo(
+  const primarySuggestionProjection = useMemo(
     () => projectPendingSuggestions(
       collaboration.content,
       sharedComments.flatMap((comment) => {
@@ -371,7 +403,20 @@ function App() {
     ),
     [collaboration.content, commentLocations, sharedComments],
   )
-  const displayedContent = activeContent
+  const activeSuggestionProjection = useMemo(
+    () => isPrimaryFile
+      ? primarySuggestionProjection
+      : projectPendingSuggestions(activeContent, []),
+    [activeContent, isPrimaryFile, primarySuggestionProjection],
+  )
+  const suggestionBaseContent = isAtomicSuggestionMode && isActiveMystSource
+    ? activeSuggestionProjection.content
+    : activeContent
+  const activeSourceDraftPreview = isAtomicSuggestionMode &&
+    sourceDraftPreview?.filePath === activeFilePath
+    ? sourceDraftPreview.content
+    : null
+  const displayedContent = activeSourceDraftPreview ?? suggestionBaseContent
   const activeOutline = useMemo(
     () => isActiveMystSource ? getMystOutline(displayedContent) : [],
     [displayedContent, isActiveMystSource],
@@ -423,32 +468,61 @@ function App() {
     })),
     [liveProposalAttribution, liveProposalChanges, selectedLiveProposalChangeId],
   )
-  const inactiveSuggestionIds = useMemo(
-    () => collaboration.isWorkingContentInitialized
-      ? new Set(sharedComments.flatMap((comment) =>
-          comment.suggestion?.status === 'pending' ? [comment.id] : [],
-        ))
-      : legacySuggestionProjection.hiddenIds,
+  const atomicInlineSuggestions = useMemo<MystPreviewSuggestion[]>(
+    () => isPrimaryFile ? primarySuggestionProjection.suggestions.flatMap((suggestion) => {
+      const comment = sharedComments.find((candidate) => candidate.id === suggestion.id)
+      return comment ? [{
+        id: suggestion.id,
+        from: suggestion.from,
+        to: suggestion.to,
+        before: suggestion.before,
+        after: suggestion.after,
+        authorName: comment.authorName,
+        authorColor: comment.authorColor,
+      }] : []
+    }) : [],
+    [isPrimaryFile, primarySuggestionProjection.suggestions, sharedComments],
+  )
+  const atomicSourceSuggestions = useMemo<SourceSuggestionHighlight[]>(
+    () => isPrimaryFile ? primarySuggestionProjection.suggestions.flatMap((suggestion) => {
+      const comment = sharedComments.find((candidate) => candidate.id === suggestion.id)
+      return comment ? [{
+        id: suggestion.id,
+        from: suggestion.projectedFrom,
+        to: suggestion.projectedTo,
+        before: suggestion.before,
+        after: suggestion.after,
+        authorName: comment.authorName,
+        authorColor: comment.authorColor,
+        active: activeCommentId === suggestion.id,
+        projection: 'working' as const,
+      }] : []
+    }) : [],
     [
-      collaboration.isWorkingContentInitialized,
-      legacySuggestionProjection.hiddenIds,
+      activeCommentId,
+      isPrimaryFile,
+      primarySuggestionProjection.suggestions,
       sharedComments,
     ],
   )
-
-  useEffect(() => {
-    if (
-      !canEditRoom ||
-      !isCollaborationSynced ||
-      collaboration.isWorkingContentInitialized
-    ) return
-    collaboration.initializeWorkingContent(legacySuggestionProjection.content)
-  }, [
-    canEditRoom,
-    collaboration,
-    isCollaborationSynced,
-    legacySuggestionProjection.content,
-  ])
+  const sourceSuggestions = collaboration.hasPendingWorkingChanges
+    ? liveProposalSourceHighlights
+    : atomicSourceSuggestions
+  const visualSuggestions = collaboration.hasPendingWorkingChanges
+    ? liveProposalVisualSuggestions
+    : atomicInlineSuggestions
+  const inactiveSuggestionIds = useMemo(
+    () => collaboration.hasPendingWorkingChanges
+      ? new Set(sharedComments.flatMap((comment) =>
+          comment.suggestion?.status === 'pending' ? [comment.id] : [],
+        ))
+      : primarySuggestionProjection.hiddenIds,
+    [
+      collaboration.hasPendingWorkingChanges,
+      primarySuggestionProjection.hiddenIds,
+      sharedComments,
+    ],
+  )
 
   const title = useMemo(
     () => getDocumentTitle(displayedContent),
@@ -465,10 +539,90 @@ function App() {
     () => sharedComments.filter((comment) => !comment.resolved).length,
     [sharedComments],
   )
+  const filteredReviewComments = useMemo(
+    () => filterReviewThreads(sharedComments, sharedCommentMessages, {
+      query: reviewQuery,
+      status: reviewStatus,
+      type: reviewType,
+      ...(reviewForMe ? { forActorIds: ownedActorIds } : {}),
+    }),
+    [
+      ownedActorIds,
+      reviewForMe,
+      reviewQuery,
+      reviewStatus,
+      reviewType,
+      sharedCommentMessages,
+      sharedComments,
+    ],
+  )
+  const visibleReviewComments = filteredReviewComments.slice(0, reviewVisibleLimit)
+  const commentMessagesByThread = useMemo(() => {
+    const messages = new Map<string, SharedCommentMessage[]>()
+    sharedCommentMessages.forEach((message) => {
+      const threadMessages = messages.get(message.threadId) ?? []
+      threadMessages.push(message)
+      messages.set(message.threadId, threadMessages)
+    })
+    return messages
+  }, [sharedCommentMessages])
 
   const showNotice = (message: string) => {
     setNotice(message)
   }
+
+  const revealCollaborator = (collaborator: Collaborator, message: string) => {
+    if (!activeSharedText) return false
+    const cursor = getCollaboratorCursor(
+      collaborator.clientId,
+      activeSharedText,
+    )
+    if (!cursor) {
+      showNotice(`${collaborator.name} is viewing another file or mode.`)
+      return false
+    }
+
+    const reveal = () => editorRef.current?.revealPosition(cursor.from)
+    if (view === 'preview') {
+      setView('source')
+      window.requestAnimationFrame(reveal)
+    } else reveal()
+    showNotice(message)
+    return true
+  }
+
+  const followCollaborator = (clientId: number | null) => {
+    if (clientId === null) {
+      setFollowedCollaboratorClientId(null)
+      showNotice('Stopped following collaborator.')
+      return
+    }
+    const collaborator = collaborators.find(
+      (candidate) => candidate.clientId === clientId,
+    )
+    if (
+      collaborator &&
+      revealCollaborator(collaborator, `Following ${collaborator.name}.`)
+    ) setFollowedCollaboratorClientId(clientId)
+  }
+
+  useEffect(() => {
+    if (followedCollaboratorClientId === null || !activeSharedText) return
+    const collaborator = collaborators.find(
+      (candidate) => candidate.clientId === followedCollaboratorClientId,
+    )
+    if (!collaborator) return
+    const cursor = getCollaboratorCursor(
+      collaborator.clientId,
+      activeSharedText,
+    )
+    if (cursor) editorRef.current?.revealPosition(cursor.from)
+  }, [
+    activeSharedText,
+    collaborators,
+    followedCollaboratorClientId,
+    getCollaboratorCursor,
+  ])
 
   useEffect(() => {
     if (!notice) return
@@ -912,7 +1066,13 @@ function App() {
   }
 
   const openCommentThread = (commentId: string) => {
+    const comment = sharedComments.find((candidate) => candidate.id === commentId)
     setCommentsOpen(true)
+    setReviewQuery('')
+    setReviewStatus(comment?.resolved ? 'resolved' : 'open')
+    setReviewType('all')
+    setReviewForMe(false)
+    setReviewVisibleLimit(Number.MAX_SAFE_INTEGER)
     setActiveCommentId(commentId)
     setActiveLiveProposalChangeId(null)
     const location = commentLocations.get(commentId)
@@ -1314,27 +1474,17 @@ function App() {
         </div>
 
         <div className="topbar-actions">
-          <div className="collaborator-stack" role="group" aria-label="Current collaborators">
-            {collaboration.collaborators.slice(0, 4).map((collaborator) => (
-              <button
-                className="avatar"
-                key={collaborator.clientId}
-                style={{ background: collaborator.colorLight, color: collaborator.color }}
-                title={collaborator.name}
-                type="button"
-                onClick={() => {
-                  if (
-                    collaborator.id === collaborationProfile.id &&
-                    !github.session?.user
-                  ) {
-                    setEditingProfile(true)
-                  }
-                }}
-              >
-                {collaborator.name.slice(0, 1).toUpperCase()}
-              </button>
-            ))}
-          </div>
+          <ParticipantsMenu
+            collaborators={collaborators}
+            currentActorId={collaborationProfile.id}
+            followedClientId={followedCollaboratorClientId}
+            onEditProfile={!github.session?.user ? () => setEditingProfile(true) : undefined}
+            onFollow={followCollaborator}
+            onJump={(collaborator) => {
+              setFollowedCollaboratorClientId(null)
+              revealCollaborator(collaborator, `Jumped to ${collaborator.name}.`)
+            }}
+          />
           {isMaintainer && !isArchived && (
             <button className="button secondary-button" type="button" title="Share access" onClick={shareDocument}>
               <Share2 size={16} />
@@ -1582,8 +1732,8 @@ function App() {
                     : isViewer
                     ? 'Live manuscript updates and review history are available; editing is disabled.'
                     : github.session?.user
-                      ? 'Your GitHub identity labels live Source and Visual changes. Everyone sees them immediately; accepted MyST changes only when a maintainer accepts the proposal.'
-                      : 'Source and Visual changes are live for everyone in the room and remain pending until a maintainer accepts them. Connect GitHub for verified attribution.'}
+                      ? 'Your GitHub identity labels each Source and Visual suggestion. Maintainers accept or reject suggestions individually.'
+                      : 'Source suggestions save after a short pause; Visual suggestions save when you finish the edit. Connect GitHub for verified attribution.'}
                 </span>
               </div>
               {roomAccess.review && (
@@ -1753,9 +1903,46 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openLiveProposalChange}
+                  onProposeSourceEdit={(draft) => {
+                    const projected = getProjectedSuggestionReplacement(
+                      activeSuggestionProjection,
+                      draft,
+                    )
+                    if (!projected || projected === 'conflict') {
+                      return {
+                        result: projected === 'conflict' ? 'conflict' : 'unavailable',
+                      }
+                    }
+                    const { replacement, supersedes } = projected
+                    const anchor = collaboration.beginTextEdit(
+                      replacement.from,
+                      replacement.to,
+                      replacement.before,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                    if (!anchor) return { result: 'conflict' as const }
+                    const proposal = collaboration.createTextSuggestion(
+                      anchor,
+                      replacement.after,
+                      activeFilePath,
+                      primaryFilePath,
+                      supersedes,
+                    )
+                    if (proposal.suggestionId) {
+                      setActiveCommentId(proposal.suggestionId)
+                      setCommentsOpen(true)
+                      showNotice('Suggestion ready for review')
+                    }
+                    return proposal
+                  }}
+                  onSourceDraftChange={(draft) => setSourceDraftPreview(
+                    draft === null ? null : { filePath: activeFilePath, content: draft },
+                  )}
                   readOnly={isSourceReadOnly}
-                  suggestionMode={isSuggestionMode && isActiveMystSource && isPrimaryFile}
-                  suggestionHighlights={isPrimaryFile ? liveProposalSourceHighlights : []}
+                  suggestionBaseContent={suggestionBaseContent}
+                  suggestionMode={isAtomicSuggestionMode && isActiveMystSource && isPrimaryFile}
+                  suggestionHighlights={isPrimaryFile ? sourceSuggestions : []}
                 />
               ) : shareSession.error ? (
                 <div className="pane-loading">{shareSession.error}</div>
@@ -1780,35 +1967,72 @@ function App() {
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
                   content={displayedContent}
-                  liveEditing
+                  liveEditing={!isAtomicSuggestionMode}
                   editable={
                     !effectiveReadOnly &&
                     collaboration.isSynced &&
                     isActiveMystSource &&
-                    (!isSuggestionMode || isPrimaryFile)
+                    (!isSuggestionMode || (isPrimaryFile && activeSourceDraftPreview === null))
                   }
                   projectFiles={collaboration.projectFiles}
                   sourcePath={activeFilePath}
-                  onBeginEdit={(block) => collaboration.beginTextEdit(
-                    block.from,
-                    block.to,
-                    block.value,
-                    activeFilePath,
-                    primaryFilePath,
-                  )}
-                  onCommitEdit={(anchor, replacement) => collaboration.commitTextEdit(
-                    anchor,
-                    replacement,
-                    activeFilePath,
-                    primaryFilePath,
-                  )}
+                  onBeginEdit={(block) => {
+                    visualSuggestionSupersedesRef.current = []
+                    if (!isAtomicSuggestionMode) {
+                      return collaboration.beginTextEdit(
+                        block.from,
+                        block.to,
+                        block.value,
+                        activeFilePath,
+                        primaryFilePath,
+                      )
+                    }
+                    const projected = mapProjectedRange(
+                      activeSuggestionProjection,
+                      block.from,
+                      block.to,
+                    )
+                    if (projected === 'conflict') return null
+                    visualSuggestionSupersedesRef.current = projected.supersedes
+                    return collaboration.beginTextEdit(
+                      projected.replacement.from,
+                      projected.replacement.to,
+                      projected.replacement.before,
+                      activeFilePath,
+                      primaryFilePath,
+                    )
+                  }}
+                  onCommitEdit={(anchor, replacement) => {
+                    if (!isAtomicSuggestionMode) {
+                      return collaboration.commitTextEdit(
+                        anchor,
+                        replacement,
+                        activeFilePath,
+                        primaryFilePath,
+                      )
+                    }
+                    const proposal = collaboration.createTextSuggestion(
+                      anchor,
+                      replacement,
+                      activeFilePath,
+                      primaryFilePath,
+                      visualSuggestionSupersedesRef.current,
+                    )
+                    visualSuggestionSupersedesRef.current = []
+                    if (proposal.suggestionId) {
+                      setActiveCommentId(proposal.suggestionId)
+                      setCommentsOpen(true)
+                      showNotice('Suggestion ready for review')
+                    }
+                    return proposal.result
+                  }}
                   onEditError={showNotice}
                   onSuggestionClick={openLiveProposalChange}
                   onRequestCitation={(insert) => {
                     setVisualCitationInserter(() => insert)
                     setCitationPickerOpen(true)
                   }}
-                  suggestions={isPrimaryFile ? liveProposalVisualSuggestions : []}
+                  suggestions={isPrimaryFile ? visualSuggestions : []}
                 />
               </Suspense>
             </section>
@@ -1834,6 +2058,67 @@ function App() {
                   >
                     <X size={16} />
                   </button>
+                </div>
+                <div className="review-inbox-controls">
+                  <label className="review-search">
+                    <Search size={14} aria-hidden="true" />
+                    <input
+                      aria-label="Search review"
+                      placeholder="Search comments"
+                      type="search"
+                      value={reviewQuery}
+                      onChange={(event) => {
+                        setReviewQuery(event.target.value)
+                        setReviewVisibleLimit(reviewBatchSize)
+                      }}
+                    />
+                  </label>
+                  <div className="review-filter-row">
+                    <div className="review-segmented" role="group" aria-label="Review status">
+                      {(['open', 'resolved', 'all'] as const).map((status) => (
+                        <button
+                          aria-pressed={reviewStatus === status}
+                          key={status}
+                          type="button"
+                          onClick={() => {
+                            setReviewStatus(status)
+                            setReviewVisibleLimit(reviewBatchSize)
+                          }}
+                        >
+                          {status[0].toUpperCase() + status.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      aria-pressed={reviewForMe}
+                      className="review-for-me"
+                      type="button"
+                      onClick={() => {
+                        setReviewForMe((current) => !current)
+                        setReviewVisibleLimit(reviewBatchSize)
+                      }}
+                    >
+                      For you
+                    </button>
+                  </div>
+                  <div className="review-type-row" role="group" aria-label="Review type">
+                    {(['all', 'comments', 'suggestions'] as const).map((type) => (
+                      <button
+                        aria-pressed={reviewType === type}
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          setReviewType(type)
+                          setReviewVisibleLimit(reviewBatchSize)
+                        }}
+                      >
+                        {type[0].toUpperCase() + type.slice(1)}
+                      </button>
+                    ))}
+                    <span aria-live="polite">
+                      {visibleReviewComments.length} of {filteredReviewComments.length}
+                    </span>
+                  </div>
                 </div>
                 <div className="comment-composer">
                   <textarea
@@ -1946,16 +2231,19 @@ function App() {
                       </p>
                     </details>
                   ))}
-                  {collaboration.comments.length === 0 && !collaboration.hasPendingWorkingChanges ? (
+                  {sharedComments.length === 0 && !collaboration.hasPendingWorkingChanges ? (
                     <div className="comments-empty">
                       <MessageSquare size={20} />
                       <span>No comments yet</span>
                     </div>
-                  ) : collaboration.comments.map((comment) => {
+                  ) : filteredReviewComments.length === 0 ? (
+                    <div className="comments-empty">
+                      <Search size={20} />
+                      <span>No matching review threads</span>
+                    </div>
+                  ) : visibleReviewComments.map((comment) => {
                     const location = commentLocations.get(comment.id)
-                    const replies = collaboration.commentMessages.filter(
-                      (message) => message.threadId === comment.id,
-                    )
+                    const replies = commentMessagesByThread.get(comment.id) ?? []
                     const isEarlierRevision = comment.suggestion?.status === 'pending' &&
                       inactiveSuggestionIds.has(comment.id)
                     return (
@@ -2209,6 +2497,15 @@ function App() {
                       </div>
                     </article>
                   )})}
+                  {visibleReviewComments.length < filteredReviewComments.length && (
+                    <button
+                      className="review-show-older"
+                      type="button"
+                      onClick={() => setReviewVisibleLimit((limit) => limit + reviewBatchSize)}
+                    >
+                      Show older
+                    </button>
+                  )}
                 </div>
               </aside>
             )}

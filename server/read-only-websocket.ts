@@ -498,11 +498,15 @@ const isCollaboratorUpdateAllowed = (
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
       Y.applyUpdate(candidate, update)
       const nextWorkingContent = candidate.getText('workingContent').toString()
+      const legacyWorkingProposalActive =
+        document.getMap('metadata').get('workingContentInitialized') === true &&
+        workingContent !== document.getText('content').toString()
       const initializingWorkingContent =
         document.getMap('metadata').get('workingContentInitialized') !== true &&
         candidate.getMap('metadata').get('workingContentInitialized') === true
       const allowed = hasOnlyKnownRoots(candidate) &&
         getProtectedState(candidate) === protectedState &&
+        (nextWorkingContent === workingContent || legacyWorkingProposalActive) &&
         nextWorkingContent.length <= 2_000_000 &&
         metadataAreAllowed(document, candidate) &&
         proposalContributorsAreUnchanged(document, candidate) &&

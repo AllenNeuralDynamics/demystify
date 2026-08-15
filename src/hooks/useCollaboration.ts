@@ -12,6 +12,7 @@ import {
   type CommentAnchor,
 } from '../lib/commentAnchors'
 import type { CollaboratorProfile } from '../lib/profile'
+import { resolveCollaboratorCursor } from '../lib/collaboratorPresence'
 import {
   normalizeSourceText,
   serializeSourceText,
@@ -45,6 +46,7 @@ export type PrimaryEditMode = 'editing' | 'suggesting'
 
 export interface Collaborator extends CollaboratorProfile {
   clientId: number
+  hasCursor: boolean
 }
 
 export type SharedSuggestionStatus = 'pending' | 'accepted' | 'rejected' | 'conflicted'
@@ -147,7 +149,6 @@ export const useCollaboration = (
   enabled = true,
   readOnly = false,
   shouldConnect = true,
-  primaryEditMode: PrimaryEditMode = 'editing',
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
@@ -285,7 +286,9 @@ export const useCollaboration = (
       const nextCollaborators = Array.from(provider.awareness.getStates()).flatMap(
         ([clientId, awareness]) => {
           const user = awareness.user
-          return isCollaboratorProfile(user) ? [{ ...user, clientId }] : []
+          return isCollaboratorProfile(user)
+            ? [{ ...user, clientId, hasCursor: Boolean(awareness.cursor) }]
+            : []
         },
       )
       setCollaborators(nextCollaborators)
@@ -398,6 +401,18 @@ export const useCollaboration = (
     session?.provider.awareness.setLocalStateField('user', profile)
   }, [profile, session])
 
+  const getCollaboratorCursor = useCallback((clientId: number, sharedText: Y.Text) => {
+    if (!session) return null
+    const awareness = session.provider.awareness.getStates().get(clientId)
+    if (!awareness) return null
+    return resolveCollaboratorCursor(
+      session.document,
+      awareness.cursor,
+      sharedText,
+      [session.text, session.workingText],
+    )
+  }, [session])
+
   const addComment = (body: string, selection?: { from: number; to: number }) => {
     const trimmedBody = body.trim()
     if (!session || readOnly || !trimmedBody) return
@@ -417,7 +432,11 @@ export const useCollaboration = (
       body: trimmedBody,
       createdAt: new Date().toISOString(),
       resolved: false,
-      ...(anchor ? { anchorTarget: 'working' as const } : {}),
+      ...(anchor ? {
+        anchorTarget: anchorText === session.workingText
+          ? 'working' as const
+          : 'content' as const,
+      } : {}),
       ...(anchor ? { anchor } : {}),
     })
     return id
@@ -658,11 +677,11 @@ export const useCollaboration = (
     if (!session) return null
     return path === primaryPath
       ? session.metadata.get('workingContentInitialized') === true &&
-        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        session.workingText.toString() !== session.text.toString()
         ? session.workingText
         : session.text
       : session.projectFiles.get(path) ?? null
-  }, [primaryEditMode, session])
+  }, [session])
 
   const commitPublicationMetadata = useCallback((input: {
     pagePath: string
@@ -751,13 +770,13 @@ export const useCollaboration = (
     const text = path && primaryPath && path !== primaryPath
       ? session.projectFiles.get(path)
       : session.metadata.get('workingContentInitialized') === true &&
-        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        session.workingText.toString() !== session.text.toString()
         ? session.workingText
         : session.text
     return text
       ? createCollaborativeTextEditAnchor(text, from, to, expectedText)
       : null
-  }, [primaryEditMode, readOnly, session])
+  }, [readOnly, session])
 
   const commitTextEdit = useCallback((
     anchor: CollaborativeTextEditAnchor,
@@ -769,7 +788,7 @@ export const useCollaboration = (
     const text = path && primaryPath && path !== primaryPath
       ? session.projectFiles.get(path)
       : session.metadata.get('workingContentInitialized') === true &&
-        (primaryEditMode === 'suggesting' || session.workingText.toString() !== session.text.toString())
+        session.workingText.toString() !== session.text.toString()
         ? session.workingText
         : session.text
     if (!text) return 'unavailable'
@@ -779,7 +798,7 @@ export const useCollaboration = (
       anchor,
       replacement.replace(/\r\n?/g, '\n'),
     )
-  }, [primaryEditMode, readOnly, session])
+  }, [readOnly, session])
 
   const createTextSuggestion = useCallback((
     anchor: CollaborativeTextEditAnchor,
@@ -978,6 +997,7 @@ export const useCollaboration = (
     proposalContributors,
     proposalHistory,
     collaborators,
+    getCollaboratorCursor,
     status: enabled ? status : 'disconnected',
     accessError,
     isSynced,

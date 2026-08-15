@@ -243,7 +243,7 @@ export const MystPreview = memo(({
         option.style.setProperty('--myst-suggestion-color', primarySuggestion.authorColor)
         option.tabIndex = 0
         option.setAttribute('role', 'button')
-        option.title = 'Open this live proposal change in Review'
+        option.title = 'Open this suggestion in Review'
         option.setAttribute(
           'aria-label',
           'Current proposed block. Press Enter to open this change in Review.',

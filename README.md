@@ -10,7 +10,7 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 
 - Simultaneous conflict-free editing with Yjs and WebSockets
 - Live collaborator cursors, presence, and anchored review discussions
-- Live attributed Source and Visual suggesting with maintainer accept/reject checkpoints
+- Attributed Source and Visual suggestions with independent maintainer decisions
 - Debounced JavaScript MyST preview with safe HTML, repository figures, static iframe placeholders, AuthorshipExtractor rosters, tables, and KaTeX math
 - LevelDB-backed local persistence and PostgreSQL-backed production persistence
 - GitHub App OAuth with HTTP-only server sessions
@@ -79,9 +79,9 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 4. Select **Save to GitHub** to snapshot the live document onto its stable `demystify/<room>` branch and create its draft pull request.
 5. Later snapshots update the same branch and pull request. Open **PR #...** from the workspace or repository dialog to review it in GitHub.
 6. Select source text, or leave the cursor in a paragraph, before commenting. Yjs keeps that thread attached while collaborators edit around it. Only the original author may edit a comment or reply body; everyone with editing access may reply.
-7. Suggestion participants type together in one live working manuscript. Source keystrokes and Visual document transactions appear immediately in every room session while accepted MyST remains unchanged. Maintainers can join that proposal in **Suggesting** or make direct accepted changes in **Editing** when no proposal is pending.
-8. A maintainer accepts or rejects the current live proposal as one checkpoint. Accepted text becomes canonical room source; rejected text returns the working manuscript to accepted source. Git submission remains disabled until that decision is made.
-9. **Save to GitHub** is maintainer-only. It snapshots accepted source to the stable branch, names unsubmitted live contributors in the commit message, links accepted checkpoints to the commit SHA, and creates or updates the room pull request. Comments and replies remain queued until a PR exists, then synchronize on focus and every 60 seconds while active.
+7. Suggestion participants create individually attributed Source or Visual proposals while accepted MyST remains unchanged. Source saves a proposal after a short typing pause; Visual saves when the inline edit finishes. Other sessions see each proposal in Source, Visual, and Review.
+8. A maintainer accepts or rejects each suggestion independently. Repository writers continue to coedit accepted source live in **Editing**, even while unrelated suggestions remain open.
+9. **Save to GitHub** is maintainer-only. It snapshots accepted source to the stable branch and creates or updates the room pull request. Comments, replies, and suggestion decisions remain queued until a PR exists, then synchronize on focus and every 60 seconds while active.
 10. Closing or merging the PR archives the room. Text, comments, proposal checkpoints, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
 ## Citations And Visual Editing
@@ -96,10 +96,10 @@ preserved. Citation insertion follows the manuscript's dominant syntax, using
 Markdown/Pandoc `@key` forms or MyST `{cite:*}` roles as appropriate; combinations
 that Markdown cannot represent safely fall back to roles.
 
-While proposed changes are pending, Source and Visual may insert keys already in
-the manuscript library. Crossref and other new-reference additions remain
-available only in direct Editing because bibliography changes are canonical and
-are not part of Accept all or Discard all proposal decisions.
+In Suggestion mode, Source and Visual may insert keys already in the manuscript
+library. Crossref and other new-reference additions remain available only in
+direct Editing because bibliography changes are canonical and are not part of
+an individual manuscript-text suggestion.
 
 Select **Tools -> Reference library** to search and inspect the whole library, import or export
 standard BibTeX, edit one raw entry, remove uncited entries, or merge unused DOI
@@ -117,26 +117,23 @@ placeholders remain editable as ordinary MyST prose. Tables, math and code block
 directive settings, marked multiline blocks, and unsupported inline MyST remain
 rendered but read-only, so source syntax is never silently flattened.
 
-For invited Suggestion participants, the primary MyST file has separate accepted
-and working `Y.Text` roots. Source binds directly to the working root; supported
-Visual headings, prose, and captions stream each safe ProseMirror transaction to
-that same text. All connected reviewers therefore edit one convergent manuscript
-without a submit button. Review derives readable before/after hunks from accepted
-and working source and shows the server-stamped contributor set. Source keeps the
-working text editable while projecting accepted deletions as struck-through
-widgets and marking proposed insertions in place. Word hunks are refined to the
-smallest changed characters, so suffix edits do not duplicate the unchanged word.
-Supported Visual blocks show one accepted and one proposed rendering; changes
-that cross MyST block boundaries remain explicit in Source and Review. A
-maintainer may edit the same working text in **Suggesting**, then **Accept all**
-or **Discard all** as an immutable checkpoint. Pending changes replace the
-Editing control with **Review changes**. Direct **Editing** updates accepted
-source and is unavailable while a proposal is pending.
+For invited Suggestion participants, each proposed edit is an attributed review
+record anchored to accepted MyST with Yjs relative positions. Source presents the
+current non-overlapping proposal projection, keeps a short local typing draft,
+and saves one suggestion after the writer pauses. Supported Visual headings,
+prose, and captions save through the same suggestion API when the inline edit
+finishes. Revising an existing proposal creates a newer record that supersedes
+the prior version without erasing review history. Source marks proposed
+insertions and accepted deletions in place; Visual shows accepted and proposed
+renderings when the change remains inside a supported MyST block. A maintainer
+accepts or rejects each proposal independently. Direct **Editing** remains a
+live Yjs workshop for repository writers and updates accepted source without
+implicitly deciding unrelated suggestions.
 References, metadata, YAML project files, publishing, and maintainer decisions
 remain read-only for that role. The WebSocket gateway validates incoming
-Suggestion updates against a shadow Yjs document, permits only the working text
-and review discussion roots, stamps contribution identity from the authorized
-socket, and rejects canonical, decision, repository, and Git mutations.
+Suggestion updates against a shadow Yjs document, permits only authorized review
+records and discussion roots, verifies contribution identity from the socket,
+and rejects canonical, decision, repository, and Git mutations.
 Rotated, revoked, or expired capability links close affected sockets; the client
 immediately becomes read-only and identifies the ended sharing session.
 
@@ -186,10 +183,10 @@ GitHub is the durable review history; Yjs handles keystroke-level collaboration 
 The **Share** dialog presents three explicit roles:
 
 - **Maintainer:** a GitHub-authenticated repository writer. Maintainers edit the room, bind repositories, manage sharing, save snapshots, update the draft pull request, and mirror queued comments to GitHub. The shareable Maintainer URL is the plain room URL: it carries no capability and grants access only after GitHub verifies write permission to the bound repository.
-- **Suggestion mode:** an invited person with a revocable Suggestion link can comment and coedit the primary MyST manuscript live in Source or Visual without repository access. Every session sees the same working text immediately. Accepted source changes only when a maintainer accepts the current checkpoint; only maintainers may submit accepted source to Git. Secondary project files, metadata, references, sharing, and publishing remain read-only. Links may expire after 7, 30, or 90 days, or have no expiration. GitHub sign-in is optional but recommended for verified attribution.
+- **Suggestion mode:** an invited person with a revocable Suggestion link can comment and submit attributed Source or Visual suggestions without repository access. Maintainers accept or reject each suggestion independently; only maintainers may submit accepted source to Git. Secondary project files, metadata, new references, sharing, and publishing remain read-only. Links may expire after 7, 30, or 90 days, or have no expiration. GitHub sign-in is optional but recommended for verified attribution.
 - **Viewer:** anyone with a separately revocable viewer link using the same expiration options. Viewers receive live text, preview, comments, and presence but cannot modify room state.
 
-Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes and gives each anonymous session a stable actor ID. Suggestion-mode WebSockets accept awareness, working-text updates, author-owned comment/reply edits, new replies, and ordinary resolution; canonical source, checkpoint decisions, configuration, references, and Git state are rejected. Viewer WebSockets accept only awareness and synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.
+Suggestion and viewer links use independent secrets in the URL fragment, exchange them once for role-specific HTTP-only sessions, and remove them from the address bar. The server stores only SHA-256 token hashes and gives each anonymous session a stable actor ID. Suggestion-mode WebSockets accept awareness, attributed suggestion and comment creation, author-owned comment/reply edits, new replies, and ordinary resolution; canonical source, suggestion decisions, configuration, references, and Git state are rejected. Viewer WebSockets accept only awareness and synchronization. Repository binding, snapshots, pull requests, sharing administration, revisions, and GitHub comment APIs remain maintainer-only. Rotating or revoking one link closes only sockets using that role.
 
 ## Architecture
 
@@ -210,6 +207,7 @@ The Express server hosts GitHub routes and upgrades `/collaboration/<room>` conn
 npm run dev                 # Web app + API/WebSocket watch mode
 npm test                    # Unit tests
 npm run test:collaboration  # Self-contained auth + two-client convergence test
+npm run test:collaboration:load # 5 editors + 95 viewers against an isolated server
 npm run test:e2e:quick      # Chromium browser tests against isolated localhost services
 npm run test:e2e            # Chromium, Firefox, WebKit, and mobile browser matrix
 npm run test:bundle         # Gzip budget for an existing production build
@@ -246,7 +244,7 @@ Collaborative text uses LF internally so CodeMirror and Yjs share character offs
 - The browser preview is a fast reading aid, not an authoritative publication build. It renders the open file after a short pause, resolves committed public-repository figures, substitutes static iframe placeholders, and provides a data-backed static fallback for AuthorshipExtractor. Remote plugin code, custom site styles, generated assets, and interactive figures remain the responsibility of repository CI and the full MyST build.
 - GitHub only permits native inline review threads on lines represented in the PR diff. Threads on unchanged or outdated source use grouped PR conversation comments; GitHub displays those fallback replies as a flat conversation.
 - GitHub-to-DeMystify synchronization currently uses polling. A production multi-instance deployment should replace or supplement it with authenticated GitHub webhooks.
-- Live suggesting covers arbitrary Source changes and Visual edits to supported headings, prose, and captions in the primary MyST file. Tables, math, code blocks, directive settings, unsupported inline MyST, and secondary project files remain source-only or maintainer-only as appropriate.
+- Suggesting covers arbitrary Source proposals and Visual proposals for supported headings, prose, and captions in the primary MyST file. Tables, math, code blocks, directive settings, unsupported inline MyST, and secondary project files remain source-only or maintainer-only as appropriate.
 - Each bound room owns one primary manuscript path, its discovered project sources, one working branch, and one pull request. Closed and merged rooms are server-enforced read-only; the next revision starts in a fresh pre-bound room.
 - PostgreSQL is shared, but live Yjs updates are not yet broadcast between application instances. The deployment is therefore limited to one instance.
 - An actively used collaborative tab maintains a WebSocket by design and therefore keeps request-based compute active. Idle suspension limits forgotten-tab cost, but sustained external collaboration still needs an explicit cloud budget and monitoring.

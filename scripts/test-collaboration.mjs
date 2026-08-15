@@ -551,7 +551,6 @@ try {
   })
   await Promise.all([editorReceived, viewerReceived, collaboratorReceived])
 
-  const liveExpectedText = `${editorExpectedText} guest-live`
   const firstWorkingText = firstDocument.getText('workingContent')
   const viewerWorkingText = viewerDocument.getText('workingContent')
   const collaboratorWorkingText = collaboratorDocument.getText('workingContent')
@@ -560,6 +559,18 @@ try {
     waitForText(viewerWorkingText, editorExpectedText),
     waitForText(collaboratorWorkingText, editorExpectedText),
   ])
+  const legacyStartedText = `${editorExpectedText} maintainer-legacy`
+  const viewerReceivedLegacyStart = waitForText(viewerWorkingText, legacyStartedText)
+  const collaboratorReceivedLegacyStart = waitForText(
+    collaboratorWorkingText,
+    legacyStartedText,
+  )
+  firstDocument.transact(() => {
+    firstDocument.getMap('metadata').set('workingContentInitialized', true)
+    firstWorkingText.insert(firstWorkingText.length, ' maintainer-legacy')
+  })
+  await Promise.all([viewerReceivedLegacyStart, collaboratorReceivedLegacyStart])
+  const liveExpectedText = `${legacyStartedText} guest-live`
   const maintainerReceivedLive = waitForText(firstWorkingText, liveExpectedText)
   const viewerReceivedLive = waitForText(viewerWorkingText, liveExpectedText)
   collaboratorWorkingText.insert(collaboratorWorkingText.length, ' guest-live')
@@ -605,7 +616,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   assert.equal(secondText.toString(), editorExpectedText)
   await verifyPostgresPersistence()
-  console.log('Unauthorized writes rejected; live proposals synchronized; maintainers controlled canonical text and viewers stayed read-only.')
+  console.log('Unauthorized writes rejected; suggestions and legacy proposals synchronized; maintainers controlled canonical text and viewers stayed read-only.')
 } finally {
   firstProvider?.destroy()
   secondProvider?.destroy()

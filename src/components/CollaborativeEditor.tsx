@@ -9,7 +9,7 @@ import {
   type DecorationSet,
 } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { yCollab } from 'y-codemirror.next'
 import type { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
@@ -19,6 +19,10 @@ import {
   fillSnippetSelection,
   mystAuthoringCompletionSource,
 } from '../lib/mystAuthoring'
+import {
+  rebaseTextDraft,
+  type CollaborativeTextEditResult,
+} from '../lib/collaborativeTextEdit'
 
 export interface CommentHighlight {
   id: string
@@ -45,7 +49,13 @@ interface CollaborativeEditorProps {
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
+  onProposeSourceEdit?: (draft: string) => {
+    result: CollaborativeTextEditResult
+    suggestionId?: string
+  }
+  onSourceDraftChange?: (draft: string | null) => void
   readOnly?: boolean
+  suggestionBaseContent?: string
   suggestionMode?: boolean
   suggestionHighlights?: SourceSuggestionHighlight[]
 }
@@ -59,6 +69,7 @@ export interface CollaborativeEditorHandle {
   insertCitation: (citation: string) => void
   getCommentSelection: () => { from: number; to: number } | null
   revealRange: (from: number, to: number) => void
+  revealPosition: (position: number) => void
   focus: () => void
 }
 
@@ -68,6 +79,7 @@ interface ReviewDecorations {
 }
 
 const setReviewDecorations = StateEffect.define<ReviewDecorations>()
+const suggestionSaveDelayMs = 450
 
 class SuggestionWidget extends WidgetType {
   private readonly suggestion: SourceSuggestionHighlight
@@ -410,26 +422,46 @@ export const CollaborativeEditor = forwardRef<
   provider,
   commentHighlights = [],
   onCommentClick,
+  onProposeSourceEdit,
+  onSourceDraftChange,
   readOnly = false,
+  suggestionBaseContent,
   suggestionMode = false,
   suggestionHighlights = [],
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const draftBaseRef = useRef(suggestionBaseContent ?? sharedText.toString())
+  const suggestionBaseContentRef = useRef(suggestionBaseContent ?? sharedText.toString())
+  const draftDirtyRef = useRef(false)
+  const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
+  const onProposeSourceEditRef = useRef(onProposeSourceEdit)
+  const onSourceDraftChangeRef = useRef(onSourceDraftChange)
   const readOnlyRef = useRef(readOnly)
   const readOnlyCompartmentRef = useRef(new Compartment())
+  const [draftDirty, setDraftDirty] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
+  const [draftVersion, setDraftVersion] = useState(0)
 
   useEffect(() => {
     onCommentClickRef.current = onCommentClick
   }, [onCommentClick])
 
   useEffect(() => {
+    onProposeSourceEditRef.current = onProposeSourceEdit
+  }, [onProposeSourceEdit])
+
+  useEffect(() => {
+    onSourceDraftChangeRef.current = onSourceDraftChange
+  }, [onSourceDraftChange])
+
+  useEffect(() => {
     if (!containerRef.current) return
 
     const undoManager = new Y.UndoManager(sharedText)
     const state = EditorState.create({
-      doc: sharedText.toString(),
+      doc: suggestionMode ? suggestionBaseContentRef.current : sharedText.toString(),
       extensions: [
         basicSetup,
         markdown(),
@@ -456,7 +488,16 @@ export const CollaborativeEditor = forwardRef<
             return true
           },
         }),
-        yCollab(sharedText, provider.awareness, { undoManager }),
+        ...(suggestionMode
+          ? [EditorView.updateListener.of((update) => {
+              if (!update.docChanged || syncingDraftRef.current) return
+              draftDirtyRef.current = true
+              setDraftDirty(true)
+              setDraftError(null)
+              setDraftVersion((version) => version + 1)
+              onSourceDraftChangeRef.current?.(update.state.doc.toString())
+            })]
+          : [yCollab(sharedText, provider.awareness, { undoManager })]),
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
@@ -477,6 +518,13 @@ export const CollaborativeEditor = forwardRef<
     }
     view.dom.addEventListener('keydown', activateReviewFromKeyboard, true)
     viewRef.current = view
+    draftBaseRef.current = suggestionMode
+      ? suggestionBaseContentRef.current
+      : sharedText.toString()
+    draftDirtyRef.current = false
+    setDraftDirty(false)
+    setDraftError(null)
+    onSourceDraftChangeRef.current?.(null)
 
     return () => {
       view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
@@ -484,7 +532,74 @@ export const CollaborativeEditor = forwardRef<
       undoManager.destroy()
       viewRef.current = null
     }
-  }, [provider, sharedText])
+  }, [provider, sharedText, suggestionMode])
+
+  useEffect(() => {
+    if (!suggestionMode) return
+    const nextBase = suggestionBaseContent ?? sharedText.toString()
+    suggestionBaseContentRef.current = nextBase
+    const view = viewRef.current
+    if (!view || nextBase === draftBaseRef.current) return
+    if (draftDirtyRef.current) {
+      const rebasedDraft = rebaseTextDraft(
+        draftBaseRef.current,
+        view.state.doc.toString(),
+        nextBase,
+      )
+      if (rebasedDraft === null) {
+        setDraftError('Another suggestion changed the same source range. Undo or retry from the shared version.')
+        return
+      }
+      syncingDraftRef.current = true
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: rebasedDraft },
+      })
+      syncingDraftRef.current = false
+      draftBaseRef.current = nextBase
+      setDraftError(null)
+      onSourceDraftChangeRef.current?.(rebasedDraft)
+      return
+    }
+    draftBaseRef.current = nextBase
+    if (view.state.doc.toString() === nextBase) return
+    syncingDraftRef.current = true
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: nextBase },
+    })
+    syncingDraftRef.current = false
+  }, [sharedText, suggestionBaseContent, suggestionMode])
+
+  useEffect(() => {
+    if (!suggestionMode || !draftDirty || draftError) return
+    const timeout = window.setTimeout(() => {
+      const view = viewRef.current
+      const propose = onProposeSourceEditRef.current
+      if (!view || !propose) return
+      const draft = view.state.doc.toString()
+      if (draft === draftBaseRef.current) {
+        draftDirtyRef.current = false
+        setDraftDirty(false)
+        onSourceDraftChangeRef.current?.(null)
+        return
+      }
+      const proposal = propose(draft)
+      if (proposal.result !== 'applied') {
+        setDraftError(
+          proposal.result === 'conflict'
+            ? 'The source changed before this suggestion could be anchored.'
+            : 'Suggestions are not available for this document.',
+        )
+        return
+      }
+      suggestionBaseContentRef.current = draft
+      draftBaseRef.current = draft
+      draftDirtyRef.current = false
+      setDraftDirty(false)
+      setDraftError(null)
+      onSourceDraftChangeRef.current?.(null)
+    }, suggestionSaveDelayMs)
+    return () => window.clearTimeout(timeout)
+  }, [draftDirty, draftError, draftVersion, suggestionMode])
 
   useEffect(() => {
     readOnlyRef.current = readOnly
@@ -500,10 +615,10 @@ export const CollaborativeEditor = forwardRef<
     viewRef.current?.dispatch({
       effects: setReviewDecorations.of({
         comments: commentHighlights,
-        suggestions: suggestionHighlights,
+        suggestions: suggestionMode && draftDirty ? [] : suggestionHighlights,
       }),
     })
-  }, [commentHighlights, suggestionHighlights])
+  }, [commentHighlights, draftDirty, suggestionHighlights, suggestionMode])
 
   useImperativeHandle(ref, () => ({
     undo: () => {
@@ -582,6 +697,13 @@ export const CollaborativeEditor = forwardRef<
       })
       view.focus()
     },
+    revealPosition: (position) => {
+      const view = viewRef.current
+      if (!view) return
+      view.dispatch({
+        effects: EditorView.scrollIntoView(position, { y: 'center' }),
+      })
+    },
     focus: () => viewRef.current?.focus(),
   }))
 
@@ -591,8 +713,8 @@ export const CollaborativeEditor = forwardRef<
       {suggestionMode && (
         <div className="source-suggestion-draft" role="status">
           <div>
-            <strong>Suggesting live</strong>
-            <span>Source and Visual update for everyone in the room; accepted MyST changes only after a maintainer accepts the proposal.</span>
+            <strong>{draftDirty ? 'Saving suggestion...' : 'Suggesting'}</strong>
+            <span>{draftError ?? 'Changes become attributed suggestions after you pause; accepted MyST changes only after individual approval.'}</span>
           </div>
         </div>
       )}

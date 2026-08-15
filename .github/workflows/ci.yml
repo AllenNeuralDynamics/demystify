@@ -46,6 +46,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/demystify_test
 
+      - name: Test 5-editor 95-viewer collaboration load
+        run: npm run test:collaboration:load
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/demystify_test
+
       - name: Lint
         run: npm run lint
 

@@ -143,10 +143,10 @@ describe('read-only Yjs messages', () => {
 })
 
 describe('suggestion-mode Yjs messages', () => {
-  it('allows live working text, protects canonical text, and stamps its socket actor', () => {
+  it('continues an existing legacy working proposal and protects canonical text', () => {
     const document = new Y.Doc()
     document.getText('content').insert(0, 'Accepted paragraph.')
-    document.getText('workingContent').insert(0, 'Accepted paragraph.')
+    document.getText('workingContent').insert(0, 'Pending paragraph.')
     document.getMap('metadata').set('workingContentInitialized', true)
     const workingUpdate = updateMessage(document, (candidate) => {
       candidate.getText('workingContent').insert(8, ' live')
@@ -160,16 +160,31 @@ describe('suggestion-mode Yjs messages', () => {
     expect(document.getText('content').toString()).toBe('Accepted paragraph.')
   })
 
-  it('allows citation text but rejects bibliography and reference changes', () => {
+  it('rejects starting a new working proposal', () => {
     const document = new Y.Doc()
     document.getText('content').insert(0, 'Accepted paragraph.')
     document.getText('workingContent').insert(0, 'Accepted paragraph.')
     document.getMap('metadata').set('workingContentInitialized', true)
+    const workingUpdate = updateMessage(document, (candidate) => {
+      candidate.getText('workingContent').insert(8, ' new')
+    })
+
+    expect(collaboratorMessageAllowed(workingUpdate, document, 'reviewer-new')).toBe(false)
+  })
+
+  it('allows citation suggestions but rejects bibliography and reference changes', () => {
+    const document = new Y.Doc()
+    const source = 'Accepted paragraph.'
+    document.getText('content').insert(0, source)
+    const citation = createRangeSuggestion(document, {
+      id: 'citation-suggestion',
+      authorName: 'Citation Reviewer',
+      from: source.length,
+      to: source.length,
+      after: ' {cite:p}`existing2024`',
+    })
     const citationUpdate = updateMessage(document, (candidate) => {
-      candidate.getText('workingContent').insert(
-        candidate.getText('workingContent').length,
-        ' {cite:p}`existing2024`',
-      )
+      candidate.getMap('comments').set(citation.id, citation)
     })
 
     expect(collaboratorMessageAllowed(citationUpdate, document, 'citation-reviewer')).toBe(true)
@@ -185,7 +200,7 @@ describe('suggestion-mode Yjs messages', () => {
     expect(collaboratorMessageAllowed(referenceUpdate, document, 'citation-reviewer')).toBe(false)
   })
 
-  it('migrates legacy pending proposer identity without attributing the initializer', () => {
+  it('rejects client-side initialization of the legacy working root', () => {
     const document = new Y.Doc()
     document.getText('content').insert(0, 'Original paragraph.')
     document.getMap('comments').set('suggestion-1', createSuggestion(document))
@@ -194,12 +209,7 @@ describe('suggestion-mode Yjs messages', () => {
       candidate.getMap('metadata').set('workingContentInitialized', true)
     })
 
-    expect(collaboratorMessageAllowed(migration, document, 'migration-viewer')).toBe(true)
-    expect(document.getMap('proposalContributors').get('reviewer-1')).toMatchObject({
-      actorId: 'reviewer-1',
-      name: 'Review Contributor',
-    })
-    expect(document.getMap('proposalContributors').has('migration-viewer')).toBe(false)
+    expect(collaboratorMessageAllowed(migration, document, 'migration-viewer')).toBe(false)
   })
 
   it('rejects new comments that impersonate another socket actor', () => {
@@ -218,6 +228,24 @@ describe('suggestion-mode Yjs messages', () => {
     })
 
     expect(collaboratorMessageAllowed(update, document, 'reviewer-2')).toBe(false)
+  })
+
+  it('allows a collaborator to create an ordinary comment', () => {
+    const document = new Y.Doc()
+    document.getText('content').insert(0, 'Original paragraph.')
+    const update = updateMessage(document, (candidate) => {
+      candidate.getMap('comments').set('comment-1', {
+        id: 'comment-1',
+        authorId: 'reviewer-1',
+        authorName: 'First Reviewer',
+        authorColor: '#a64b36',
+        body: 'Please clarify this paragraph.',
+        createdAt: '2026-08-12T01:00:00.000Z',
+        resolved: false,
+      })
+    })
+
+    expect(collaboratorMessageAllowed(update, document, 'reviewer-1')).toBe(true)
   })
 
   it('allows only the original author to edit comment and reply bodies', () => {
