@@ -2539,14 +2539,6 @@ function App() {
                                 >
                                   <RefreshCw size={12} /> Retry sync
                                 </button>
-                              ) : !message.github ? (
-                                <span className="comment-sync-label">
-                                  {isSuggestionMode
-                                    ? 'Queued for maintainer'
-                                    : comment.github
-                                      ? 'Syncing to GitHub'
-                                      : 'Queued for PR'}
-                                </span>
                               ) : null}
                             </div>
                           ))}

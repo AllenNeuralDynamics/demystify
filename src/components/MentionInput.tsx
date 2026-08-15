@@ -122,7 +122,11 @@ export const MentionInput = ({
                 chooseCandidate(candidate)
               }}
             >
-              <span aria-hidden="true" style={{ background: candidate.colorLight, color: candidate.color }}>
+              <span
+                aria-hidden="true"
+                className="mention-option-avatar"
+                style={{ background: candidate.colorLight, color: candidate.color }}
+              >
                 {candidate.name.slice(0, 1).toUpperCase()}
               </span>
               <span className="mention-option-identity">
