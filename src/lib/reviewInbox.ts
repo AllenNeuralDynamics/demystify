@@ -36,7 +36,11 @@ export const filterReviewThreads = (
     if (
       ownedActorIds.size > 0 &&
       !ownedActorIds.has(comment.authorId) &&
-      !replies.some((message) => ownedActorIds.has(message.authorId))
+      !comment.mentions?.some((mention) => ownedActorIds.has(mention.actorId)) &&
+      !replies.some((message) =>
+        ownedActorIds.has(message.authorId) ||
+        message.mentions?.some((mention) => ownedActorIds.has(mention.actorId)),
+      )
     ) return false
 
     if (!query) return true

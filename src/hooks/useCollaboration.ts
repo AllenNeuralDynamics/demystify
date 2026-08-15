@@ -51,6 +51,11 @@ export interface Collaborator extends CollaboratorProfile {
 
 export type SharedSuggestionStatus = 'pending' | 'accepted' | 'rejected' | 'conflicted'
 
+export interface SharedMention {
+  actorId: string
+  name: string
+}
+
 export interface SharedSuggestion {
   kind: 'insert' | 'delete' | 'replace'
   filePath: string
@@ -69,6 +74,7 @@ export interface SharedComment {
   authorName: string
   authorColor: string
   body: string
+  mentions?: SharedMention[]
   createdAt: string
   editedAt?: string
   resolved: boolean
@@ -88,6 +94,7 @@ export interface SharedCommentMessage {
   authorName: string
   authorColor: string
   body: string
+  mentions?: SharedMention[]
   createdAt: string
   editedAt?: string
   github?: PullRequestCommentMirror
@@ -442,7 +449,11 @@ export const useCollaboration = (
     return id
   }
 
-  const addCommentReply = (threadId: string, body: string) => {
+  const addCommentReply = (
+    threadId: string,
+    body: string,
+    mentions: SharedMention[] = [],
+  ) => {
     const trimmedBody = body.trim()
     if (!session || readOnly || !trimmedBody || !session.comments.has(threadId)) return
     const id = crypto.randomUUID()
@@ -453,6 +464,7 @@ export const useCollaboration = (
       authorName: profile.name,
       authorColor: profile.color,
       body: trimmedBody,
+      ...(mentions.length > 0 ? { mentions } : {}),
       createdAt: new Date().toISOString(),
     })
     return id
