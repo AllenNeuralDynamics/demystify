@@ -41,6 +41,7 @@ interface MystPreviewProps {
     replacement: string,
   ) => CollaborativeTextEditResult
   onEditError?: (message: string) => void
+  onLayoutChange?: () => void
   onRequestCitation?: (insert: VisualCitationInserter) => void
   onSuggestionClick?: (suggestionId: string) => void
   suggestions?: MystPreviewSuggestion[]
@@ -87,11 +88,13 @@ export const MystPreview = memo(({
   onBeginEdit,
   onCommitEdit,
   onEditError,
+  onLayoutChange,
   onRequestCitation,
   onSuggestionClick,
   suggestions = [],
 }: MystPreviewProps) => {
   const previewRef = useRef<HTMLElement>(null)
+  const onLayoutChangeRef = useRef(onLayoutChange)
   const deferredContent = useDeferredValue(content)
   const [previewContent, setPreviewContent] = useState(deferredContent)
   const [activeEdit, setActiveEdit] = useState<ActiveVisualEdit | null>(null)
@@ -111,6 +114,10 @@ export const MystPreview = memo(({
   const citationSyntax = useMemo(() => detectCitationSyntax(content), [content])
   const canEdit = editable && Boolean(onBeginEdit && onCommitEdit)
 
+  useLayoutEffect(() => {
+    onLayoutChangeRef.current = onLayoutChange
+  }, [onLayoutChange])
+
   useEffect(() => {
     if (deferredContent === previewContent) return
     const timeout = window.setTimeout(() => {
@@ -126,6 +133,15 @@ export const MystPreview = memo(({
     const nextPreview = previewElement.cloneNode(false) as HTMLElement
     nextPreview.innerHTML = preview.html
     morphdom(previewElement, nextPreview, { childrenOnly: true })
+
+    preview.editableBlocks.forEach((block) => {
+      const element = Array.from(
+        previewElement.querySelectorAll<HTMLElement>('[data-myst-edit-id]'),
+      ).find((candidate) => candidate.dataset.mystEditId === block.id)
+      if (!element) return
+      element.dataset.mystSourceFrom = String(block.from)
+      element.dataset.mystSourceTo = String(block.to)
+    })
 
     const suggestionsByBlock = new Map<string, {
       block: MystEditableBlock
@@ -353,6 +369,7 @@ export const MystPreview = memo(({
           element.title = 'Drag to select; click to edit'
         })
     }
+      onLayoutChangeRef.current?.()
   }, [
     activeEdit,
     assetBaseUrl,
