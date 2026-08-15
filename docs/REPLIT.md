@@ -2,11 +2,11 @@
 
 **Last validated:** August 14, 2026
 
-**Deployed application source:** [`efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d`](https://github.com/AllenNeuralDynamics/demystify/commit/efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d)
+**Deployed application source:** [`89039278330e4bb2cc9095298a181af9c3d5bd47`](https://github.com/AllenNeuralDynamics/demystify/commit/89039278330e4bb2cc9095298a181af9c3d5bd47)
 
-**Publication status:** Online. Replit release `ddef7abf` was published on
-August 14, 2026, with clearer Source text selection, no full-line caret fill,
-and no bright-green repeated-selection match flicker.
+**Publication status:** Online. Replit release `48dec3b8` was published on
+August 14, 2026, with manuscript-library citations available in Suggesting
+while new Crossref references remain restricted to direct Editing.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -34,17 +34,17 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `efa11b7ba518d163c46d5d78a6a4f92d03cbdf3d` |
-| Replit release | `ddef7abf` |
+| Application source | `89039278330e4bb2cc9095298a181af9c3d5bd47` |
+| Replit release | `48dec3b8` |
 | Last measured cloud credits (after `ca2ec0c8` smoke) | 60% used |
 | Free publication expiry | September 9, 2026 |
 
 The Replit project was initially imported directly from `origin/main` and uses
 the repository's root `.replit` configuration. Subsequent releases use a guarded
-exact-SHA overlay: fetch `origin/main`, assert the full intended SHA, overlay its
-tracked files, install from the lockfile, build, and require a clean tracked-tree
-comparison before Republish. The production database was initialized empty for
-the pilot and now contains the pilot's persistent state.
+exact-SHA checkout: fetch `origin/main`, assert the full intended SHA, switch to
+that detached commit, install from the lockfile, build, and require clean tracked
+and staged diffs before Republish. The production database was initialized empty
+for the pilot and now contains the pilot's persistent state.
 
 After an earlier smoke check, the infrastructure graph showed approximately 2%
 CPU and memory despite zero completed HTTP requests and no open local production
@@ -590,6 +590,41 @@ The August 14, 2026 Source-selection release `ddef7abf` from application SHA
    builds, bundle budgets, dependency audit, and 55 executed Playwright checks
    across Chromium, Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75
    intentional project-specific skips.
+
+The August 14, 2026 citation-permissions release `48dec3b8` from application
+SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
+
+- Protected pull request #31 passed strict required `validate` and `browser`
+   checks on exact head `29fa90c45e30879fe977c9886d15fbcc7f8e57a6`
+   before squash-merging to `main`. The resulting protected `main` SHA passed
+   its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=89039278330e4bb2cc9095298a181af9c3d5bd47` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded. Build
+   `48dec3b8-f826-4159-8684-6fb88e7ef9c7` retained Cloud Run Autoscale with one
+   maximum machine and the production database connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-DbBjkb60.js` with the manuscript-library picker,
+   library-only notice, and citation permission markers. Its SHA-256 digest
+   `54aa38799c5253742ce76e11d491f43df00fce9a26117f9c4fc2dd5b0067d2c9`
+   exactly matched the locally validated production artifact, and crawler
+   exclusion remained enabled.
+- The live anonymous shell loaded, and an anonymous snapshot attempt against
+   the retained synthetic acceptance room was rejected with HTTP `401` before
+   any mutation. At 1560x900 desktop, 1180x700 constrained desktop, and 390x844
+   mobile viewports, the document had no horizontal overflow, page exceptions,
+   out-of-viewport active controls, or server `5xx` responses. The mobile file
+   drawer was fully off-canvas when closed; desktop and mobile header and toolbar
+   geometry remained 64/88 and 43 pixels respectively.
+- Local and protected validation passed 233 unit/server tests, authenticated
+   PostgreSQL collaboration integration, lint, client/server builds, bundle
+   budgets, dependency audit, and 55 executed Playwright checks across Chromium,
+   Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
+   project-specific skips.
 
 The initial full role and integration validation on August 8, 2026 additionally
 passed these checks against the same pilot environment:
