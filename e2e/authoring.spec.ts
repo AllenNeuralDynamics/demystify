@@ -61,9 +61,30 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
 
   const helpTrigger = page.getByTitle('How DeMystify works')
   await helpTrigger.click()
-  await expect(page.getByRole('dialog', { name: 'How DeMystify works' })).toBeVisible()
+  const helpDialog = page.getByRole('dialog', { name: 'How DeMystify works' })
+  await expect(helpDialog).toBeVisible()
+  await expect(helpDialog.getByRole('navigation', { name: 'Help topics' })).toBeVisible()
+  await helpDialog.getByRole('button', { name: 'Review', exact: true }).click()
+  await expect(helpDialog.getByRole('heading', { name: 'Keep discussion attached to the work' }))
+    .toBeVisible()
+  await helpDialog.getByRole('button', { name: 'About', exact: true }).click()
+  await expect(helpDialog.getByText('MyST parser', { exact: true })).toBeVisible()
+  await expect(helpDialog.getByText('1.7.3', { exact: true })).toBeVisible()
+  const viewport = page.viewportSize()
+  const helpBounds = await helpDialog.boundingBox()
+  if (viewport && helpBounds && viewport.width >= 900) {
+    expect(helpBounds.width).toBeGreaterThan(800)
+    expect(helpBounds.height).toBeGreaterThan(600)
+  } else if (viewport && helpBounds && viewport.width <= 560) {
+    expect(helpBounds.x).toBeGreaterThanOrEqual(0)
+    expect(helpBounds.y).toBeGreaterThanOrEqual(0)
+    expect(helpBounds.x + helpBounds.width).toBeLessThanOrEqual(viewport.width)
+    expect(helpBounds.y + helpBounds.height).toBeLessThanOrEqual(viewport.height)
+    expect(await helpDialog.locator('.help-topic-content').evaluate((content) =>
+      content.scrollWidth <= content.clientWidth)).toBe(true)
+  }
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'How DeMystify works' })).toBeHidden()
+  await expect(helpDialog).toBeHidden()
   await expect(helpTrigger).toBeFocused()
 
   await page.getByRole('button', { name: 'Tools', exact: true }).click()

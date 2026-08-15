@@ -364,8 +364,26 @@ test('only authors edit comments and replies while everyone can reply', async ({
       name: /Reply to comment by Reviewer A/,
     })
     await mentionReply.fill('@e2e')
-    await expect(second.reviewer.getByRole('option', { name: /Integration Test/ }))
-      .toBeVisible()
+    const maintainerOption = second.reviewer.getByRole('option', { name: /Integration Test/ })
+    await expect(maintainerOption).toBeVisible()
+    const mentionLayout = await maintainerOption.evaluate((option) => {
+      const avatar = option.querySelector<HTMLElement>('.mention-option-avatar')
+      const identity = option.querySelector<HTMLElement>('.mention-option-identity')
+      if (!avatar || !identity) throw new Error('Mention option layout is incomplete')
+      const avatarBounds = avatar.getBoundingClientRect()
+      const identityBounds = identity.getBoundingClientRect()
+      const optionBounds = option.getBoundingClientRect()
+      return {
+        avatarRight: avatarBounds.right,
+        identityLeft: identityBounds.left,
+        identityRight: identityBounds.right,
+        identityWidth: identityBounds.width,
+        optionRight: optionBounds.right,
+      }
+    })
+    expect(mentionLayout.identityLeft).toBeGreaterThanOrEqual(mentionLayout.avatarRight)
+    expect(mentionLayout.identityWidth).toBeGreaterThan(100)
+    expect(mentionLayout.identityRight).toBeLessThanOrEqual(mentionLayout.optionRight)
     await mentionReply.press('Enter')
     await expect(mentionReply).toHaveValue(/^@e2e-editor-\d+ $/)
     await mentionReply.pressSequentially('please review this.')
@@ -373,6 +391,7 @@ test('only authors edit comments and replies while everyone can reply', async ({
 
     await maintainerView.click()
     await expect(maintainerView).toContainText(/@e2e-editor-\d+ please review this\./)
+    await expect(secondView.getByText('Queued for maintainer', { exact: true })).toHaveCount(1)
     await page.getByRole('button', { name: 'For you', exact: true }).click()
     await expect(page.getByRole('button', { name: 'For you', exact: true }))
       .toHaveAttribute('aria-pressed', 'true')
@@ -429,6 +448,24 @@ test('keeps an attributed suggestion in the mobile reading flow', async ({ brows
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width)
       expect(bounds.height).toBeLessThan(130)
     }
+    await suggestion.click()
+    const mobileReply = suggestion.getByRole('combobox', {
+      name: /Reply to comment by Mobile Reviewer/,
+    })
+    await mobileReply.fill('@Mobile')
+    const mentionOptions = page.getByRole('listbox')
+    await expect(mentionOptions).toBeVisible()
+    const mentionBounds = await mentionOptions.boundingBox()
+    const replyBounds = await mobileReply.boundingBox()
+    expect(mentionBounds).not.toBeNull()
+    expect(replyBounds).not.toBeNull()
+    if (viewport && mentionBounds && replyBounds) {
+      expect(mentionBounds.x).toBeGreaterThanOrEqual(0)
+      expect(mentionBounds.x + mentionBounds.width).toBeLessThanOrEqual(viewport.width)
+      expect(mentionBounds.y).toBeGreaterThanOrEqual(replyBounds.y + replyBounds.height)
+      expect(mentionBounds.y + mentionBounds.height).toBeLessThanOrEqual(viewport.height)
+    }
+    await mobileReply.fill('')
     await page.getByTitle('Close comments').click()
 
     await page.getByTitle('Source only').click()

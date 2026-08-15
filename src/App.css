@@ -2564,11 +2564,6 @@
   margin-top: 2px;
 }
 
-.comment-sync-label {
-  color: var(--muted);
-  font-size: 9px;
-}
-
 .comment-reply-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
@@ -2599,27 +2594,29 @@
 
 .mention-options {
   position: absolute;
-  z-index: 4;
+  z-index: 20;
   right: 0;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + 6px);
   left: 0;
-  max-height: 188px;
-  padding: 4px;
+  max-height: min(220px, 40vh);
+  padding: 5px;
   overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: 1px solid #cdd6d1;
+  border-radius: 6px;
   background: white;
-  box-shadow: 0 8px 22px rgba(25, 34, 28, 0.16);
+  box-shadow: 0 10px 28px rgba(25, 34, 28, 0.2);
 }
 
 .comment .mention-option {
   width: 100%;
+  min-height: 38px;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 5px 6px;
-  border-radius: 3px;
+  gap: 8px;
+  padding: 6px 7px;
+  overflow: hidden;
+  border-radius: 4px;
   color: var(--ink);
   text-align: left;
 }
@@ -2629,9 +2626,9 @@
   background: #edf4f0;
 }
 
-.mention-option > span {
-  width: 24px;
-  height: 24px;
+.mention-option-avatar {
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -2641,6 +2638,9 @@
 
 .mention-option-identity {
   min-width: 0;
+  display: block;
+  line-height: 1.25;
+  text-align: left;
 }
 
 .mention-option-identity strong,
@@ -2652,7 +2652,7 @@
 }
 
 .mention-option-identity strong {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -2660,6 +2660,7 @@
   margin-top: 1px;
   color: var(--muted);
   font-size: 9px;
+  line-height: 1.25;
 }
 
 .comment-reply-composer button {
@@ -3736,11 +3737,12 @@
 }
 
 .help-dialog {
-  width: min(620px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
+  width: min(960px, 100%);
+  height: min(720px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   border-radius: 8px;
   background: white;
   box-shadow: 0 20px 55px rgba(20, 30, 24, 0.25);
@@ -3770,41 +3772,125 @@
 
 .help-dialog-header h2,
 .help-dialog-header p,
-.help-flow p,
-.help-comment-note p {
+.help-topic-header h3,
+.help-topic-header p,
+.help-guide-item h4,
+.help-guide-item p,
+.help-callout ol,
+.help-about-note p {
   margin: 0;
 }
 
 .help-dialog-header h2 {
   font-family: 'Fraunces', serif;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .help-dialog-header p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.help-flow {
+.help-dialog-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.help-topic-nav {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 18px 12px 14px;
+  border-right: 1px solid var(--line);
+  background: #f5f7f6;
+}
+
+.help-topic-nav > span {
+  padding: 0 9px 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.help-topic-nav button {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #4f5954;
+  font-size: 12px;
+  text-align: left;
+}
+
+.help-topic-nav button:hover,
+.help-topic-nav button:focus-visible {
+  outline: none;
+  background: #e9efec;
+  color: var(--ink);
+}
+
+.help-topic-nav button[aria-current='page'] {
+  background: #dfece6;
+  color: var(--green-dark);
+  font-weight: 600;
+}
+
+.help-topic-nav > small {
+  margin-top: auto;
+  padding: 12px 9px 0;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.help-topic-content {
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  padding: 28px 34px 34px;
+  color: var(--ink);
 }
 
-.help-flow li {
+.help-topic-header {
+  max-width: 690px;
+  margin-bottom: 22px;
+}
+
+.help-topic-header h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+}
+
+.help-topic-header p {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.help-guide-list {
+  border-top: 1px solid var(--line);
+}
+
+.help-guide-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
-  padding: 18px 20px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 13px;
+  padding: 17px 0;
   border-bottom: 1px solid var(--soft-line);
 }
 
-.help-step-icon {
-  width: 34px;
-  height: 34px;
+.help-guide-icon {
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: 6px;
@@ -3812,30 +3898,119 @@
   color: var(--green-dark);
 }
 
-.help-flow strong {
-  display: block;
-  margin: 1px 0 5px;
+.help-guide-item h4 {
+  margin-bottom: 4px;
   font-size: 13px;
 }
 
-.help-flow p,
-.help-comment-note p {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
+.help-guide-item p,
+.help-callout li,
+.help-about-note p {
+  color: #5c6661;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-.help-comment-note {
+.help-callout {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border-left: 3px solid var(--green);
+  background: #f3f7f5;
+}
+
+.help-callout strong {
+  font-size: 12px;
+}
+
+.help-callout ol {
+  padding-left: 18px;
+}
+
+.help-callout li + li {
+  margin-top: 5px;
+}
+
+.help-shortcuts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.help-shortcuts th,
+.help-shortcuts td {
+  padding: 13px 8px;
+  border-bottom: 1px solid var(--soft-line);
+  text-align: left;
+}
+
+.help-shortcuts th {
+  width: 45%;
+  color: #4f5954;
+  font-weight: 500;
+}
+
+.help-shortcuts kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid #cdd5d1;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #f7f9f8;
+  color: #354039;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.help-versions {
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.help-versions > div {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 10px;
-  padding: 15px 20px;
-  background: #f6f8f6;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--soft-line);
 }
 
-.help-comment-note svg {
-  margin-top: 1px;
+.help-versions dt {
+  color: #59635e;
+  font-size: 12px;
+}
+
+.help-versions dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+}
+
+.help-about-note {
+  margin-top: 24px;
+}
+
+.help-about-note strong {
+  font-size: 13px;
+}
+
+.help-about-note p {
+  margin-top: 5px;
+}
+
+.help-about-note a {
+  display: inline-block;
+  margin-top: 12px;
   color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.help-about-note a:hover,
+.help-about-note a:focus-visible {
+  text-decoration: underline;
 }
 
 .share-dialog-header {
@@ -4962,6 +5137,80 @@
 
   .modal-backdrop {
     padding: 8px;
+  }
+
+  .help-dialog {
+    height: calc(100vh - 16px);
+    max-height: calc(100vh - 16px);
+  }
+
+  .help-dialog-header {
+    min-height: 66px;
+    padding: 10px 9px 10px 13px;
+  }
+
+  .help-dialog-header p {
+    display: none;
+  }
+
+  .help-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .help-topic-nav {
+    flex-direction: row;
+    gap: 2px;
+    padding: 7px 8px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .help-topic-nav > span,
+  .help-topic-nav > small {
+    display: none;
+  }
+
+  .help-topic-nav button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  .help-topic-content {
+    padding: 20px 16px 26px;
+  }
+
+  .mention-options {
+    position: static;
+    max-height: min(190px, 30vh);
+    margin-top: 5px;
+  }
+
+  .help-topic-header h3 {
+    font-size: 20px;
+  }
+
+  .help-topic-header p {
+    font-size: 12px;
+  }
+
+  .help-shortcuts th,
+  .help-shortcuts td {
+    display: block;
+    width: 100%;
+    padding-inline: 4px;
+  }
+
+  .help-shortcuts th {
+    padding-bottom: 3px;
+    border-bottom: 0;
+  }
+
+  .help-shortcuts td {
+    padding-top: 3px;
   }
 
   .github-dialog {
