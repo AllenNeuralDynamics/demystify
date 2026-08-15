@@ -160,6 +160,31 @@ describe('suggestion-mode Yjs messages', () => {
     expect(document.getText('content').toString()).toBe('Accepted paragraph.')
   })
 
+  it('allows citation text but rejects bibliography and reference changes', () => {
+    const document = new Y.Doc()
+    document.getText('content').insert(0, 'Accepted paragraph.')
+    document.getText('workingContent').insert(0, 'Accepted paragraph.')
+    document.getMap('metadata').set('workingContentInitialized', true)
+    const citationUpdate = updateMessage(document, (candidate) => {
+      candidate.getText('workingContent').insert(
+        candidate.getText('workingContent').length,
+        ' {cite:p}`existing2024`',
+      )
+    })
+
+    expect(collaboratorMessageAllowed(citationUpdate, document, 'citation-reviewer')).toBe(true)
+
+    const referenceUpdate = updateMessage(document, (candidate) => {
+      candidate.getMap('references').set('doi:10.1000/new', {
+        id: 'doi:10.1000/new',
+        key: 'new2024',
+      })
+      candidate.getText('bibliography').insert(0, '@article{new2024}\n')
+    })
+
+    expect(collaboratorMessageAllowed(referenceUpdate, document, 'citation-reviewer')).toBe(false)
+  })
+
   it('migrates legacy pending proposer identity without attributing the initializer', () => {
     const document = new Y.Doc()
     document.getText('content').insert(0, 'Original paragraph.')

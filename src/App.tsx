@@ -288,6 +288,19 @@ function App() {
   const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
   const isSourceReadOnly = effectiveReadOnly || (isSuggestionMode && !isPrimaryFile)
+  const canInsertCitation = !isSourceReadOnly && isActiveMystSource
+  const canAddCitationReferences = !isStructuredEditorReadOnly
+  const citationDisabledReason = canInsertCitation
+    ? undefined
+    : isArchived
+      ? 'Archived documents are read-only'
+      : !isActiveMystSource
+      ? 'Available in .md and .myst files'
+      : isSuggestionMode && !isPrimaryFile
+        ? 'Suggestion mode can edit only the primary manuscript'
+        : collaboration.accessError
+          ? 'Sharing access has ended'
+          : 'Editing access is required'
   const activeSharedText = collaboration.getSharedText(activeFilePath, primaryFilePath)
     ?? collaboration.sharedText
   const activeContent = isPrimaryFile
@@ -1012,6 +1025,12 @@ function App() {
     details: CitationDetails,
   ) => {
     try {
+      if (!canInsertCitation) {
+        throw new Error(citationDisabledReason ?? 'Citation insertion is unavailable.')
+      }
+      if (!canAddCitationReferences && selections.some((selection) => selection.kind === 'paper')) {
+        throw new Error('New papers can be added after proposed changes are resolved.')
+      }
       const citationSyntax = detectCitationSyntax(activeContent)
       const keys = selections.map((selection) => {
         if (selection.kind === 'existing') return selection.key
@@ -1254,7 +1273,8 @@ function App() {
                     label: 'Citations',
                     icon: AtSign,
                     separatorBefore: true,
-                    disabled: isStructuredEditorReadOnly || !isActiveMystSource,
+                    description: citationDisabledReason,
+                    disabled: !canInsertCitation,
                     onSelect: () => {
                       setVisualCitationInserter(null)
                       setCitationPickerOpen(true)
@@ -2198,7 +2218,9 @@ function App() {
 
       {citationPickerOpen && (
         <CitationPicker
+          allowNewReferences={canAddCitationReferences}
           bibliography={collaboration.bibliography}
+          key={canAddCitationReferences ? 'full' : 'library-only'}
           roomName={roomName}
           onClose={closeCitationPicker}
           onInsert={insertCitation}

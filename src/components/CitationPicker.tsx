@@ -20,6 +20,7 @@ export type CitationSelection =
   | { kind: 'paper'; paper: PaperSearchResult }
 
 interface CitationPickerProps {
+  allowNewReferences?: boolean
   bibliography: string
   roomName: string
   onClose: () => void
@@ -84,6 +85,7 @@ const remoteCandidate = (paper: PaperSearchResult): CitationCandidate => ({
 })
 
 export const CitationPicker = ({
+  allowNewReferences = true,
   bibliography,
   roomName,
   onClose,
@@ -110,13 +112,19 @@ export const CitationPicker = ({
   )
   const candidates = useMemo(() => [
     ...localResults,
-    ...remoteResults
+    ...(allowNewReferences ? remoteResults : [])
       .filter((paper) => !paper.doi || !localDois.has(paper.doi))
       .map(remoteCandidate),
-  ], [localDois, localResults, remoteResults])
+  ], [allowNewReferences, localDois, localResults, remoteResults])
+  const selectedCandidates = useMemo(
+    () => Array.from(selected.values()).filter(
+      (candidate) => allowNewReferences || candidate.source === 'library',
+    ),
+    [allowNewReferences, selected],
+  )
 
   useEffect(() => {
-    if (query.trim().length < 2) return
+    if (!allowNewReferences || query.trim().length < 2) return
     const revision = ++searchRevision.current
     const timeout = window.setTimeout(() => {
       setIsSearching(true)
@@ -136,7 +144,7 @@ export const CitationPicker = ({
         })
     }, 350)
     return () => window.clearTimeout(timeout)
-  }, [query, roomName])
+  }, [allowNewReferences, query, roomName])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -165,8 +173,8 @@ export const CitationPicker = ({
   }
 
   const insertSelection = () => {
-    if (!selected.size) return
-    onInsert(Array.from(selected.values(), (candidate) => candidate.selection), style, {
+    if (!selectedCandidates.length) return
+    onInsert(selectedCandidates.map((candidate) => candidate.selection), style, {
       ...(prefix.trim() ? { prefix: prefix.trim() } : {}),
       ...(suffix.trim() ? { suffix: suffix.trim() } : {}),
     })
@@ -192,11 +200,15 @@ export const CitationPicker = ({
           <input
             autoFocus
             aria-label="Search papers"
-            placeholder="Title, author, year, DOI, or PMID"
+            placeholder={allowNewReferences
+              ? 'Title, author, year, DOI, or PMID'
+              : 'Search this manuscript library'}
             value={query}
             onChange={(event) => updateQuery(event.target.value)}
           />
-          {isSearching && <LoaderCircle className="spin" size={17} aria-label="Searching" />}
+          {allowNewReferences && isSearching && (
+            <LoaderCircle className="spin" size={17} aria-label="Searching" />
+          )}
         </div>
 
         <div className="citation-style" aria-label="Citation style">
@@ -238,11 +250,22 @@ export const CitationPicker = ({
         </div>
 
         <div className="citation-results" aria-live="polite">
+          {!allowNewReferences && (
+            <div className="citation-library-only-notice">
+              Choose from this manuscript's library. New papers can be added after proposed changes are resolved.
+            </div>
+          )}
           {parsed.error && <div className="citation-message error">references.bib: {parsed.error}</div>}
           {searchError && <div className="citation-message error">{searchError}</div>}
           {!candidates.length && !isSearching && (
             <div className="citation-message">
-              {normalizedQuery ? 'No matching papers found.' : 'Search Crossref or choose from this manuscript.'}
+              {normalizedQuery
+                ? allowNewReferences
+                  ? 'No matching papers found.'
+                  : 'No matching references in this manuscript.'
+                : allowNewReferences
+                  ? 'Search Crossref or choose from this manuscript.'
+                  : 'No references are available in this manuscript.'}
             </div>
           )}
           {candidates.map((candidate, index) => {
@@ -281,8 +304,10 @@ export const CitationPicker = ({
         </div>
 
         <footer className="citation-picker-footer">
-          <span>{selected.size ? `${selected.size} selected` : 'Select references'}</span>
-          <button className="button primary-button" type="button" disabled={!selected.size} onClick={insertSelection}>
+          <span aria-live="polite">
+            {selectedCandidates.length ? `${selectedCandidates.length} selected` : 'Select references'}
+          </span>
+          <button className="button primary-button" type="button" disabled={!selectedCandidates.length} onClick={insertSelection}>
             Insert citation
           </button>
         </footer>
