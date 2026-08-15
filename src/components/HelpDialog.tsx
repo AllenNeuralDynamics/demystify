@@ -160,7 +160,7 @@ export const HelpDialog = ({ open, onClose }: HelpDialogProps) => {
                     Read the rendered manuscript and edit supported text blocks in place. The browser rendering is a fast authoring aid; the repository publication build remains authoritative.
                   </HelpItem>
                   <HelpItem icon={BookOpenText} title="Split">
-                    Keep Source and Visual visible together. The panes scroll independently so you can compare structure and rendering without losing your position.
+                    Keep Source and Visual visible together. Pane scrolling is linked by default; use the link button on the divider to compare different positions independently, then turn linking back on to realign Visual with Source.
                   </HelpItem>
                   <HelpItem icon={CheckCircle2} title="Editing and Suggesting">
                     Editing changes the live draft directly. Suggesting creates attributed proposals that a maintainer accepts or rejects one at a time; accepted proposals become part of the live draft.

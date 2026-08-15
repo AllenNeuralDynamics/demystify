@@ -104,6 +104,80 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
   await expect(page.getByRole('dialog', { name: 'Publication metadata' })).toBeHidden()
 })
 
+test('keeps Source content and optional Split scrolling synchronized with Visual', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile-'), 'The linked divider control is desktop-only')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  const visual = page.locator('.myst-preview')
+  const original = 'A manuscript should be as inspectable as the analysis behind it.'
+  const replacement = 'The Visual manuscript follows every accepted Source edit.'
+  await expect(source).toContainText(original)
+  const sourceContent = await source.textContent()
+  expect(sourceContent).not.toBeNull()
+  if (!sourceContent) return
+
+  await source.fill(sourceContent.replace(original, replacement))
+  await expect(visual).toContainText(replacement)
+  await expect(visual).not.toContainText(original)
+
+  const linkedScroll = page.locator('.pane-scroll-link')
+  await expect(linkedScroll).toBeVisible()
+  await expect(linkedScroll).toHaveAttribute('title', 'Unlink pane scrolling')
+  await expect(linkedScroll).toHaveAttribute('aria-pressed', 'true')
+  const sourceScroller = page.locator('.cm-scroller')
+  const previewScroller = page.locator('.preview-pane')
+  const scrollProgress = async (locator: typeof sourceScroller) => locator.evaluate((element) => {
+    const range = element.scrollHeight - element.clientHeight
+    return range > 0 ? element.scrollTop / range : 0
+  })
+
+  await sourceScroller.evaluate((element) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.7
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => scrollProgress(previewScroller)).toBeGreaterThan(0.6)
+
+  await linkedScroll.click()
+  await expect(linkedScroll).toHaveAttribute('aria-pressed', 'false')
+  await expect(linkedScroll).toHaveAttribute('title', 'Link pane scrolling')
+  const independentPreviewProgress = await scrollProgress(previewScroller)
+  await sourceScroller.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await page.waitForTimeout(100)
+  expect(await scrollProgress(previewScroller)).toBeCloseTo(independentPreviewProgress, 2)
+
+  await linkedScroll.click()
+  await expect(linkedScroll).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => scrollProgress(previewScroller)).toBeLessThan(0.05)
+
+  await previewScroller.evaluate((element) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.45
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => scrollProgress(sourceScroller)).toBeGreaterThan(0.35)
+
+  const splitDivider = await linkedScroll.boundingBox()
+  await page.getByTitle('Open comments').click()
+  await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
+  const reviewDivider = await linkedScroll.boundingBox()
+  expect(splitDivider).not.toBeNull()
+  expect(reviewDivider).not.toBeNull()
+  if (splitDivider && reviewDivider) expect(reviewDivider.x).toBeLessThan(splitDivider.x - 100)
+  await sourceScroller.evaluate((element) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.6
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => scrollProgress(previewScroller)).toBeGreaterThan(0.5)
+  await page.getByTitle('Close comments').click()
+
+  await page.getByTitle('Source only').click()
+  await expect(page.locator('.pane-scroll-link')).toHaveCount(0)
+})
+
 test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Clipboard permissions are available in the Chromium project')
   const roomName = createRoomName(testInfo)

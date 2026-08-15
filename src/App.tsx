@@ -16,6 +16,7 @@ import {
   GitBranchPlus,
   GitPullRequest,
   Italic,
+  Link2,
   LoaderCircle,
   MessageSquare,
   Minus,
@@ -32,6 +33,7 @@ import {
   TextQuote,
   Tags,
   Undo2,
+  Unlink2,
   UserRound,
   X,
 } from 'lucide-react'
@@ -175,6 +177,7 @@ function App() {
   const [roomName] = useState(getRoomName)
   const [profile, setProfile] = useState(loadProfile)
   const [view, setView] = useState<WorkspaceView>('split')
+  const [linkedPaneScrolling, setLinkedPaneScrolling] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 820)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
@@ -229,6 +232,9 @@ function App() {
   const [commentPollError, setCommentPollError] = useState<string | null>(null)
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
+  const previewPaneRef = useRef<HTMLElement>(null)
+  const linkedScrollTargetRef = useRef<'source' | 'preview' | null>(null)
+  const linkedScrollFrameRef = useRef<number | null>(null)
   const visualSuggestionSupersedesRef = useRef<string[]>([])
   const reviewThreadRefs = useRef(new Map<string, HTMLElement>())
   const commentSyncAttempts = useRef(new Map<string, string>())
@@ -700,6 +706,64 @@ function App() {
     })
     return () => window.cancelAnimationFrame(frame)
   }, [activeCommentId, commentsOpen, visibleReviewComments])
+
+  const releaseLinkedScrollTarget = (target: 'source' | 'preview') => {
+    if (linkedScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(linkedScrollFrameRef.current)
+    }
+    linkedScrollFrameRef.current = window.requestAnimationFrame(() => {
+      if (linkedScrollTargetRef.current === target) linkedScrollTargetRef.current = null
+      linkedScrollFrameRef.current = null
+    })
+  }
+
+  const synchronizePreviewScroll = (progress: number) => {
+    const previewScroller = previewPaneRef.current
+    if (
+      view !== 'split' ||
+      !linkedPaneScrolling ||
+      !previewScroller ||
+      window.getComputedStyle(previewScroller).display === 'none' ||
+      linkedScrollTargetRef.current === 'source'
+    ) return
+    const range = previewScroller.scrollHeight - previewScroller.clientHeight
+    linkedScrollTargetRef.current = 'preview'
+    previewScroller.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
+    releaseLinkedScrollTarget('preview')
+  }
+
+  const synchronizeSourceScroll = (previewScroller: HTMLElement) => {
+    if (
+      view !== 'split' ||
+      !linkedPaneScrolling ||
+      linkedScrollTargetRef.current === 'preview'
+    ) return
+    const range = previewScroller.scrollHeight - previewScroller.clientHeight
+    const progress = range > 0 ? previewScroller.scrollTop / range : 0
+    linkedScrollTargetRef.current = 'source'
+    editorRef.current?.setScrollProgress(progress)
+    releaseLinkedScrollTarget('source')
+  }
+
+  useEffect(() => () => {
+    if (linkedScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(linkedScrollFrameRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (view !== 'split' || !linkedPaneScrolling) return
+    const frame = window.requestAnimationFrame(() => {
+      const previewScroller = previewPaneRef.current
+      if (!previewScroller || window.getComputedStyle(previewScroller).display === 'none') return
+      const progress = editorRef.current?.getScrollProgress() ?? 0
+      const range = previewScroller.scrollHeight - previewScroller.clientHeight
+      linkedScrollTargetRef.current = 'preview'
+      previewScroller.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
+      releaseLinkedScrollTarget('preview')
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeFilePath, commentsOpen, linkedPaneScrolling, view])
 
   useEffect(() => {
     const handleResize = () => {
@@ -2021,6 +2085,7 @@ function App() {
                     }
                     return proposal
                   }}
+                  onScrollProgress={synchronizePreviewScroll}
                   onSourceDraftChange={(draft) => setSourceDraftPreview(
                     draft === null ? null : { filePath: activeFilePath, content: draft },
                   )}
@@ -2042,7 +2107,27 @@ function App() {
               )}
             </section>
 
-            <section className="preview-pane" aria-label={effectiveReadOnly ? 'Browser preview' : 'Visual document editor'}>
+            {view === 'split' && isActiveMystSource && (
+              <button
+                aria-label={linkedPaneScrolling ? 'Unlink pane scrolling' : 'Link pane scrolling'}
+                aria-pressed={linkedPaneScrolling}
+                className={`pane-scroll-link ${linkedPaneScrolling ? 'active' : ''}`}
+                type="button"
+                title={linkedPaneScrolling ? 'Unlink pane scrolling' : 'Link pane scrolling'}
+                onClick={() => setLinkedPaneScrolling((current) => !current)}
+              >
+                {linkedPaneScrolling
+                  ? <Link2 size={14} aria-hidden="true" />
+                  : <Unlink2 size={14} aria-hidden="true" />}
+              </button>
+            )}
+
+            <section
+              ref={previewPaneRef}
+              className="preview-pane"
+              aria-label={effectiveReadOnly ? 'Browser preview' : 'Visual document editor'}
+              onScroll={(event) => synchronizeSourceScroll(event.currentTarget)}
+            >
               <div className="preview-label">
                 <span>{effectiveReadOnly ? 'Browser preview' : 'Visual editor'}</span>
                 <span>{collaboration.isSynced ? 'Live draft' : 'Preparing'}</span>

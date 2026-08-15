@@ -53,6 +53,7 @@ interface CollaborativeEditorProps {
     result: CollaborativeTextEditResult
     suggestionId?: string
   }
+  onScrollProgress?: (progress: number) => void
   onSourceDraftChange?: (draft: string | null) => void
   readOnly?: boolean
   suggestionBaseContent?: string
@@ -70,6 +71,8 @@ export interface CollaborativeEditorHandle {
   getCommentSelection: () => { from: number; to: number } | null
   revealRange: (from: number, to: number, focus?: boolean) => void
   revealPosition: (position: number) => void
+  getScrollProgress: () => number
+  setScrollProgress: (progress: number) => void
   focus: () => void
 }
 
@@ -423,6 +426,7 @@ export const CollaborativeEditor = forwardRef<
   commentHighlights = [],
   onCommentClick,
   onProposeSourceEdit,
+  onScrollProgress,
   onSourceDraftChange,
   readOnly = false,
   suggestionBaseContent,
@@ -437,6 +441,7 @@ export const CollaborativeEditor = forwardRef<
   const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
   const onProposeSourceEditRef = useRef(onProposeSourceEdit)
+  const onScrollProgressRef = useRef(onScrollProgress)
   const onSourceDraftChangeRef = useRef(onSourceDraftChange)
   const readOnlyRef = useRef(readOnly)
   const readOnlyCompartmentRef = useRef(new Compartment())
@@ -451,6 +456,10 @@ export const CollaborativeEditor = forwardRef<
   useEffect(() => {
     onProposeSourceEditRef.current = onProposeSourceEdit
   }, [onProposeSourceEdit])
+
+  useEffect(() => {
+    onScrollProgressRef.current = onScrollProgress
+  }, [onScrollProgress])
 
   useEffect(() => {
     onSourceDraftChangeRef.current = onSourceDraftChange
@@ -501,6 +510,11 @@ export const CollaborativeEditor = forwardRef<
       ],
     })
     const view = new EditorView({ state, parent: containerRef.current })
+    const reportScrollProgress = () => {
+      const range = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
+      onScrollProgressRef.current?.(range > 0 ? view.scrollDOM.scrollTop / range : 0)
+    }
+    view.scrollDOM.addEventListener('scroll', reportScrollProgress, { passive: true })
     const activateReviewFromKeyboard = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' && event.key !== ' ') return
       const target = event.target
@@ -527,6 +541,7 @@ export const CollaborativeEditor = forwardRef<
     onSourceDraftChangeRef.current?.(null)
 
     return () => {
+      view.scrollDOM.removeEventListener('scroll', reportScrollProgress)
       view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
       view.destroy()
       undoManager.destroy()
@@ -703,6 +718,18 @@ export const CollaborativeEditor = forwardRef<
       view.dispatch({
         effects: EditorView.scrollIntoView(position, { y: 'center' }),
       })
+    },
+    getScrollProgress: () => {
+      const scrollDOM = viewRef.current?.scrollDOM
+      if (!scrollDOM) return 0
+      const range = scrollDOM.scrollHeight - scrollDOM.clientHeight
+      return range > 0 ? scrollDOM.scrollTop / range : 0
+    },
+    setScrollProgress: (progress) => {
+      const scrollDOM = viewRef.current?.scrollDOM
+      if (!scrollDOM) return
+      const range = scrollDOM.scrollHeight - scrollDOM.clientHeight
+      scrollDOM.scrollTop = Math.max(0, Math.min(1, progress)) * Math.max(0, range)
     },
     focus: () => viewRef.current?.focus(),
   }))
