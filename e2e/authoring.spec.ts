@@ -149,6 +149,88 @@ Implementation: <https://github.com/AllenNeuralDynamics/aind-ophys-motion-correc
   })).toBe(true)
 })
 
+test('keeps linked panes anchored when expanding a MyST dropdown', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile-'), 'Linked pane scrolling is desktop-only')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  const hiddenTarget = 'Hidden linked-scroll target'
+  const body = Array.from(
+    { length: 24 },
+    (_, index) => `Methods paragraph ${index + 1} keeps the expanded body substantial.`,
+  ).join('\n\n')
+  const appendix = Array.from(
+    { length: 12 },
+    (_, index) => `Appendix paragraph ${index + 1} provides trailing rendered space.`,
+  ).join('\n\n')
+  await source.fill(`${sampleManuscript}
+
+::::{dropdown} Show complete Methods
+
+## Experimental animals
+
+${body}
+
+#### ${hiddenTarget}
+
+The hidden endpoint becomes visible after expansion.
+::::
+
+## Appendix
+
+${appendix}`)
+
+  const dropdown = page.locator('.myst-preview details.myst-dropdown')
+  const summary = dropdown.locator('summary')
+  const visualTarget = dropdown.getByRole('heading', { name: hiddenTarget, includeHidden: true })
+  const linkedScroll = page.locator('.pane-scroll-link')
+  const centerElement = async (locator: Locator) => locator.evaluate((element) => {
+    const scroller = element.closest<HTMLElement>('.cm-scroller, .preview-pane')
+    if (!scroller) throw new Error('Could not find the pane scroller')
+    const elementBounds = element.getBoundingClientRect()
+    const scrollerBounds = scroller.getBoundingClientRect()
+    scroller.scrollTop += elementBounds.top + elementBounds.height / 2 -
+      (scrollerBounds.top + scroller.clientHeight / 2)
+    scroller.dispatchEvent(new Event('scroll'))
+  })
+  const centerDistance = async (locator: Locator) => locator.evaluate((element) => {
+    const scroller = element.closest<HTMLElement>('.cm-scroller, .preview-pane')
+    if (!scroller) throw new Error('Could not find the pane scroller')
+    const elementBounds = element.getBoundingClientRect()
+    const scrollerBounds = scroller.getBoundingClientRect()
+    return Math.abs(
+      elementBounds.top + elementBounds.height / 2 -
+      (scrollerBounds.top + scroller.clientHeight / 2),
+    )
+  })
+
+  await expect(summary).toHaveText('Show complete Methods')
+  await expect(visualTarget).toBeAttached()
+  await linkedScroll.click()
+  await expect(linkedScroll).toHaveAttribute('aria-pressed', 'false')
+  await linkedScroll.click()
+  await expect(linkedScroll).toHaveAttribute('aria-pressed', 'true')
+
+  await source.focus()
+  await source.press('ControlOrMeta+f')
+  const find = page.getByRole('textbox', { name: 'Find' })
+  await find.fill(hiddenTarget)
+  await find.press('Enter')
+  await page.keyboard.press('Escape')
+  const sourceTarget = page.locator('.cm-line').filter({ hasText: `#### ${hiddenTarget}` }).first()
+
+  await expect(sourceTarget).toBeVisible()
+  await centerElement(sourceTarget)
+  await expect.poll(() => centerDistance(summary)).toBeLessThan(80)
+  await expect(visualTarget).toBeHidden()
+
+  await summary.click()
+  await expect(dropdown).toHaveAttribute('open', '')
+  await expect(visualTarget).toBeVisible()
+  await expect.poll(() => centerDistance(visualTarget)).toBeLessThan(80)
+  await expect.poll(() => centerDistance(sourceTarget)).toBeLessThan(80)
+})
+
 test('keeps Source and Visual aligned to the same content when Split scrolling is linked', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile-'), 'The linked divider control is desktop-only')
   const roomName = createRoomName(testInfo)

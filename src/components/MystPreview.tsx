@@ -406,6 +406,13 @@ export const MystPreview = memo(({
   const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target
     if (!(target instanceof Element)) return
+    const dropdownSummary = target.closest('summary')
+    if (
+      dropdownSummary?.parentElement instanceof HTMLDetailsElement &&
+      previewRef.current?.contains(dropdownSummary)
+    ) {
+      onLayoutChangeRef.current?.()
+    }
     const suggestion = target.closest<HTMLElement>('[data-myst-suggestion-id]')
     if (suggestion?.dataset.mystSuggestionId) {
       onSuggestionClick?.(suggestion.dataset.mystSuggestionId)
@@ -527,6 +534,11 @@ export const MystPreview = memo(({
         aria-label={canEdit ? 'Visual MyST editor' : 'Rendered MyST preview'}
         onClick={handlePreviewClick}
         onKeyDown={handlePreviewKeyDown}
+        onToggle={(event) => {
+          if (event.target instanceof HTMLDetailsElement) {
+            onLayoutChangeRef.current?.()
+          }
+        }}
       />
       {activeEdit && createPortal(
         <VisualInlineEditor

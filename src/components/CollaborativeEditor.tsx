@@ -548,8 +548,8 @@ export const CollaborativeEditor = forwardRef<
       const anchor = getViewScrollAnchor(view)
       const expectedProgress = expectedScrollProgressRef.current
       if (expectedProgress !== null) {
-        expectedScrollProgressRef.current = null
         if (Math.abs(anchor.progress - expectedProgress) <= linkedScrollTolerance) return
+        expectedScrollProgressRef.current = null
       }
       onScrollAnchorRef.current?.(anchor)
     }
