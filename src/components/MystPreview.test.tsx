@@ -33,6 +33,7 @@ describe('MystPreview', () => {
   it('expands dropdown content and retains semantic source ranges', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
+    const onLayoutChange = vi.fn()
     const content = `::::{dropdown} Show complete Methods
 :class: manuscript-methods-dropdown
 
@@ -41,7 +42,9 @@ describe('MystPreview', () => {
 Critical **methods** body.
 ::::`
 
-    await act(async () => root.render(<MystPreview content={content} />))
+    await act(async () => root.render(
+      <MystPreview content={content} onLayoutChange={onLayoutChange} />,
+    ))
     const details = container.querySelector<HTMLDetailsElement>('details.myst-dropdown')
     const summary = details?.querySelector<HTMLElement>('summary')
     const heading = details?.querySelector<HTMLElement>('h2[data-myst-source-from]')
@@ -55,8 +58,13 @@ Critical **methods** body.
     expect(heading?.dataset.mystSourceFrom).toBe(String(content.indexOf('Experimental animals')))
     expect(paragraph?.dataset.mystSourceFrom).toBe(String(content.indexOf('Critical **methods** body.')))
 
-    await act(async () => summary?.click())
+    const initialLayoutCalls = onLayoutChange.mock.calls.length
+    await act(async () => {
+      summary?.click()
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    })
     expect(details?.open).toBe(true)
+    expect(onLayoutChange.mock.calls.length).toBeGreaterThan(initialLayoutCalls)
 
     await act(async () => root.unmount())
   })

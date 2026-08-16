@@ -142,8 +142,20 @@ const getVisualScrollPoints = (scroller: HTMLElement): LinkedScrollPoint[] => {
     .flatMap((element) => {
       const from = Number(element.dataset.mystSourceFrom)
       const to = Number(element.dataset.mystSourceTo)
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return []
+      const closedDetails = element.closest<HTMLDetailsElement>('details:not([open])')
+      const summary = closedDetails?.querySelector<HTMLElement>(':scope > summary')
+      if (summary) {
+        const summaryBounds = summary.getBoundingClientRect()
+        const offset = summaryBounds.top - scrollerBounds.top + scroller.scrollTop +
+          summaryBounds.height / 2
+        return [
+          { position: from, offset },
+          { position: to, offset },
+        ]
+      }
       const bounds = element.getBoundingClientRect()
-      if (!Number.isFinite(from) || !Number.isFinite(to) || bounds.height <= 0) return []
+      if (bounds.height <= 0) return []
       const top = bounds.top - scrollerBounds.top + scroller.scrollTop
       return [
         { position: from, offset: top },
@@ -821,8 +833,8 @@ function App() {
     const anchor = getVisualScrollAnchor(previewScroller, getCurrentVisualScrollPoints())
     const expectedPreviewProgress = expectedPreviewScrollRef.current
     if (expectedPreviewProgress !== null) {
-      expectedPreviewScrollRef.current = null
       if (Math.abs(anchor.progress - expectedPreviewProgress) <= linkedScrollTolerance) return
+      expectedPreviewScrollRef.current = null
     }
     if (view !== 'split' || !linkedPaneScrolling || !canLinkPaneScrolling()) return
     const currentAnchor = editorRef.current?.getScrollAnchor()
