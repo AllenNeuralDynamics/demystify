@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { all, type Handler } from 'mdast-util-to-hast'
 import type { DirectiveData, DirectiveSpec, GenericNode } from 'myst-common'
 import { mystParser } from 'myst-parser'
 import { State, formatHtml, mystToHast, transform } from 'myst-to-html'
@@ -459,6 +460,7 @@ const prepareEditableBlocks = (
     'admonition',
     'caption',
     'container',
+    'details',
   ])
   const visitNode = (node: PreviewTreeNode, supportedContainer: boolean) => {
     if (supportedContainer && (node.type === 'heading' || node.type === 'paragraph')) {
@@ -514,6 +516,20 @@ const previewTabItemDirective: DirectiveSpec = {
     }],
   }, ...directiveBody(data)],
 }
+
+const previewDetailsHandler: Handler = (state, node) => {
+  const customClasses = typeof node.class === 'string'
+    ? node.class.split(/\s+/).filter(Boolean)
+    : []
+  return state(node, 'details', {
+    className: ['myst-dropdown', ...customClasses],
+    ...(node.identifier ? { id: node.identifier } : {}),
+    ...(node.open ? { open: true } : {}),
+  }, all(state, node))
+}
+
+const previewSummaryHandler: Handler = (state, node) =>
+  state(node, 'summary', all(state, node))
 
 const getDirectiveOption = (
   data: DirectiveData,
@@ -828,7 +844,12 @@ export const renderMyst = (
       .use(() => preparePreviewCitations(options.bibliography ?? ''))
       .use(prepareLightweightPreview)
       .use(transform, new State())
-      .use(mystToHast)
+      .use(mystToHast, {
+        handlers: {
+          details: previewDetailsHandler,
+          summary: previewSummaryHandler,
+        },
+      })
       .use(prepareFigureCaptions)
       .use(formatHtml)
       .use(rehypeStringify)

@@ -229,6 +229,94 @@ Editable *caption*.
     )
   })
 
+  it('preserves dropdown titles and MyST body content', () => {
+    const source = `::::{dropdown} Show complete Methods
+:class: manuscript-methods-dropdown
+
+## Experimental animals
+
+All animal procedures were approved. **Critical methods detail.**
+::::
+
+:::{dropdown} Terms and abbreviations
+
+**ROI**: Region of interest.
+:::
+`
+    const result = renderMyst(source)
+    const document = new DOMParser().parseFromString(result.html, 'text/html')
+    const dropdowns = Array.from(document.querySelectorAll('details'))
+
+    expect(result.error).toBeNull()
+    expect(dropdowns).toHaveLength(2)
+    expect(dropdowns[0].classList).toContain('manuscript-methods-dropdown')
+    expect(dropdowns[0].classList).toContain('myst-dropdown')
+    expect(dropdowns[0].querySelector('summary')?.textContent).toBe('Show complete Methods')
+    expect(dropdowns[0].querySelector('h2')?.textContent).toBe('Experimental animals')
+    expect(dropdowns[0].textContent).toContain('Critical methods detail.')
+    expect(dropdowns[1].querySelector('summary')?.textContent).toBe('Terms and abbreviations')
+    expect(dropdowns[1].textContent).toContain('ROI: Region of interest.')
+    expect(result.editableBlocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'heading', value: 'Experimental animals' }),
+      expect.objectContaining({
+        kind: 'paragraph',
+        value: 'All animal procedures were approved. **Critical methods detail.**',
+      }),
+      expect.objectContaining({ kind: 'paragraph', value: '**ROI**: Region of interest.' }),
+    ]))
+  })
+
+  it('preserves dropdown open state', () => {
+    const result = renderMyst(`:::{dropdown} Expanded details
+:open:
+
+Visible body.
+:::`)
+    const document = new DOMParser().parseFromString(result.html, 'text/html')
+
+    expect(result.error).toBeNull()
+    expect(document.querySelector('details')?.open).toBe(true)
+    expect(document.querySelector('details')?.textContent).toContain('Visible body.')
+  })
+
+  it('renders the directive families used by the production manuscript', () => {
+    const result = renderMyst(`:::{note} Note
+Note body.
+:::
+
+:::{warning} Warning
+Warning body.
+:::
+
+:::{table} Table title
+| A | B |
+| - | - |
+| 1 | 2 |
+:::
+
+::::{tab-set}
+:::{tab-item} First
+Tab body.
+:::
+::::
+
+:::{iframe} ./interactive/result.html
+:title: Interactive result
+:placeholder: ./images/result.svg
+
+Iframe caption.
+:::
+`)
+
+    expect(result.error).toBeNull()
+    expect(result.html).toContain('Note body.')
+    expect(result.html).toContain('Warning body.')
+    expect(result.html).toContain('<table>')
+    expect(result.html).toContain('Tab body.')
+    expect(result.html).toContain('Iframe caption.')
+    expect(result.html).not.toContain('directive unhandled')
+  })
+
   it('wraps multiple figure caption paragraphs in one semantic caption', () => {
     const result = renderMyst(`:::{figure} ./figure.svg
 
