@@ -1806,6 +1806,10 @@
   text-underline-offset: 2px;
 }
 
+.myst-preview a {
+  overflow-wrap: anywhere;
+}
+
 .myst-preview .admonition,
 .myst-preview aside {
   margin: 22px 0;
@@ -1881,6 +1885,31 @@
 
 .myst-preview details summary {
   cursor: pointer;
+}
+
+.myst-preview .myst-dropdown {
+  margin: 20px 0;
+  padding: 0 16px;
+  border: 1px solid #cfdad4;
+  border-radius: 6px;
+  background: white;
+}
+
+.myst-preview .myst-dropdown > summary {
+  margin: 0 -16px;
+  padding: 11px 14px;
+  background: #edf4f0;
+  color: var(--green-dark);
+  font-weight: 600;
+}
+
+.myst-preview .myst-dropdown[open] > summary {
+  margin-bottom: 16px;
+  border-bottom: 1px solid #dbe4df;
+}
+
+.myst-preview .myst-dropdown[open] {
+  padding-bottom: 16px;
 }
 
 .myst-preview pre {

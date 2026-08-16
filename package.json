@@ -43,6 +43,7 @@
     "express-session": "^1.19.0",
     "katex": "^0.18.1",
     "lucide-react": "^1.28.0",
+    "mdast-util-to-hast": "^12.3.0",
     "morphdom": "^2.7.8",
     "myst-common": "^1.10.0",
     "myst-parser": "^1.7.3",

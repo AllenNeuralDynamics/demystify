@@ -30,6 +30,37 @@ const replaceEditableText = async (field: HTMLElement, value: string) => {
 }
 
 describe('MystPreview', () => {
+  it('expands dropdown content and retains semantic source ranges', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const content = `::::{dropdown} Show complete Methods
+:class: manuscript-methods-dropdown
+
+## Experimental animals
+
+Critical **methods** body.
+::::`
+
+    await act(async () => root.render(<MystPreview content={content} />))
+    const details = container.querySelector<HTMLDetailsElement>('details.myst-dropdown')
+    const summary = details?.querySelector<HTMLElement>('summary')
+    const heading = details?.querySelector<HTMLElement>('h2[data-myst-source-from]')
+    const paragraph = details?.querySelector<HTMLElement>('p[data-myst-source-from]')
+
+    expect(details).not.toBeNull()
+    expect(details?.open).toBe(false)
+    expect(summary?.textContent).toBe('Show complete Methods')
+    expect(heading?.textContent).toBe('Experimental animals')
+    expect(paragraph?.textContent).toBe('Critical methods body.')
+    expect(heading?.dataset.mystSourceFrom).toBe(String(content.indexOf('Experimental animals')))
+    expect(paragraph?.dataset.mystSourceFrom).toBe(String(content.indexOf('Critical **methods** body.')))
+
+    await act(async () => summary?.click())
+    expect(details?.open).toBe(true)
+
+    await act(async () => root.unmount())
+  })
+
   it('renders collaborative AuthorshipExtractor data relative to the active source', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)

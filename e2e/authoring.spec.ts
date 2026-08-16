@@ -106,6 +106,49 @@ test('supports core maintainer authoring and dialog workflows', async ({ page },
   await expect(page.getByRole('dialog', { name: 'Publication metadata' })).toBeHidden()
 })
 
+test('renders collapsible MyST dropdown bodies from Source', async ({ page }, testInfo) => {
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  const dropdownSource = `
+
+::::{dropdown} Show complete Methods
+:class: manuscript-methods-dropdown
+
+## Experimental animals
+
+All animal procedures were approved. **Critical methods detail.**
+
+Implementation: <https://github.com/AllenNeuralDynamics/aind-ophys-motion-correction-and-registration>
+::::`
+
+  await source.fill(`${sampleManuscript}${dropdownSource}`)
+  const dropdown = page.locator('.myst-preview details.myst-dropdown')
+  const summary = dropdown.locator('summary')
+  const methodsBody = dropdown.getByText('Critical methods detail.', { exact: false })
+
+  await expect(summary).toHaveText('Show complete Methods')
+  await expect(dropdown).not.toHaveAttribute('open', '')
+  await expect(methodsBody).toBeHidden()
+  await summary.click()
+  await expect(dropdown).toHaveAttribute('open', '')
+  await expect(dropdown.getByRole('heading', { name: 'Experimental animals' })).toBeVisible()
+  await expect(methodsBody).toBeVisible()
+  const implementationLink = dropdown.getByRole('link', {
+    name: 'https://github.com/AllenNeuralDynamics/aind-ophys-motion-correction-and-registration',
+  })
+  await expect(implementationLink).toHaveCSS('overflow-wrap', 'anywhere')
+  expect(await implementationLink.evaluate((link) => {
+    const dropdownBounds = link.closest('details')?.getBoundingClientRect()
+    const linkBounds = link.getBoundingClientRect()
+    return Boolean(
+      dropdownBounds &&
+      linkBounds.left >= dropdownBounds.left - 1 &&
+      linkBounds.right <= dropdownBounds.right + 1,
+    )
+  })).toBe(true)
+})
+
 test('keeps Source and Visual aligned to the same content when Split scrolling is linked', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile-'), 'The linked divider control is desktop-only')
   const roomName = createRoomName(testInfo)
