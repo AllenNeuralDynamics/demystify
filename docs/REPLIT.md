@@ -1,12 +1,11 @@
 # Replit Pilot
 
-**Last validated:** August 15, 2026
+**Last validated:** August 16, 2026
 
-**Deployed application source:** [`c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed`](https://github.com/AllenNeuralDynamics/demystify/commit/c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed)
+**Deployed application source:** [`537c9458e03fc7f925c0eeb8d92fdba21967b13c`](https://github.com/AllenNeuralDynamics/demystify/commit/537c9458e03fc7f925c0eeb8d92fdba21967b13c)
 
-**Publication status:** Online. Replit release `5262bf63` was published on
-August 15, 2026, with semantic same-content alignment between Markdown Source
-and Visual in Split view.
+**Publication status:** Online. Replit release `81d18ad1` was published on
+August 16, 2026, with complete MyST dropdown body rendering in Visual.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -27,15 +26,15 @@ The current pilot deployment is:
 | Setting | Value |
 | --- | --- |
 | Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 15, 2026 |
+| Publication | Online; updated August 16, 2026 |
 | Public URL | <https://demystify--jeromelecoq.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed` |
-| Replit release | `5262bf63` |
+| Application source | `537c9458e03fc7f925c0eeb8d92fdba21967b13c` |
+| Replit release | `81d18ad1` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -625,6 +624,45 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 16, 2026 MyST dropdown rendering release `81d18ad1` from application
+SHA `537c9458e03fc7f925c0eeb8d92fdba21967b13c` passed these release checks:
+
+- Protected pull request #47 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`. The resulting protected `main` SHA
+   passed its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=537c9458e03fc7f925c0eeb8d92fdba21967b13c` and
+   `FINAL_DIRTY=0` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded in release `81d18ad1`.
+   Autoscale retained one maximum machine and the production database remained
+   connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-CrO5KAjq.js`, `index-BYxnffY-.css`,
+   `MystPreview-CccwlhcN.js`, and `MystPreview-DywYRkvg.css`; their SHA-256
+   digests, `988d1bac2a3911c778100dc6e842243365ef9cc63e7a39d2b4e6f5129e44d553`,
+   `95538aae4f43147ee565e2fad2b89633b2db2d7edfeef2be60905ddff9d6e5ec`,
+   `25041fb7a2b7e3f89958b2d45357994ac5b7c09426462ace659a345414664da9`,
+   and `042a54f15f6a1f27f6e0fd95e520085e74237b1cadcbd808bb524c13bd6e8cd1`,
+   exactly matched the locally validated merged-main artifacts. Crawler exclusion
+   remained enabled.
+- The retained read-only production manuscript rendered both `Show complete
+   Methods` and `Terms and abbreviations` dropdowns with zero unsupported
+   directive markers. Methods began collapsed, expanded natively to 75,719
+   characters, retained its figure and table, and displayed both its opening and
+   final paragraphs. All 89 links stayed within the dropdown at 590-pixel desktop
+   and 318-pixel mobile widths.
+- An anonymous snapshot request against the retained acceptance room was rejected
+   with HTTP `401` before any mutation.
+- Local and protected validation passed 257 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 59
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 71 intentional project-specific skips.
 
 The August 15, 2026 semantic linked-scroll release `5262bf63` from application
 SHA `c55ace03fd0b5c3fd572e31da9d1cbbbbe5ff8ed` passed these release checks:
