@@ -2,10 +2,11 @@
 
 **Last validated:** August 16, 2026
 
-**Deployed application source:** [`537c9458e03fc7f925c0eeb8d92fdba21967b13c`](https://github.com/AllenNeuralDynamics/demystify/commit/537c9458e03fc7f925c0eeb8d92fdba21967b13c)
+**Deployed application source:** [`6c058027072d452d6f046eac786aeaeb692c46d2`](https://github.com/AllenNeuralDynamics/demystify/commit/6c058027072d452d6f046eac786aeaeb692c46d2)
 
-**Publication status:** Online. Replit release `81d18ad1` was published on
-August 16, 2026, with complete MyST dropdown body rendering in Visual.
+**Publication status:** Online. Replit release `001c42f4` was published on
+August 16, 2026, with stable linked scrolling across collapsed and expanded
+MyST dropdowns.
 
 Replit Starter can run DeMystify from a temporary HTTPS development URL while
 the project workspace is active. The Starter account tested on August 8, 2026
@@ -33,8 +34,8 @@ The current pilot deployment is:
 | Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
 | GitHub App | `demystify-replit-pilot-jl` |
 | OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `537c9458e03fc7f925c0eeb8d92fdba21967b13c` |
-| Replit release | `81d18ad1` |
+| Application source | `6c058027072d452d6f046eac786aeaeb692c46d2` |
+| Replit release | `001c42f4` |
 | Last measured cloud credits (before `709a36ad` publish) | 72% used |
 | Free publication expiry | September 9, 2026 |
 
@@ -624,6 +625,46 @@ SHA `89039278330e4bb2cc9095298a181af9c3d5bd47` passed these release checks:
    budgets, dependency audit, and 55 executed Playwright checks across Chromium,
    Firefox, WebKit, Mobile Chrome, and Mobile Safari, with 75 intentional
    project-specific skips.
+
+The August 16, 2026 linked dropdown scrolling release `001c42f4` from
+application SHA `6c058027072d452d6f046eac786aeaeb692c46d2` passed these release
+checks:
+
+- Protected pull request #49 passed strict required `validate` and `browser`
+   checks before squash-merging to `main`. The resulting protected `main` SHA
+   passed its own post-merge `validate` and `browser` jobs.
+- The Replit workspace fetched `origin/main`, verified the full target SHA,
+   switched to that detached commit, installed from the lockfile, built the
+   client and server, required clean tracked and staged diffs, and emitted
+   `DEPLOY_PREP_OK=6c058027072d452d6f046eac786aeaeb692c46d2` and
+   `FINAL_DIRTY=0` before republish.
+- Replit's saved no-options Republish dialog exposed no input, checkbox,
+   development-database-copy option, or migration prompt. Provision, Security
+   checks, Build, Bundle, and Promote all succeeded in release `001c42f4`.
+   Autoscale retained one maximum machine and the production database remained
+   connected.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   Production served `index-CLzd7HvZ.js`, `index-BYxnffY-.css`,
+   `MystPreview-0pc6hw40.js`, and `MystPreview-DywYRkvg.css`; their SHA-256
+   digests, `aaf9d801bd7c986d80ba4501276b0da42224c00063239319fc0b24a04426cd76`,
+   `95538aae4f43147ee565e2fad2b89633b2db2d7edfeef2be60905ddff9d6e5ec`,
+   `6f2f9ecd78323b16fa024c74c6238c3e0c76503362c6233049a7a3db7c82f97f`,
+   and `042a54f15f6a1f27f6e0fd95e520085e74237b1cadcbd808bb524c13bd6e8cd1`,
+   exactly matched the locally validated merged-main artifacts. Crawler exclusion
+   remained enabled.
+- In the retained read-only production manuscript, navigating Source to the
+   hidden `Neuropixels Ephys NWB Packaging Pipeline` heading centered the closed
+   Methods summary and the Source heading at 0 pixels from their pane centers.
+   Expanding Methods kept Source centered and placed the newly visible Visual
+   heading within 35 pixels of center, without a pane feedback jump.
+- An anonymous snapshot request against the retained acceptance room was rejected
+   with HTTP `401` before any mutation.
+- Local and protected validation passed 257 unit/server tests, authenticated
+   PostgreSQL collaboration integration, the protected 5-editor/95-viewer load
+   gate, lint, client/server builds, bundle budgets, dependency audit, and 62
+   executed Playwright checks across Chromium, Firefox, WebKit, Mobile Chrome,
+   and Mobile Safari, with 73 intentional project-specific skips. The linked
+   dropdown scenario also passed nine repeated runs across all desktop engines.
 
 The August 16, 2026 MyST dropdown rendering release `81d18ad1` from application
 SHA `537c9458e03fc7f925c0eeb8d92fdba21967b13c` passed these release checks:
