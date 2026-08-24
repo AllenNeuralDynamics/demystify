@@ -2,6 +2,7 @@
   "name": "demystify",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,server -c cyan,green \"npm:dev:web\" \"npm:server:dev\"",
