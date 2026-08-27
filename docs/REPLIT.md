@@ -1,17 +1,17 @@
 # Replit Pilot
 
-**Last validated:** August 16, 2026
+**Last validated:** August 27, 2026
 
-**Deployed application source:** [`6c058027072d452d6f046eac786aeaeb692c46d2`](https://github.com/AllenNeuralDynamics/demystify/commit/6c058027072d452d6f046eac786aeaeb692c46d2)
+**Deployed application source:** [`fa3e2e283fb4288a2ae15be8c8fafb1b37f80da2`](https://github.com/AllenNeuralDynamics/demystify/commit/fa3e2e283fb4288a2ae15be8c8fafb1b37f80da2)
 
-**Publication status:** Online. Replit release `001c42f4` was published on
-August 16, 2026, with stable linked scrolling across collapsed and expanded
-MyST dropdowns.
+**Publication status:** Online at <https://demystify-aind.replit.app/>. Replit
+deployment `004cced7-5a82-441e-85fd-7ca237ac9a11` and build
+`3cc1613c-2496-42ac-989c-1cb42141f69f` were published from a fresh import on
+August 27, 2026.
 
-Replit Starter can run DeMystify from a temporary HTTPS development URL while
-the project workspace is active. The Starter account tested on August 8, 2026
-also provided one free Autoscale publication that expires after 30 days. Replit
-shows the expiration date after the first successful publish.
+Production runs in the `jeromel2` Replit Core personal workspace. The original
+`jeromelecoq` Starter deployment is retained temporarily as a rollback target;
+it is not the current production origin.
 
 For an Autoscale deployment, set **Max machines to 1**. DeMystify does not yet
 synchronize live Yjs rooms across multiple application instances.
@@ -26,53 +26,45 @@ The current pilot deployment is:
 
 | Setting | Value |
 | --- | --- |
-| Replit project | `jeromelecoq/demystify` |
-| Publication | Online; updated August 16, 2026 |
-| Public URL | <https://demystify--jeromelecoq.replit.app/> |
+| Replit project | `jeromel2/demystify` (Core) |
+| Publication | Online; created August 27, 2026 |
+| Public URL | <https://demystify-aind.replit.app/> |
 | Deployment type | Autoscale (`cloudrun`) |
 | Machine limit | 1 maximum machine (2 vCPU / 4 GiB RAM) |
-| Database | Retained Replit production PostgreSQL database (29.77 MB at restart) |
+| Region | North America |
+| Database | Production PostgreSQL restored to August 27, 2026 at 21:11 UTC after recovering shared-room state |
 | GitHub App | `demystify-replit-pilot-jl` |
-| OAuth callback | `https://demystify--jeromelecoq.replit.app/api/auth/github/callback` |
-| Application source | `6c058027072d452d6f046eac786aeaeb692c46d2` |
-| Replit release | `001c42f4` |
-| Last measured cloud credits (before `709a36ad` publish) | 72% used |
-| Free publication expiry | September 9, 2026 |
+| GitHub App homepage | `https://demystify-aind.replit.app` |
+| OAuth callback | `https://demystify-aind.replit.app/api/auth/github/callback` |
+| Application source | `fa3e2e283fb4288a2ae15be8c8fafb1b37f80da2` |
+| Replit deployment | `004cced7-5a82-441e-85fd-7ca237ac9a11` |
+| Replit build | `3cc1613c-2496-42ac-989c-1cb42141f69f` |
+| Replit Git provider | Disconnected by design; runtime GitHub access uses the dedicated GitHub App |
 
-The Replit project was initially imported directly from `origin/main` and uses
-the repository's root `.replit` configuration. Subsequent releases use a guarded
-exact-SHA checkout: fetch `origin/main`, assert the full intended SHA, switch to
-that detached commit, install from the lockfile, build, and require clean tracked
-and staged diffs before Republish. The production database was initialized empty
-for the pilot and now contains the pilot's persistent state.
+The Core project was imported directly from `origin/main` and uses the
+repository's root `.replit` configuration. The first publication created a
+separate production database from the empty development schema. An acceptance
+cleanup incorrectly classified a user-shared UUID room as temporary and removed
+it with the initial test rows. Replit point-in-time recovery restored production
+to August 27, 2026 at 14:11 PDT (21:11 UTC), after the room's last saved update
+and before the deletion. Never classify UUID rooms as disposable from owner and
+timestamp alone; inspect their binding and sharing state first.
 
-After an earlier smoke check, the infrastructure graph showed approximately 2%
-CPU and memory despite zero completed HTTP requests and no open local production
-tabs. The publication was temporarily shut down at 45% cloud-credit usage while
-that infrastructure warmth was investigated. Replit later reported zero compute
-units during the socket-free diagnostic release despite the warm graph. It also
-retained the 29.77 MB production database with zero database compute hours.
+Development and deployment environment variables live in Replit App Secrets,
+not tracked source. The deployment `APP_URL` is an unsynchronized override for
+the production origin, while the development value remains the generated
+`*.replit.dev` origin. The optional Replit Git provider is intentionally not
+connected because source changes are developed locally and merged through
+GitHub pull requests.
 
-Replit uses request-based Autoscale billing on Cloud Run. A non-minimum idle
-instance is not kept longer than 15 minutes. Replit charges compute while
-requests are served; the underlying Cloud Run lifecycle also treats startup and
-graceful shutdown as billable instance time. During the socket-free diagnostic
-release, Replit's Resource usage panel reported zero compute units even while
-the infrastructure graph still showed a warm container. Do not infer credit
-consumption from the infrastructure graph alone.
-
-The explicitly approved restart reused that database without copying or
-recreating it. Replit's new-publish form would not attach the retained database
-automatically, so its credentials were rotated and the new `DATABASE_URL` was
-added as a masked deployment secret. A read-only query confirmed 5 room rows, 5
-Yjs update rows, and 29 session rows before publication. Continue monitoring the
-instance after idle periods; investigate or unpublish if Resource usage shows
-unexplained compute consumption without user traffic.
+Use a guarded exact-SHA checkout for later releases: fetch `origin/main`, assert
+the full intended SHA, switch to that detached commit, install from the lockfile,
+build, and require clean tracked and staged diffs before Republish.
 
 ## Project Setup
 
-The validated Starter path is to import the public GitHub repository directly,
-decline Agent changes, and verify the imported tree from Shell:
+The validated direct-import path is to import the public GitHub repository,
+stop any automatic Agent setup task, and verify the imported tree from Shell:
 
 ```bash
 git fetch origin main
@@ -81,8 +73,10 @@ npm ci --include=dev
 npm run build
 ```
 
-Use Shell for all subsequent setup. Repeated Agent conversion or workflow
-repair is unnecessary and consumes the Starter Agent allowance.
+Use Shell for all subsequent setup. Agent conversion or workflow repair is
+unnecessary and consumes credits. Replit Configurations write a `[userenv]`
+block into tracked `.replit`; use App Secrets instead and discard any generated
+source changes before building.
 
 The repository's `.replit` file configures:
 
@@ -277,6 +271,40 @@ GitHub requests and PostgreSQL statements are bounded to 15 seconds, with a
 hydration therefore ends instead of holding an Autoscale request indefinitely.
 
 ## Validation
+
+The August 27, 2026 Core migration from application SHA
+`fa3e2e283fb4288a2ae15be8c8fafb1b37f80da2` passed these acceptance checks:
+
+- The `jeromel2` workspace was confirmed as Replit Core and its three stale test
+   projects were scheduled for deletion after explicit approval. A fresh
+   `AllenNeuralDynamics/demystify` import is the only remaining active project.
+- Replit's automatic setup task was stopped after seven seconds and two read-only
+   actions. Generated `.replit` and `package-lock.json` changes were discarded;
+   the workspace then matched `origin/main` at the full target SHA.
+- `npm ci --include=dev` and `npm run build` completed with `BUILD_EXIT=0` in the
+   Replit Shell before publication.
+- The first publish created deployment
+   `004cced7-5a82-441e-85fd-7ca237ac9a11` and build
+   `3cc1613c-2496-42ac-989c-1cb42141f69f`. Security checks, Build, Bundle, and
+   Promote completed successfully without a migration prompt.
+- Autoscale uses 2 vCPU, 4 GiB RAM, and one maximum machine in North America.
+   Optional monitoring, feedback, badge, and Agent scan features remained off.
+- `/`, `/api/health`, `/api/config`, and `/robots.txt` returned HTTP `200`.
+   GitHub configuration was enabled, crawler exclusion remained active, and an
+   unclaimed-room snapshot request returned the expected JSON `404` without a
+   mutation.
+- A new GitHub App client secret was stored only in Replit App Secrets. The
+   production OAuth round trip returned to the new callback, identified
+   `@jeromelecoq`, and exposed the repositories allowed by the existing selected
+   `AllenNeuralDynamics` App installation. The previous callback and client
+   secret remain temporarily for rollback to the separate Starter deployment.
+- An attempted acceptance cleanup deleted three rooms, four sessions, and three
+   Yjs updates, including a real shared room. Point-in-time recovery restored the
+   database to 21:11 UTC. Fresh browser contexts with no GitHub identity then
+   exchanged both the Viewer and Suggestion capability tokens successfully
+   (`204`), claimed the restored room (`200`), and loaded its manuscript in the
+   correct read-only and suggesting modes. Database editing was disabled after
+   recovery.
 
 The August 10, 2026 application release from SHA `312c94d44b03f5f36ba3cfe085b1307ed5899fe9`
 as Replit release `c0e948f3` passed these production checks:
@@ -918,8 +946,9 @@ all work.
 - Keep Max machines at `1`; horizontal fan-out is not implemented.
 - Free development URLs work only while the workspace is active and may change
    after reopening the project.
-- The Starter publication is temporary. Keep cloud-credit monitoring active and
-   unpublish if Resource usage shows unexplained compute consumption.
+- The Core publication is persistent but usage-billed. Keep the monthly credit
+   budget and usage alerts active, and unpublish if Resource usage shows
+   unexplained compute consumption.
 - Autoscale instances may stop after inactivity and restart on later traffic,
    causing a cold start.
 - Replit production PostgreSQL is usage-billed, although a small pilot should
