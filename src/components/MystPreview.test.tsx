@@ -568,6 +568,50 @@ ${figure}`
     container.remove()
   })
 
+  it('keeps rendering source edits outside an open visual editor', async () => {
+    vi.useFakeTimers()
+    const initial = '# Draft\n\nThe release comprises data.\n\nEdited block.'
+    const yDocument = new Y.Doc()
+    const text = yDocument.getText('content')
+    text.insert(0, initial)
+    const onBeginEdit = (block: { from: number; to: number; value: string }) =>
+      createCollaborativeTextEditAnchor(text, block.from, block.to, block.value)
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const render = (content: string) => root.render(
+      <MystPreview
+        content={content}
+        editable
+        liveEditing
+        onBeginEdit={onBeginEdit}
+        onCommitEdit={() => 'applied'}
+      />,
+    )
+
+    await act(async () => render(initial))
+    const editedBlock = Array.from(container.querySelectorAll('p'))
+      .find((paragraph) => paragraph.textContent === 'Edited block.')
+    await act(async () => editedBlock?.click())
+    const openField = container.querySelector('[aria-label="Edit paragraph"]')
+    expect(openField).not.toBeNull()
+
+    const updated = '# Draft\n\nNew opening.\n\nThe data release comprises data.\n\nEdited block.'
+    await act(async () => render(updated))
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+
+    expect(container.textContent).toContain('New opening.')
+    expect(container.textContent).toContain('The data release comprises data.')
+    const field = container.querySelector<HTMLElement>('[aria-label="Edit paragraph"]')
+    expect(field).toBe(openField)
+    expect(field?.textContent).toBe('Edited block.')
+    expect(field?.closest<HTMLElement>('[data-myst-edit-id]')?.dataset.mystSourceFrom)
+      .toBe(String(updated.indexOf('Edited block.')))
+
+    await act(async () => root.unmount())
+    yDocument.destroy()
+    vi.useRealTimers()
+  })
+
   it('keeps the visual draft open when the source changed concurrently', async () => {
     const content = '# Draft'
     const yDocument = new Y.Doc()
