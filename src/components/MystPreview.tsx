@@ -67,6 +67,15 @@ interface ActiveVisualEdit {
 }
 
 const previewDelayMs = 400
+const activeEditAttribute = 'data-myst-active-edit'
+
+const findActiveEditBlock = (
+  blocks: MystEditableBlock[],
+  block: MystEditableBlock,
+) => blocks
+  .filter((candidate) => candidate.kind === block.kind && candidate.value === block.value)
+  .sort((first, second) =>
+    Math.abs(first.from - block.from) - Math.abs(second.from - block.from))[0]
 
 const enableSuggestionKeyboardActivation = (element: HTMLElement) => {
   element.addEventListener('keydown', (event) => {
@@ -128,11 +137,36 @@ export const MystPreview = memo(({
 
   useLayoutEffect(() => {
     const previewElement = previewRef.current
-    if (!previewElement || activeEdit) return
+    if (!previewElement) return
+    const editTarget = activeEdit?.target ?? null
+    const activeBlock = activeEdit
+      ? findActiveEditBlock(preview.editableBlocks, activeEdit.block)
+      : undefined
+    // Without a matching block the edit conflicts; keep the editor in place until it closes.
+    if (editTarget && (!activeBlock || !previewElement.contains(editTarget))) return
 
     const nextPreview = previewElement.cloneNode(false) as HTMLElement
     nextPreview.innerHTML = preview.html
-    morphdom(previewElement, nextPreview, { childrenOnly: true })
+    nextPreview
+      .querySelector(`[data-myst-edit-id="${activeBlock?.id}"]`)
+      ?.setAttribute(activeEditAttribute, '')
+    morphdom(previewElement, nextPreview, {
+      childrenOnly: true,
+      getNodeKey: (node) => {
+        if (!(node instanceof HTMLElement)) return undefined
+        if (node === editTarget || node.hasAttribute(activeEditAttribute)) return activeEditAttribute
+        return node.id || undefined
+      },
+      onBeforeElUpdated: (fromElement) => fromElement !== editTarget,
+    })
+    if (editTarget && activeBlock && activeEdit) {
+      editTarget.dataset.mystEditId = activeBlock.id
+      if (activeBlock.from !== activeEdit.block.from || activeBlock.to !== activeEdit.block.to) {
+        setActiveEdit((current) => current && current.target === editTarget
+          ? { ...current, block: { ...current.block, from: activeBlock.from, to: activeBlock.to } }
+          : current)
+      }
+    }
 
     preview.editableBlocks.forEach((block) => {
       const element = Array.from(
@@ -206,7 +240,7 @@ export const MystPreview = memo(({
       const target = Array.from(
         previewElement.querySelectorAll<HTMLElement>('[data-myst-edit-id]'),
       ).find((element) => element.dataset.mystEditId === block.id)
-      if (!target) continue
+      if (!target || target === editTarget) continue
 
       const originalNodes = Array.from(target.childNodes)
       const captionNumber = originalNodes[0] instanceof HTMLElement &&
@@ -353,6 +387,7 @@ export const MystPreview = memo(({
     previewElement
       .querySelectorAll<HTMLElement>('.math-display, .math-inline')
       .forEach((element) => {
+        if (editTarget?.contains(element)) return
         katex.render(element.textContent ?? '', element, {
           displayMode: element.classList.contains('math-display'),
           throwOnError: false,
@@ -364,6 +399,7 @@ export const MystPreview = memo(({
       previewElement
         .querySelectorAll<HTMLElement>('[data-myst-edit-id]')
         .forEach((element) => {
+          if (element === editTarget) return
           element.classList.add('myst-editable-block')
           element.tabIndex = 0
           element.title = 'Drag to select; click to edit'
