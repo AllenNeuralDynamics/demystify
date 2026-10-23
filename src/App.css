@@ -824,6 +824,7 @@
 }
 
 .manuscript-workspace {
+  --recovery-row-height: 0px;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -837,6 +838,44 @@
 
 .manuscript-workspace.access-mode {
   grid-template-rows: 56px 43px minmax(0, 1fr);
+}
+
+.manuscript-workspace.has-recovery-warning {
+  --recovery-row-height: 80px;
+  grid-template-rows: 80px 43px minmax(0, 1fr);
+}
+
+.manuscript-workspace.has-recovery-warning.archived,
+.manuscript-workspace.has-recovery-warning.access-mode {
+  grid-template-rows: 56px 80px 43px minmax(0, 1fr);
+}
+
+.connection-warning {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff4d1;
+  border-bottom: 1px solid #d8b65b;
+  color: #57400a;
+}
+
+.connection-warning > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connection-warning strong,
+.connection-warning span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.connection-warning .icon-button {
+  flex: 0 0 32px;
 }
 
 .archive-banner {
@@ -4903,7 +4942,7 @@
   .document-panes.comments-open .comments-panel {
     position: absolute;
     z-index: 10;
-    top: 131px;
+    top: calc(131px + var(--recovery-row-height));
     right: 0;
     bottom: 0;
     width: min(320px, 90vw);
@@ -4918,6 +4957,11 @@
     grid-template-rows: 64px 43px minmax(0, 1fr);
   }
 
+  .manuscript-workspace.has-recovery-warning.archived,
+  .manuscript-workspace.has-recovery-warning.access-mode {
+    grid-template-rows: 64px 80px 43px minmax(0, 1fr);
+  }
+
   .archive-banner {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
@@ -4928,18 +4972,18 @@
 
   .manuscript-workspace.archived .document-panes.comments-open .comments-panel,
   .manuscript-workspace.access-mode .document-panes.comments-open .comments-panel {
-    top: 195px;
+    top: calc(195px + var(--recovery-row-height));
   }
 }
 
 @media (max-width: 560px) {
   .document-panes.comments-open .comments-panel {
-    top: 125px;
+    top: calc(125px + var(--recovery-row-height));
   }
 
   .manuscript-workspace.archived .document-panes.comments-open .comments-panel,
   .manuscript-workspace.access-mode .document-panes.comments-open .comments-panel {
-    top: 189px;
+    top: calc(189px + var(--recovery-row-height));
   }
 
   .editor-toolbar {

@@ -1,10 +1,13 @@
+import { EventEmitter } from 'node:events'
 import * as encoding from 'lib0/encoding'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { WebSocket } from 'ws'
 import * as Y from 'yjs'
 import {
   isCollaboratorWebSocketMessageAllowed,
   isEditorWebSocketMessageAllowed,
   isReadOnlyWebSocketMessageAllowed,
+  setupReadOnlyAwareWebSocket,
 } from './read-only-websocket.js'
 
 const collaboratorMessageAllowed = (
@@ -130,6 +133,20 @@ const createRangeSuggestion = (
 }
 
 describe('read-only Yjs messages', () => {
+  it('notifies writable clients when a rejected update would otherwise be silently dropped', () => {
+    const socket = Object.assign(new EventEmitter(), { close: vi.fn() })
+    const listener = vi.fn()
+    setupReadOnlyAwareWebSocket(
+      socket as unknown as WebSocket,
+      () => false,
+      (connection) => connection.on('message', listener),
+      () => false,
+    )
+    socket.emit('message', message(0, 2))
+    expect(listener).not.toHaveBeenCalled()
+    expect(socket.close).toHaveBeenCalledWith(1008, 'Collaboration update rejected')
+  })
+
   it('allows presence and sync requests needed to load the room', () => {
     expect(isReadOnlyWebSocketMessageAllowed(message(1))).toBe(true)
     expect(isReadOnlyWebSocketMessageAllowed(message(0, 0))).toBe(true)

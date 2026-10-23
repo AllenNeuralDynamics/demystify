@@ -28,7 +28,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
   }, {
-    command: 'npm run test:e2e:web',
+    command: 'npm run build && npm run test:e2e:web',
     url: webUrl,
     reuseExistingServer: false,
     timeout: 120_000,

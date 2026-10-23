@@ -1,4 +1,8 @@
+import { readFile } from 'node:fs/promises'
 import type { WebSocketRoute } from '@playwright/test'
+import * as Y from 'yjs'
+import { resolveCommentAnchor } from '../src/lib/commentAnchors'
+import type { SharedComment } from '../src/hooks/useCollaboration'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
@@ -476,6 +480,109 @@ test('keeps an attributed suggestion in the mobile reading flow', async ({ brows
       .toBeLessThanOrEqual(viewport?.width ?? 0)
   } finally {
     await reviewerContext.close()
+  }
+})
+
+test('exports 24 unsent comments from an existing disconnected tab without reloading it', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Recovery download runs once')
+  test.setTimeout(90_000)
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const token = await createShareToken(page, roomName, 'collaborator')
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+  const reviewer = await context.newPage()
+  let disconnected = false
+  let activeSocket: WebSocketRoute | null = null
+  await reviewer.routeWebSocket(/\/collaboration\//, async (socket) => {
+    if (disconnected) {
+      await socket.close({ code: 1013, reason: 'Recovery test interruption' })
+      return
+    }
+    activeSocket = socket
+    socket.connectToServer()
+  })
+  try {
+    await reviewer.goto(`/?doc=${roomName}#collaborate=${token}`)
+    await expect(reviewer.locator('.sync-status')).toHaveText('Suggesting')
+    await reviewer.getByTitle('Open comments').click()
+    disconnected = true
+    await activeSocket?.close({ code: 1013, reason: 'Recovery test interruption' })
+    await expect(reviewer.locator('.sync-status')).not.toHaveText('Suggesting')
+    for (let index = 0; index < 24; index++) {
+      await reviewer.getByTitle('Add comment to selection').click()
+      await reviewer.getByRole('textbox', { name: 'New comment' }).fill(`Unsent review ${index}`)
+      await reviewer.locator('.comments-panel').getByRole('button', { name: 'Comment', exact: true }).click()
+    }
+    await expect(reviewer.locator('.comments-heading')).toContainText('24 open')
+    await expect(reviewer.locator('.connection-warning')).toContainText('Server save not confirmed')
+    await expect(reviewer.getByTitle('Download recovery file', { exact: true })).toBeVisible()
+    await page.getByTitle('Open comments').click()
+    await expect(page.locator('.comments-heading')).toContainText('0 open')
+
+    const pageStartedAt = await reviewer.evaluate(() => performance.timeOrigin)
+    const [download, summary] = await Promise.all([
+      reviewer.waitForEvent('download'),
+      reviewer.evaluate(async () => {
+        const moduleUrl = new URL('/dist/recovery-export.js', window.location.href).href
+        const exporter = await import(moduleUrl)
+        return exporter.downloadCurrentRoomRecovery()
+      }),
+    ])
+    const filePath = await download.path()
+    expect(filePath).not.toBeNull()
+    const backup = JSON.parse(await readFile(filePath!, 'utf8'))
+    expect(summary.comments).toBe(24)
+    expect(backup.roomName).toBe(roomName)
+    expect(backup.connectionAtExport.connected).toBe(false)
+    expect(Object.keys(backup.document.comments)).toHaveLength(24)
+    expect(backup.localDrafts.source).toContain('A shared language for reproducible manuscripts')
+    expect(await reviewer.evaluate(() => performance.timeOrigin)).toBe(pageStartedAt)
+    await expect(reviewer.locator('.comments-heading')).toContainText('24 open')
+    await expect(page.locator('.comments-heading')).toContainText('0 open')
+
+    const restored = new Y.Doc()
+    try {
+      Y.applyUpdate(restored, new Uint8Array(Buffer.from(backup.yjsStateBase64, 'base64')))
+      const comments = restored.getMap<SharedComment>('comments')
+      expect(comments.size).toBe(24)
+      for (const comment of comments.values()) {
+        expect(comment.anchor).toBeDefined()
+        const target = comment.anchorTarget === 'working' ? 'workingContent' : 'content'
+        const range = resolveCommentAnchor(restored, restored.getText(target), comment.anchor!)
+        expect(range?.orphaned).toBe(false)
+        expect(range?.quote).toBe(comment.anchor?.quote)
+      }
+    } finally {
+      restored.destroy()
+    }
+
+    reviewer.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('beforeunload')
+      await dialog.accept()
+    })
+    await reviewer.reload()
+    await expect(reviewer.locator('.connection-warning')).toContainText('Browser recovery available')
+    await reviewer.getByTitle('Open comments').click()
+    await expect(reviewer.locator('.comments-heading')).toContainText('24 open')
+    await expect(page.locator('.comments-heading')).toContainText('0 open')
+
+    await reviewer.setViewportSize({ width: 390, height: 844 })
+    const warning = await reviewer.locator('.connection-warning').boundingBox()
+    const panel = await reviewer.locator('.comments-panel').boundingBox()
+    expect(warning).not.toBeNull()
+    expect(panel).not.toBeNull()
+    expect(panel!.y).toBeGreaterThanOrEqual(warning!.y + warning!.height)
+    expect(await reviewer.locator('.connection-warning').evaluate(element =>
+      element.scrollHeight <= element.clientHeight && element.scrollWidth <= element.clientWidth,
+    )).toBe(true)
+
+    disconnected = false
+    await reviewer.getByTitle('Reconnect collaboration').click()
+    await expect(reviewer.locator('.sync-status')).toHaveText('Suggesting', { timeout: 20_000 })
+    await expect(reviewer.locator('.connection-warning')).toHaveCount(0)
+    await expect(page.locator('.comments-heading')).toContainText('24 open', { timeout: 20_000 })
+  } finally {
+    await context.close()
   }
 })
 

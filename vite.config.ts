@@ -30,6 +30,20 @@ export default defineConfig({
     __REACT_VERSION__: JSON.stringify(dependencyVersion('react')),
     __YJS_VERSION__: JSON.stringify(dependencyVersion('yjs')),
   },
+  build: {
+    rollupOptions: {
+      preserveEntrySignatures: 'strict',
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        recovery: fileURLToPath(new URL('./src/recovery.ts', import.meta.url)),
+      },
+      output: {
+        entryFileNames: (chunk) => chunk.name === 'recovery'
+          ? 'recovery-export.js'
+          : 'assets/[name]-[hash].js',
+      },
+    },
+  },
   resolve: {
     alias: [{
       find: 'markdown-it/lib/common/utils.js',

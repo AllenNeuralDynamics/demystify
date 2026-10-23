@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { diffChars } from 'diff'
+import { IndexeddbPersistence } from 'y-indexeddb'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import type {
@@ -176,9 +177,13 @@ export const useCollaboration = (
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
+  const [hasLoadedDocument, setHasLoadedDocument] = useState(false)
+  const [hasLocalChanges, setHasLocalChanges] = useState(false)
+  const [localBackupStatus, setLocalBackupStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [isWorkingContentInitialized, setIsWorkingContentInitialized] = useState(false)
   const [accessError, setAccessError] = useState<string | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
+  const localRecoveryReadyRef = useRef<Promise<unknown>>(Promise.resolve())
 
   useEffect(() => {
     if (!enabled) return
@@ -218,6 +223,9 @@ export const useCollaboration = (
       metadata,
     }
     let initializationTimer: number | undefined
+    let backupTimer: number | undefined
+    let disposed = false
+    let persistence: IndexeddbPersistence | null = null
     let previousAcceptedContent = text.toString()
 
     const updateContent = () => {
@@ -300,9 +308,11 @@ export const useCollaboration = (
       )
       setCollaborators(nextCollaborators)
     }
-    const initializeEmptyDocument = () => {
-      setIsSynced(true)
-      if (readOnly) return
+    const initializeEmptyDocument = (synced: boolean) => {
+      setIsSynced(synced)
+      window.clearTimeout(initializationTimer)
+      if (synced) setHasLoadedDocument(true)
+      if (!synced || readOnly) return
       if (text.length > 0 || metadata.get('initialized')) return
 
       const candidate = document.clientID
@@ -326,9 +336,20 @@ export const useCollaboration = (
     const updateStatus = ({ status: nextStatus }: { status: ConnectionStatus }) => {
       setStatus(nextStatus)
       if (nextStatus === 'connected') setAccessError(null)
+      else {
+        setIsSynced(false)
+        window.clearTimeout(initializationTimer)
+      }
       setSession((currentSession) => currentSession ?? nextSession)
     }
     const handleConnectionClose = (event: CloseEvent | null) => {
+      if (event?.code === 1008 && event.reason === 'Collaboration update rejected') {
+        provider.shouldConnect = false
+        setIsSynced(false)
+        setStatus('disconnected')
+        setAccessError('The server rejected local changes. Download a recovery file before closing or refreshing this tab.')
+        return
+      }
       if (event?.code !== 1008 || !/access (?:was revoked|expired)/i.test(event.reason)) return
       provider.shouldConnect = false
       setIsSynced(false)
@@ -357,8 +378,53 @@ export const useCollaboration = (
     proposalContributorMap.observe(updateProposalContributors)
     proposalHistoryMap.observe(updateProposalHistory)
 
+    const recordLocalChange = (
+      _update: Uint8Array,
+      _origin: unknown,
+      _document: Y.Doc,
+      transaction: Y.Transaction,
+    ) => {
+      if (transaction.local) setHasLocalChanges(true)
+    }
+    document.on('update', recordLocalChange)
+    try {
+      if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable')
+      persistence = new IndexeddbPersistence(
+        `demystify-recovery-v1:${encodeURIComponent(roomName)}:${encodeURIComponent(profile.id)}`,
+        document,
+      )
+      const markUnavailable = () => {
+        if (!disposed) setLocalBackupStatus('unavailable')
+      }
+      const ready = persistence.whenSynced.then(() => {
+        window.clearTimeout(backupTimer)
+        if (disposed) return
+        setLocalBackupStatus('ready')
+        setSession(nextSession)
+        if (text.length > 0 || metadata.get('initialized')) setHasLoadedDocument(true)
+        persistence?.db?.addEventListener('error', markUnavailable)
+      })
+      void persistence._db.catch(markUnavailable)
+      localRecoveryReadyRef.current = Promise.race([
+        ready,
+        new Promise<void>((resolve) => {
+          backupTimer = window.setTimeout(() => {
+            markUnavailable()
+            resolve()
+          }, 4_000)
+        }),
+      ])
+    } catch {
+      localRecoveryReadyRef.current = Promise.resolve().then(() => {
+        if (!disposed) setLocalBackupStatus('unavailable')
+      })
+    }
+
     return () => {
+      disposed = true
       window.clearTimeout(initializationTimer)
+      window.clearTimeout(backupTimer)
+      document.off('update', recordLocalChange)
       text.unobserve(updateContent)
       workingText.unobserve(updateWorkingContent)
       bibliographyText.unobserve(updateBibliography)
@@ -375,10 +441,14 @@ export const useCollaboration = (
       provider.awareness.off('change', updateCollaborators)
       provider.off('sync', initializeEmptyDocument)
       provider.destroy()
+      void persistence?.destroy().catch(() => undefined)
       if (providerRef.current === provider) providerRef.current = null
       document.destroy()
       setSession(null)
       setIsSynced(false)
+      setHasLoadedDocument(false)
+      setHasLocalChanges(false)
+      setLocalBackupStatus('loading')
       setWorkingContent('')
       setIsWorkingContentInitialized(false)
       setAccessError(null)
@@ -399,10 +469,26 @@ export const useCollaboration = (
   useEffect(() => {
     const provider = providerRef.current
     if (!provider) return
+    let cancelled = false
     if (accessError) provider.disconnect()
-    else if (shouldConnect) provider.connect()
+    else if (shouldConnect) {
+      void localRecoveryReadyRef.current.then(() => {
+        if (!cancelled && providerRef.current === provider) provider.connect()
+      })
+    }
     else provider.disconnect()
+    return () => { cancelled = true }
   }, [accessError, enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
+
+  useEffect(() => {
+    if (!hasLocalChanges || (status === 'connected' && isSynced && localBackupStatus === 'ready')) return
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeLeaving)
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
+  }, [hasLocalChanges, isSynced, localBackupStatus, status])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -1013,6 +1099,8 @@ export const useCollaboration = (
     status: enabled ? status : 'disconnected',
     accessError,
     isSynced,
+    hasLoadedDocument,
+    localBackupStatus,
     isWorkingContentInitialized,
     hasPendingWorkingChanges:
       isWorkingContentInitialized && workingContent !== content,

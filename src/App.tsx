@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Download,
   Eye,
   ExternalLink,
   FilePlus2,
@@ -388,7 +389,7 @@ function App() {
     isReadOnly,
     pageActive,
   )
-  const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError)
+  const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError) || !collaboration.hasLoadedDocument
   const isSuggestionMode = primaryEditMode === 'suggesting' ||
     collaboration.hasPendingWorkingChanges
   const isAtomicSuggestionMode = primaryEditMode === 'suggesting' &&
@@ -1199,6 +1200,29 @@ function App() {
     window.requestAnimationFrame(() => helpTriggerRef.current?.focus())
   }
 
+  const downloadRecoveryFile = () => {
+    const provider = collaboration.provider
+    if (!provider) return
+    void import('./recovery').then(({ downloadRoomRecovery }) => {
+      const result = downloadRoomRecovery({
+        document: provider.doc,
+        roomName,
+        connected: provider.wsconnected,
+        providerSynced: provider.synced,
+        sourceFilePath: activeFilePath,
+      })
+      showNotice(`Recovery download started: ${result.comments + result.suggestions} review items.`)
+    }).catch((error: unknown) => {
+      showNotice(error instanceof Error ? error.message : 'Could not export recovery data.')
+    })
+  }
+
+  const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && (
+    !collaboration.isSynced || collaboration.status !== 'connected' ||
+    collaboration.localBackupStatus === 'unavailable'
+  )
+  const localChangesRejected = collaboration.accessError?.startsWith('The server rejected') ?? false
+
   const createDocument = () => {
     const url = new URL(window.location.href)
     url.searchParams.set('doc', crypto.randomUUID())
@@ -1567,9 +1591,11 @@ function App() {
                 {isArchived
                   ? 'Archived'
                   : collaboration.accessError
-                    ? 'Access revoked'
+                    ? localChangesRejected ? 'Sync blocked' : 'Access revoked'
                     : collaboration.status !== 'connected'
                       ? collaboration.status
+                      : !collaboration.isSynced
+                        ? 'Synchronizing'
                       : isViewer
                         ? 'Viewing'
                         : isSuggestionMode
@@ -1585,6 +1611,12 @@ function App() {
                     label: 'New document',
                     icon: FilePlus2,
                     onSelect: createDocument,
+                  },
+                  {
+                    label: 'Download recovery file',
+                    icon: Download,
+                    disabled: !collaboration.provider,
+                    onSelect: downloadRecoveryFile,
                   },
                   {
                     label: repositoryBinding ? 'Save to GitHub' : 'Connect repository to save',
@@ -1964,7 +1996,7 @@ function App() {
           </div>
         </aside>
 
-        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${sharedAccessRole && !isArchived ? 'access-mode' : ''}`}>
+        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${sharedAccessRole && !isArchived ? 'access-mode' : ''} ${recoveryWarningVisible ? 'has-recovery-warning' : ''}`}>
           {isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />
@@ -1995,7 +2027,7 @@ function App() {
               <div>
                 <strong>
                   {collaboration.accessError
-                    ? 'Sharing access ended'
+                    ? localChangesRejected ? 'Synchronization blocked' : 'Sharing access ended'
                     : isViewer ? 'Viewer access' : 'Suggestion mode'}
                 </strong>
                 <span>
@@ -2015,6 +2047,30 @@ function App() {
               )}
             </div>
           ) : null}
+          {recoveryWarningVisible && (
+            <div className="connection-warning" role="status" aria-live="polite">
+              <div>
+                <strong>{localChangesRejected ? 'Sync blocked' : 'Server save not confirmed'}</strong>
+                <span>
+                  {localChangesRejected
+                    ? 'Server rejected changes. Download recovery.'
+                    : collaboration.localBackupStatus === 'ready'
+                      ? 'Browser recovery available. Server save unconfirmed.'
+                      : collaboration.localBackupStatus === 'unavailable'
+                        ? 'Browser backup unavailable. Download recovery.'
+                        : 'Preparing browser recovery. Keep this tab open.'}
+                </span>
+              </div>
+              {!collaboration.accessError && collaboration.status !== 'connected' && (
+                <button className="icon-button" type="button" title="Reconnect collaboration" onClick={() => collaboration.provider?.connect()}>
+                  <RefreshCw size={16} />
+                </button>
+              )}
+              <button className="icon-button" type="button" title="Download recovery file" onClick={downloadRecoveryFile}>
+                <Download size={16} />
+              </button>
+            </div>
+          )}
           <div className="editor-toolbar">
             <div className="toolbar-left">
               <div className="formatting-tools" aria-label="Authoring tools">
@@ -2262,7 +2318,7 @@ function App() {
             >
               <div className="preview-label">
                 <span>{effectiveReadOnly ? 'Browser preview' : 'Visual editor'}</span>
-                <span>{collaboration.isSynced ? 'Live draft' : 'Preparing'}</span>
+                <span>{collaboration.isSynced ? 'Live draft' : collaboration.hasLoadedDocument ? 'Local draft' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
@@ -2273,7 +2329,7 @@ function App() {
                   onCommentSelection={canCommentOnSelection ? commentOnVisualSelection : undefined}
                   editable={
                     !effectiveReadOnly &&
-                    collaboration.isSynced &&
+                    collaboration.hasLoadedDocument &&
                     isActiveMystSource &&
                     (!isSuggestionMode || (isPrimaryFile && activeSourceDraftPreview === null))
                   }
