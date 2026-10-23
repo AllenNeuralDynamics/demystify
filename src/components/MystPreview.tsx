@@ -36,6 +36,7 @@ interface MystPreviewProps {
   projectFiles?: Record<string, string>
   sourcePath?: string
   onBeginEdit?: (block: MystEditableBlock) => CollaborativeTextEditAnchor | null
+  onCommentSelection?: (range: { from: number; to: number }) => void
   onCommitEdit?: (
     anchor: CollaborativeTextEditAnchor,
     replacement: string,
@@ -66,6 +67,25 @@ interface ActiveVisualEdit {
   target: HTMLElement
 }
 
+interface SelectionComment {
+  left: number
+  top: number
+  range: { from: number; to: number }
+}
+
+const getBlockElement = (node: Node | null) =>
+  (node instanceof Element ? node : node?.parentElement)
+    ?.closest<HTMLElement>('[data-myst-edit-id]') ?? null
+
+// Rendered text omits MyST markup, so fall back to the whole block unless the text maps uniquely.
+const getSelectionSourceRange = (block: MystEditableBlock, selectedText: string) => {
+  const text = selectedText.trim()
+  const start = text ? block.value.indexOf(text) : -1
+  return start >= 0 && block.value.indexOf(text, start + 1) < 0
+    ? { from: block.from + start, to: block.from + start + text.length }
+    : { from: block.from, to: block.to }
+}
+
 const previewDelayMs = 400
 
 const enableSuggestionKeyboardActivation = (element: HTMLElement) => {
@@ -86,6 +106,7 @@ export const MystPreview = memo(({
   projectFiles,
   sourcePath,
   onBeginEdit,
+  onCommentSelection,
   onCommitEdit,
   onEditError,
   onLayoutChange,
@@ -98,6 +119,7 @@ export const MystPreview = memo(({
   const deferredContent = useDeferredValue(content)
   const [previewContent, setPreviewContent] = useState(deferredContent)
   const [activeEdit, setActiveEdit] = useState<ActiveVisualEdit | null>(null)
+  const [selectionComment, setSelectionComment] = useState<SelectionComment | null>(null)
   const preview = useMemo(
     () => renderMyst(previewContent, {
       assetBaseUrl,
@@ -386,6 +408,50 @@ export const MystPreview = memo(({
     if (!canEdit && activeEdit) setActiveEdit(null)
   }, [activeEdit, canEdit])
 
+  useEffect(() => {
+    if (!selectionComment) return
+    const clearWhenCollapsed = () => {
+      if (window.getSelection()?.isCollapsed ?? true) setSelectionComment(null)
+    }
+    const clear = () => setSelectionComment(null)
+    document.addEventListener('selectionchange', clearWhenCollapsed)
+    window.addEventListener('scroll', clear, true)
+    window.addEventListener('resize', clear)
+    return () => {
+      document.removeEventListener('selectionchange', clearWhenCollapsed)
+      window.removeEventListener('scroll', clear, true)
+      window.removeEventListener('resize', clear)
+    }
+  }, [selectionComment])
+
+  const updateSelectionComment = () => {
+    const selection = window.getSelection()
+    const previewElement = previewRef.current
+    const startBlock = editableBlocks.get(getBlockElement(selection?.anchorNode ?? null)?.dataset.mystEditId ?? '')
+    const endBlock = editableBlocks.get(getBlockElement(selection?.focusNode ?? null)?.dataset.mystEditId ?? '')
+    if (
+      !onCommentSelection ||
+      activeEdit ||
+      !selection ||
+      selection.isCollapsed ||
+      !previewElement?.contains(selection.anchorNode) ||
+      !previewElement.contains(selection.focusNode) ||
+      !startBlock ||
+      !endBlock
+    ) {
+      setSelectionComment(null)
+      return
+    }
+    const range = startBlock === endBlock
+      ? getSelectionSourceRange(startBlock, selection.toString())
+      : {
+          from: Math.min(startBlock.from, endBlock.from),
+          to: Math.max(startBlock.to, endBlock.to),
+        }
+    const rect = selection.getRangeAt(0).getBoundingClientRect()
+    setSelectionComment({ left: rect.left + rect.width / 2, top: rect.bottom + 6, range })
+  }
+
   const beginEditing = (target: HTMLElement) => {
     if (activeEdit || !canEdit || !onBeginEdit) return
     const blockId = target.dataset.mystEditId
@@ -534,12 +600,30 @@ export const MystPreview = memo(({
         aria-label={canEdit ? 'Visual MyST editor' : 'Rendered MyST preview'}
         onClick={handlePreviewClick}
         onKeyDown={handlePreviewKeyDown}
+        onKeyUp={updateSelectionComment}
+        onMouseUp={updateSelectionComment}
         onToggle={(event) => {
           if (event.target instanceof HTMLDetailsElement) {
             onLayoutChangeRef.current?.()
           }
         }}
       />
+      {selectionComment && onCommentSelection && createPortal(
+        <button
+          className="myst-selection-comment"
+          type="button"
+          title="Comment on selection"
+          style={{ left: selectionComment.left, top: selectionComment.top }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            onCommentSelection(selectionComment.range)
+            setSelectionComment(null)
+          }}
+        >
+          Comment
+        </button>,
+        document.body,
+      )}
       {activeEdit && createPortal(
         <VisualInlineEditor
           bibliography={bibliography}
