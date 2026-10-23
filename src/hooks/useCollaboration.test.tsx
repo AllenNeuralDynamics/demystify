@@ -94,6 +94,37 @@ describe('useCollaboration connection lifecycle', () => {
     vi.useRealTimers()
   })
 
+  it('does not initialize or report synchronization for sync(false)', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    await act(async () => {
+      providerInstances[0].emit('sync', false)
+      await vi.advanceTimersByTimeAsync(300)
+    })
+    expect(collaborationRef.current?.isSynced).toBe(false)
+    expect(collaborationRef.current?.sharedText?.toString()).toBe('')
+    await act(async () => root.unmount())
+  })
+
+  it('clears synchronization on disconnect without discarding local comments', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    await act(async () => {
+      providerInstances[0].emit('sync', true)
+      await vi.advanceTimersByTimeAsync(300)
+      collaborationRef.current?.addComment('Keep this local comment')
+    })
+    expect(collaborationRef.current?.isSynced).toBe(true)
+    await act(async () => providerInstances[0].emit('status', { status: 'disconnected' }))
+    expect(collaborationRef.current?.isSynced).toBe(false)
+    expect(collaborationRef.current?.comments[0]?.body).toBe('Keep this local comment')
+    await act(async () => root.unmount())
+  })
+
   it('disconnects inactive pages and reconnects them after activity', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
@@ -145,6 +176,22 @@ describe('useCollaboration connection lifecycle', () => {
     expect(providerInstances).toHaveLength(2)
     expect(providerInstances[1].connect).toHaveBeenCalledOnce()
 
+    await act(async () => root.unmount())
+  })
+
+  it('retains rejected changes and requests recovery instead of silently reconnecting', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    await act(async () => collaborationRef.current?.addComment('Rejected but recoverable'))
+    await act(async () => providerInstances[0].emit('connection-close', {
+      code: 1008,
+      reason: 'Collaboration update rejected',
+    }))
+    expect(providerInstances[0].shouldConnect).toBe(false)
+    expect(collaborationRef.current?.accessError).toContain('Download a recovery file')
+    expect(collaborationRef.current?.comments[0]?.body).toBe('Rejected but recoverable')
     await act(async () => root.unmount())
   })
 

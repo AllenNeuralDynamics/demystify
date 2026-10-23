@@ -654,12 +654,15 @@ export const setupReadOnlyAwareWebSocket = (
       this,
       event,
       (data: RawData, ...args: unknown[]) => {
+        const readOnly = isReadOnly()
         if (
-          isReadOnly()
+          readOnly
             ? isReadOnlyWebSocketMessageAllowed(data)
             : isWritableMessageAllowed(data)
         ) {
           listener.call(this, data, ...args)
+        } else if (!readOnly) {
+          this.close(1008, 'Collaboration update rejected')
         }
       },
     )
