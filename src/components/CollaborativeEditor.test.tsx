@@ -250,4 +250,47 @@ describe('CollaborativeEditor', () => {
     yDocument.destroy()
     container.remove()
   })
+  it('offers a Comment button next to a source selection', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => new DOMRect()
+    const source = '# Draft\n\nOriginal claim.'
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, source)
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const onCommentSelection = vi.fn()
+    const editorRef = createRef<CollaborativeEditorHandle>()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <CollaborativeEditor
+          ref={editorRef}
+          sharedText={sharedText}
+          provider={provider}
+          onCommentSelection={onCommentSelection}
+        />,
+      )
+    })
+    expect(container.querySelector('.cm-selection-comment')).toBeNull()
+
+    const from = source.indexOf('claim')
+    await act(async () => editorRef.current?.revealRange(from, from + 'claim'.length, false))
+    const button = container.querySelector<HTMLButtonElement>('.cm-selection-comment button')
+    expect(button?.textContent).toBe('Comment')
+    await act(async () => button?.click())
+    expect(onCommentSelection).toHaveBeenCalledTimes(1)
+    expect(editorRef.current?.getCommentSelection()).toEqual({ from, to: from + 'claim'.length })
+
+    await act(async () => editorRef.current?.revealRange(from, from, false))
+    expect(container.querySelector('.cm-selection-comment')).toBeNull()
+
+    await act(async () => root.unmount())
+    awareness.destroy()
+    yDocument.destroy()
+    container.remove()
+  })
 })

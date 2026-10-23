@@ -1250,6 +1250,13 @@ function App() {
     })
   }
 
+  const canCommentOnSelection = !effectiveReadOnly && isPrimaryFile
+
+  const commentOnVisualSelection = (range: { from: number; to: number }) => {
+    editorRef.current?.revealRange(range.from, range.to, false)
+    openCommentComposer()
+  }
+
   const submitReply = (comment: SharedComment) => {
     const draft = replyDrafts[comment.id] ?? ''
     if (!collaboration.addCommentReply(
@@ -2173,6 +2180,7 @@ function App() {
                   provider={collaboration.provider}
                   commentHighlights={commentHighlights}
                   onCommentClick={openLiveProposalChange}
+                  onCommentSelection={canCommentOnSelection ? openCommentComposer : undefined}
                   onProposeSourceEdit={(draft) => {
                     const projected = getProjectedSuggestionReplacement(
                       activeSuggestionProjection,
@@ -2262,6 +2270,7 @@ function App() {
                   bibliography={collaboration.bibliography}
                   content={displayedContent}
                   liveEditing={!isAtomicSuggestionMode}
+                  onCommentSelection={canCommentOnSelection ? commentOnVisualSelection : undefined}
                   editable={
                     !effectiveReadOnly &&
                     collaboration.isSynced &&

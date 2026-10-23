@@ -516,6 +516,58 @@ ${figure}`
     yDocument.destroy()
   })
 
+  it('offers a Comment button for text selected in the visual panel', async () => {
+    Range.prototype.getBoundingClientRect = () => new DOMRect(10, 20, 30, 10)
+    const content = '# Draft\n\nThe release comprises *imaging* data.'
+    const onCommentSelection = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(
+      <MystPreview content={content} onCommentSelection={onCommentSelection} />,
+    ))
+    const paragraph = container.querySelector('p')
+    const textNode = paragraph?.firstChild
+    expect(textNode?.textContent).toBe('The release comprises ')
+
+    const selectText = async (node: Node, start: number, end: number) => {
+      const range = document.createRange()
+      range.setStart(node, start)
+      range.setEnd(node, end)
+      window.getSelection()?.removeAllRanges()
+      window.getSelection()?.addRange(range)
+      await act(async () => {
+        paragraph?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      })
+    }
+
+    await selectText(textNode!, 4, 11)
+    const button = document.body.querySelector<HTMLButtonElement>('.myst-selection-comment')
+    expect(button?.textContent).toBe('Comment')
+    await act(async () => button?.click())
+    const from = content.indexOf('release')
+    expect(onCommentSelection).toHaveBeenLastCalledWith({ from, to: from + 'release'.length })
+    expect(document.body.querySelector('.myst-selection-comment')).toBeNull()
+
+    const emphasis = paragraph?.querySelector('em')?.firstChild
+    const range = document.createRange()
+    range.setStart(textNode!, 4)
+    range.setEnd(emphasis!, 3)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+    await act(async () => {
+      paragraph?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    await act(async () => document.body.querySelector<HTMLButtonElement>('.myst-selection-comment')?.click())
+    const blockFrom = content.indexOf('The release')
+    expect(onCommentSelection).toHaveBeenLastCalledWith({ from: blockFrom, to: content.length })
+
+    window.getSelection()?.removeAllRanges()
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   it('keeps rendering source edits outside an open visual editor', async () => {
     vi.useFakeTimers()
     const initial = '# Draft\n\nThe release comprises data.\n\nEdited block.'

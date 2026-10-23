@@ -6,7 +6,9 @@ import {
   Decoration,
   EditorView,
   WidgetType,
+  showTooltip,
   type DecorationSet,
+  type Tooltip,
 } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
@@ -50,6 +52,7 @@ interface CollaborativeEditorProps {
   provider: WebsocketProvider
   commentHighlights?: CommentHighlight[]
   onCommentClick?: (commentId: string) => void
+  onCommentSelection?: () => void
   onProposeSourceEdit?: (draft: string) => {
     result: CollaborativeTextEditResult
     suggestionId?: string
@@ -85,6 +88,41 @@ interface ReviewDecorations {
 const setReviewDecorations = StateEffect.define<ReviewDecorations>()
 const suggestionSaveDelayMs = 450
 const linkedScrollTolerance = 0.002
+
+const getSelectionCommentTooltips = (
+  state: EditorState,
+  onComment: () => void,
+): readonly Tooltip[] => {
+  const range = state.selection.main
+  if (range.empty) return []
+  return [{
+    pos: range.head,
+    above: range.head < range.anchor,
+    strictSide: true,
+    arrow: false,
+    create: () => {
+      const dom = document.createElement('div')
+      dom.className = 'cm-selection-comment'
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = 'Comment'
+      button.title = 'Comment on selection'
+      // Keep the editor selection while the button is pressed.
+      button.addEventListener('mousedown', (event) => event.preventDefault())
+      button.addEventListener('click', onComment)
+      dom.append(button)
+      return { dom }
+    },
+  }]
+}
+
+const selectionCommentTooltip = (onComment: () => void) => StateField.define<readonly Tooltip[]>({
+  create: (state) => getSelectionCommentTooltips(state, onComment),
+  update: (tooltips, transaction) => transaction.docChanged || transaction.selection
+    ? getSelectionCommentTooltips(transaction.state, onComment)
+    : tooltips,
+  provide: (field) => showTooltip.computeN([field], (state) => state.field(field)),
+})
 
 const getViewScrollAnchor = (view: EditorView): LinkedScrollAnchor => {
   const scrollRange = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
@@ -310,6 +348,22 @@ const commentHighlightField = StateField.define<DecorationSet>({
 })
 
 const editorTheme = EditorView.theme({
+  '.cm-tooltip.cm-selection-comment': {
+    border: 'none',
+    background: 'transparent',
+  },
+  '.cm-selection-comment button': {
+    padding: '3px 9px',
+    border: '1px solid #16705d',
+    borderRadius: '999px',
+    background: '#16705d',
+    color: '#fff',
+    fontFamily: '"IBM Plex Sans", sans-serif',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    boxShadow: '0 2px 6px rgb(0 0 0 / 18%)',
+  },
   '&': {
     height: '100%',
     background: '#fff',
@@ -458,6 +512,7 @@ export const CollaborativeEditor = forwardRef<
   provider,
   commentHighlights = [],
   onCommentClick,
+  onCommentSelection,
   onProposeSourceEdit,
   onScrollAnchor,
   onSourceDraftChange,
@@ -473,6 +528,9 @@ export const CollaborativeEditor = forwardRef<
   const draftDirtyRef = useRef(false)
   const syncingDraftRef = useRef(false)
   const onCommentClickRef = useRef(onCommentClick)
+  const onCommentSelectionRef = useRef(onCommentSelection)
+  const canCommentOnSelectionRef = useRef(Boolean(onCommentSelection))
+  const selectionCommentCompartmentRef = useRef(new Compartment())
   const onProposeSourceEditRef = useRef(onProposeSourceEdit)
   const onScrollAnchorRef = useRef(onScrollAnchor)
   const expectedScrollProgressRef = useRef<number | null>(null)
@@ -486,6 +544,18 @@ export const CollaborativeEditor = forwardRef<
   useEffect(() => {
     onCommentClickRef.current = onCommentClick
   }, [onCommentClick])
+
+  useEffect(() => {
+    onCommentSelectionRef.current = onCommentSelection
+    const canComment = Boolean(onCommentSelection)
+    if (canComment === canCommentOnSelectionRef.current) return
+    canCommentOnSelectionRef.current = canComment
+    viewRef.current?.dispatch({
+      effects: selectionCommentCompartmentRef.current.reconfigure(
+        canComment ? selectionCommentTooltip(() => onCommentSelectionRef.current?.()) : [],
+      ),
+    })
+  }, [onCommentSelection])
 
   useEffect(() => {
     onProposeSourceEditRef.current = onProposeSourceEdit
@@ -520,6 +590,11 @@ export const CollaborativeEditor = forwardRef<
           EditorView.editable.of(!readOnlyRef.current),
         ]),
         commentHighlightField,
+        selectionCommentCompartmentRef.current.of(
+          canCommentOnSelectionRef.current
+            ? selectionCommentTooltip(() => onCommentSelectionRef.current?.())
+            : [],
+        ),
         EditorView.domEventHandlers({
           click: (event) => {
             const target = event.target
