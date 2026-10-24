@@ -1,6 +1,7 @@
 import * as decoding from 'lib0/decoding'
 import * as encoding from 'lib0/encoding'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import NodeWebSocket from 'ws'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 import {
@@ -15,6 +16,7 @@ const openClient = () => {
   const provider = new WebsocketProvider('ws://127.0.0.1:1', 'receipt-test', document, {
     connect: false,
     disableBc: true,
+    WebSocketPolyfill: NodeWebSocket as unknown as typeof WebSocket,
   })
   const send = vi.fn()
   provider.ws = { readyState: 1, send, close: vi.fn() } as unknown as WebSocket
