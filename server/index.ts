@@ -1,3 +1,4 @@
+import { createDurabilityHandler } from './collaboration-durability.js'
 import 'dotenv/config'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
@@ -358,6 +359,10 @@ webSocketServer.on('connection', (socket, request) => {
         ? isCollaboratorWebSocketMessageAllowed(data, getYDoc(roomName), actor)
         : isEditorWebSocketMessageAllowed(data, getYDoc(roomName), actor)
     },
+    createDurabilityHandler(socket, async () => {
+      if (!yjsPersistence) throw new Error('Room persistence is unavailable')
+      await yjsPersistence.flush(roomName, getYDoc(roomName))
+    }),
   )
 })
 

@@ -22,6 +22,7 @@ export interface ReadyYjsPersistence {
   readonly provider: unknown
   bindState(roomName: string, document: Yjs.Doc): void
   waitForHydration(document: Yjs.Doc): Promise<void>
+  flush(roomName: string, document: Yjs.Doc): Promise<void>
   writeState(roomName: string, document: Yjs.Doc): Promise<void>
 }
 
@@ -72,6 +73,12 @@ export class LocalYjsPersistence implements ReadyYjsPersistence {
     await hydration
   }
 
+  flush = async (roomName: string, document: Yjs.Doc) => {
+    await this.waitForHydration(document)
+    await Promise.allSettled(this.pendingWrites.get(document) ?? [])
+    await this.provider.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
+  }
+
   writeState = async (roomName: string, document: Yjs.Doc) => {
     try {
       await this.waitForHydration(document)
@@ -80,8 +87,7 @@ export class LocalYjsPersistence implements ReadyYjsPersistence {
       return
     }
 
-    await Promise.all(this.pendingWrites.get(document) ?? [])
-    await this.provider.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
+    await this.flush(roomName, document)
     await this.provider.flushDocument(roomName)
     this.pendingWrites.delete(document)
     this.hydrations.delete(document)
@@ -165,6 +171,11 @@ export class PostgresYjsPersistence implements ReadyYjsPersistence {
   readonly provider = this
   private readonly persistenceOrigin = Symbol('postgres-yjs-persistence')
   private readonly hydrations = new WeakMap<Yjs.Doc, Promise<void>>()
+  private readonly pendingWrites = new WeakMap<Yjs.Doc, Set<Promise<void>>>()
+  private readonly failedUpdates = new WeakMap<Yjs.Doc, Set<Uint8Array>>()
+  private readonly retryTimers = new WeakMap<Yjs.Doc, ReturnType<typeof setTimeout>>()
+  private readonly retryDelays = new WeakMap<Yjs.Doc, number>()
+  private readonly roomOperations = new Map<string, Promise<unknown>>()
 
   constructor(private readonly pool: Pool) {}
 
@@ -199,6 +210,17 @@ export class PostgresYjsPersistence implements ReadyYjsPersistence {
     await hydration
   }
 
+  flush = async (roomName: string, document: Yjs.Doc) => {
+    await this.waitForHydration(document)
+    await Promise.allSettled(this.pendingWrites.get(document) ?? [])
+    const failed = this.failedUpdates.get(document)
+    const updates = Array.from(failed ?? [])
+    if (updates.length > 0) {
+      await this.storeUpdate(roomName, Y.mergeUpdates(updates))
+      updates.forEach((update) => failed?.delete(update))
+    }
+  }
+
   writeState = async (roomName: string, document: Yjs.Doc) => {
     try {
       await this.waitForHydration(document)
@@ -206,44 +228,60 @@ export class PostgresYjsPersistence implements ReadyYjsPersistence {
       this.hydrations.delete(document)
       return
     }
+    await this.flush(roomName, document)
+    await this.queueRoomOperation(roomName, async () => {
+      const client = await this.pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          [roomName],
+        )
+        await client.query(
+          `DELETE FROM demystify_yjs_updates WHERE room_name = $1`,
+          [roomName],
+        )
+        await client.query(
+          `
+            INSERT INTO demystify_yjs_updates (room_name, update_data)
+            VALUES ($1, $2)
+          `,
+          [roomName, Buffer.from(Y.encodeStateAsUpdate(document))],
+        )
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      } finally {
+        client.release()
+      }
+    })
+    clearTimeout(this.retryTimers.get(document))
+    this.pendingWrites.delete(document)
+    this.failedUpdates.delete(document)
     this.hydrations.delete(document)
-
-    const client = await this.pool.connect()
-    try {
-      await client.query('BEGIN')
-      await client.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
-        [roomName],
-      )
-      await client.query(
-        `DELETE FROM demystify_yjs_updates WHERE room_name = $1`,
-        [roomName],
-      )
-      await client.query(
-        `
-          INSERT INTO demystify_yjs_updates (room_name, update_data)
-          VALUES ($1, $2)
-        `,
-        [roomName, Buffer.from(Y.encodeStateAsUpdate(document))],
-      )
-      await client.query('COMMIT')
-    } catch (error) {
-      await client.query('ROLLBACK')
-      throw error
-    } finally {
-      client.release()
-    }
   }
 
   private async hydrate(roomName: string, document: Yjs.Doc) {
+    const pendingWrites = new Set<Promise<void>>()
+    const failedUpdates = new Set<Uint8Array>()
+    this.pendingWrites.set(document, pendingWrites)
+    this.failedUpdates.set(document, failedUpdates)
+    document.once('destroy', () => clearTimeout(this.retryTimers.get(document)))
     document.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === this.persistenceOrigin) return
-      void this.storeUpdate(roomName, update).catch((error: unknown) => {
-        console.error(`Could not persist Yjs room ${roomName}:`, error)
-      })
+      const write = this.storeUpdate(roomName, update)
+      pendingWrites.add(write)
+      void write
+        .catch((error: unknown) => {
+          failedUpdates.add(update)
+          console.error(`Could not persist Yjs room ${roomName}:`, error)
+          this.scheduleRetry(roomName, document)
+        })
+        .finally(() => pendingWrites.delete(write))
     })
 
-    const result = await this.pool.query<{ update_data: Buffer }>(
+    const result = await this.queueRoomOperation(roomName, () => this.pool.query<{ update_data: Buffer }>(
       `
         SELECT update_data
         FROM demystify_yjs_updates
@@ -251,7 +289,7 @@ export class PostgresYjsPersistence implements ReadyYjsPersistence {
         ORDER BY id
       `,
       [roomName],
-    )
+    ))
 
     // Capture edits received while the database query was in flight.
     await this.storeUpdate(roomName, Y.encodeStateAsUpdate(document))
@@ -268,12 +306,40 @@ export class PostgresYjsPersistence implements ReadyYjsPersistence {
   }
 
   private async storeUpdate(roomName: string, update: Uint8Array) {
-    await this.pool.query(
+    await this.queueRoomOperation(roomName, () => this.pool.query(
       `
         INSERT INTO demystify_yjs_updates (room_name, update_data)
         VALUES ($1, $2)
       `,
       [roomName, Buffer.from(update)],
-    )
+    ))
+  }
+
+  private queueRoomOperation<Result>(roomName: string, operation: () => Promise<Result>): Promise<Result> {
+    const previous = this.roomOperations.get(roomName) ?? Promise.resolve()
+    const next = previous.catch(() => undefined).then(operation)
+    this.roomOperations.set(roomName, next)
+    const cleanup = () => {
+      if (this.roomOperations.get(roomName) === next) this.roomOperations.delete(roomName)
+    }
+    void next.then(cleanup, cleanup)
+    return next
+  }
+
+  private scheduleRetry(roomName: string, document: Yjs.Doc) {
+    if (this.retryTimers.has(document) || document.isDestroyed) return
+    const delay = this.retryDelays.get(document) ?? 250
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(document)
+      void this.flush(roomName, document).then(() => {
+        this.retryDelays.delete(document)
+      }).catch((error: unknown) => {
+        console.error(`Could not retry Yjs room ${roomName}:`, error)
+        this.retryDelays.set(document, Math.min(delay * 2, 10_000))
+        this.scheduleRetry(roomName, document)
+      })
+    }, delay)
+    timer.unref()
+    this.retryTimers.set(document, timer)
   }
 }

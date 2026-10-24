@@ -4,6 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pg from 'pg'
+import * as decoding from 'lib0/decoding'
+import * as encoding from 'lib0/encoding'
 import WebSocket from 'ws'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
@@ -166,6 +168,50 @@ const createTestSession = async (id, login) => {
   const cookie = response.headers.get('set-cookie')?.split(';', 1)[0]
   assert.ok(cookie, 'Test session cookie was not issued.')
   return cookie
+}
+
+const waitForDurableSave = (provider) => new Promise((resolve, reject) => {
+  const requestId = 1
+  const previous = provider.messageHandlers[4]
+  const cleanup = () => {
+    clearTimeout(timeout)
+    provider.messageHandlers[4] = previous
+  }
+  const timeout = setTimeout(() => {
+    cleanup()
+    reject(new Error(`Durable save receipt timed out.\n${serverOutput}`))
+  }, 10_000)
+  provider.messageHandlers[4] = (_encoder, decoder, _provider, fromServer) => {
+    if (!fromServer || decoding.readVarUint(decoder) !== requestId) return
+    const stored = decoding.readVarUint(decoder)
+    cleanup()
+    if (stored === 1) resolve()
+    else reject(new Error('Server did not confirm persistent storage.'))
+  }
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, 4)
+  encoding.writeVarUint(encoder, requestId)
+  provider.ws.send(encoding.toUint8Array(encoder))
+})
+
+const verifyStoredReview = async (expectedComment) => {
+  if (!process.env.DATABASE_URL) return
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+  const restored = new Y.Doc()
+  try {
+    const result = await pool.query(
+      'SELECT update_data FROM demystify_yjs_updates WHERE room_name = $1 ORDER BY id',
+      [roomName],
+    )
+    result.rows.forEach((row) => Y.applyUpdate(restored, new Uint8Array(row.update_data)))
+    assert.equal(restored.getText('content').toString(), expectedText)
+    assert.deepEqual(restored.getMap('comments').get(expectedComment.id), expectedComment)
+    assert.deepEqual(restored.getMap('commentMessages').get(expectedReply.id), expectedReply)
+    console.log('Durable receipt verified against PostgreSQL manuscript, comment, reply, and anchor records.')
+  } finally {
+    restored.destroy()
+    await pool.end()
+  }
 }
 
 const verifyPostgresPersistence = async () => {
@@ -418,6 +464,8 @@ try {
   firstComments.set(expectedComment.id, expectedComment)
   firstCommentMessages.set(expectedReply.id, expectedReply)
   await Promise.all([received, receivedComment, receivedReply, receivedProjectFile])
+  await waitForDurableSave(firstProvider)
+  await verifyStoredReview(expectedComment)
 
   assert.equal(secondText.toString(), expectedText)
   assert.deepEqual(secondComments.get(expectedComment.id), expectedComment)

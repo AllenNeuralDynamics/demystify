@@ -13,6 +13,7 @@ import {
   type CommentAnchor,
 } from '../lib/commentAnchors'
 import type { CollaboratorProfile } from '../lib/profile'
+import { trackServerDurability, type ServerSaveStatus } from '../lib/collaborationDurability'
 import { resolveCollaboratorCursor } from '../lib/collaboratorPresence'
 import {
   normalizeSourceText,
@@ -179,6 +180,7 @@ export const useCollaboration = (
   const [isSynced, setIsSynced] = useState(false)
   const [hasLoadedDocument, setHasLoadedDocument] = useState(false)
   const [hasLocalChanges, setHasLocalChanges] = useState(false)
+  const [serverSaveStatus, setServerSaveStatus] = useState<ServerSaveStatus>('unconfirmed')
   const [localBackupStatus, setLocalBackupStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [isWorkingContentInitialized, setIsWorkingContentInitialized] = useState(false)
   const [accessError, setAccessError] = useState<string | null>(null)
@@ -190,6 +192,7 @@ export const useCollaboration = (
     const document = new Y.Doc()
     const provider = new WebsocketProvider(getWebSocketUrl(), roomName, document, {
       connect: false,
+      disableBc: true,
     })
     providerRef.current = provider
     const text = document.getText('content')
@@ -378,15 +381,10 @@ export const useCollaboration = (
     proposalContributorMap.observe(updateProposalContributors)
     proposalHistoryMap.observe(updateProposalHistory)
 
-    const recordLocalChange = (
-      _update: Uint8Array,
-      _origin: unknown,
-      _document: Y.Doc,
-      transaction: Y.Transaction,
-    ) => {
-      if (transaction.local) setHasLocalChanges(true)
-    }
-    document.on('update', recordLocalChange)
+    const stopDurabilityTracking = trackServerDurability(provider, (saveStatus, unconfirmed) => {
+      setServerSaveStatus(saveStatus)
+      setHasLocalChanges(unconfirmed)
+    })
     try {
       if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable')
       persistence = new IndexeddbPersistence(
@@ -424,7 +422,7 @@ export const useCollaboration = (
       disposed = true
       window.clearTimeout(initializationTimer)
       window.clearTimeout(backupTimer)
-      document.off('update', recordLocalChange)
+      stopDurabilityTracking()
       text.unobserve(updateContent)
       workingText.unobserve(updateWorkingContent)
       bibliographyText.unobserve(updateBibliography)
@@ -448,6 +446,7 @@ export const useCollaboration = (
       setIsSynced(false)
       setHasLoadedDocument(false)
       setHasLocalChanges(false)
+      setServerSaveStatus('unconfirmed')
       setLocalBackupStatus('loading')
       setWorkingContent('')
       setIsWorkingContentInitialized(false)
@@ -481,14 +480,14 @@ export const useCollaboration = (
   }, [accessError, enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
 
   useEffect(() => {
-    if (!hasLocalChanges || (status === 'connected' && isSynced && localBackupStatus === 'ready')) return
+    if (!hasLocalChanges || (serverSaveStatus === 'saved' && localBackupStatus === 'ready')) return
     const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', warnBeforeLeaving)
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
-  }, [hasLocalChanges, isSynced, localBackupStatus, status])
+  }, [hasLocalChanges, localBackupStatus, serverSaveStatus])
 
   useEffect(() => {
     session?.provider.awareness.setLocalStateField('user', profile)
@@ -1099,6 +1098,7 @@ export const useCollaboration = (
     status: enabled ? status : 'disconnected',
     accessError,
     isSynced,
+    serverSaveStatus,
     hasLoadedDocument,
     localBackupStatus,
     isWorkingContentInitialized,

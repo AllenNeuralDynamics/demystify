@@ -73,6 +73,21 @@
   white-space: nowrap;
 }
 
+.server-save-status {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.server-save-status.saved {
+  color: #16705d;
+}
+
+.server-save-status.error {
+  color: #9b391e;
+}
+
 .document-menu {
   position: relative;
   flex: 0 0 auto;
