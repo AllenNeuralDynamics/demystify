@@ -2,6 +2,15 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+const selectSourceDocument = async (source: Locator) => {
+  const modifier = await source.evaluate(() => {
+    const ios = /Apple Computer/.test(navigator.vendor) &&
+      (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+    return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+  })
+  await source.press(`${modifier}+a`)
+}
+
 test('edits continuously across formatted paragraphs without approval controls', async ({ page }, testInfo) => {
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
   const source = page.getByRole('textbox', { name: 'MyST source' })
@@ -29,7 +38,7 @@ test('edits equations and protected MyST objects in place', async ({ page }, tes
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
   const source = page.getByRole('textbox', { name: 'MyST source' })
   await source.focus()
-  await source.press('ControlOrMeta+a')
+  await selectSourceDocument(source)
   await page.keyboard.insertText('# Object editing\n\nBefore.\n\n$$\nx^2\n$$\n\n| Measure | Value |\n| --- | --- |\n| Cells | 10 |\n\n:::{figure} /sample-figure.svg\n:name: fig-demo\n:alt: Demo figure\n\nOriginal figure caption.\n:::\n\nAfter.')
   await page.getByTitle('Visual editor', { exact: true }).click()
   const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
@@ -92,7 +101,7 @@ test('moves seamlessly between labeled equations, captions and prose', async ({ 
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
   const source = page.getByRole('textbox', { name: 'MyST source' })
   await source.focus()
-  await source.press('ControlOrMeta+a')
+  await selectSourceDocument(source)
   await page.keyboard.insertText('# Labeled objects\n\nBefore.\n\n(first-equation)=\n\n$$\na^2\n$$\n\n' +
     '(second-equation)=\n\n$$\nb^3\n$$\n\n:::{figure} /sample-figure.svg\n:name: fig-long\n\n' +
     'Detailed caption with $c^4$ and a [linked result](https://example.org).\n:::\n\nAfter.')
@@ -140,7 +149,7 @@ test('keeps object editor geometry and document scroll stable', async ({ page },
   const caption = Array.from({ length: 14 }, (_, index) =>
     `Caption section ${index + 1} describes the spatial component $c_${index}$ and its corresponding measurements.`).join(' ')
   await source.focus()
-  await source.press('ControlOrMeta+a')
+  await selectSourceDocument(source)
   await page.keyboard.insertText(`# Stable objects\n\n${paragraphs}\n\n$$\nx^2\n$$\n\n` +
     `:::{figure} /sample-figure.svg\n:name: fig-stable\n\n${caption}\n:::\n\nFollowing paragraph.\n\n${paragraphs}`)
   await page.getByTitle('Visual editor', { exact: true }).click()
