@@ -175,6 +175,39 @@ describe('useCollaboration connection lifecycle', () => {
     await act(async () => root.unmount())
   })
 
+  it('keeps a composed comment attached to its captured passage after text is inserted above it', async () => {
+    const root = createRoot(document.createElement('div'))
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    const source = 'A selected phrase.'
+    const phrase = 'selected phrase'
+    const from = source.indexOf(phrase)
+    await act(async () => collaborationRef.current?.sharedText?.insert(0, source))
+    const anchor = collaborationRef.current?.captureCommentAnchor({ from, to: from + phrase.length })
+    const prefix = 'A collaborator added this.\n\n'
+    await act(async () => collaborationRef.current?.sharedText?.insert(0, prefix))
+    await act(async () => collaborationRef.current?.addComment('Discuss this phrase', undefined, anchor))
+    const comment = collaborationRef.current?.comments[0]
+    expect(comment?.anchor?.quote).toBe(phrase)
+    expect(comment && collaborationRef.current?.resolveAnchor(comment))
+      .toMatchObject({ from: prefix.length + from, to: prefix.length + from + phrase.length })
+    await act(async () => root.unmount())
+  })
+
+  it('does not post a composed comment on a deleted captured passage', async () => {
+    const root = createRoot(document.createElement('div'))
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    await act(async () => collaborationRef.current?.sharedText?.insert(0, 'Selected passage'))
+    const anchor = collaborationRef.current?.captureCommentAnchor({ from: 0, to: 16 })
+    await act(async () => collaborationRef.current?.sharedText?.delete(0, 16))
+    await act(async () => {
+      expect(collaborationRef.current?.addComment('Keep the draft', undefined, anchor)).toBeUndefined()
+    })
+    expect(collaborationRef.current?.comments).toHaveLength(0)
+    await act(async () => root.unmount())
+  })
+
   it('reconnects with a new provider when the authorized actor changes', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)

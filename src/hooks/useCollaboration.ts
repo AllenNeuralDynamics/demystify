@@ -102,6 +102,11 @@ export interface SharedCommentMessage {
   github?: PullRequestCommentMirror
 }
 
+export interface CommentDraftAnchor {
+  anchor: CommentAnchor
+  anchorTarget: 'content' | 'working'
+}
+
 interface CollaborationSession {
   document: Y.Doc
   provider: WebsocketProvider
@@ -505,16 +510,38 @@ export const useCollaboration = (
     )
   }, [session])
 
-  const addComment = (body: string, selection?: { from: number; to: number }) => {
+  const captureCommentAnchor = (selection?: { from: number; to: number }): CommentDraftAnchor | undefined => {
+    if (!session || !selection) return
+    const text = session.metadata.get('workingContentInitialized') === true
+      ? session.workingText
+      : session.text
+    return {
+      anchor: createCommentAnchor(text, selection.from, selection.to),
+      anchorTarget: text === session.workingText ? 'working' : 'content',
+    }
+  }
+
+  const addComment = (
+    body: string,
+    selection?: { from: number; to: number },
+    draftAnchor?: CommentDraftAnchor,
+  ) => {
     const trimmedBody = body.trim()
     if (!session || readOnly || !trimmedBody) return
 
     const id = crypto.randomUUID()
-    const anchorText = session.metadata.get('workingContentInitialized') === true
+    const anchorText = (draftAnchor
+      ? draftAnchor.anchorTarget === 'working'
+      : session.metadata.get('workingContentInitialized') === true)
       ? session.workingText
       : session.text
-    const anchor = selection
-      ? createCommentAnchor(anchorText, selection.from, selection.to)
+    const resolved = draftAnchor && resolveCommentAnchor(session.document, anchorText, draftAnchor.anchor, {
+      recoverQuote: false,
+    })
+    if (draftAnchor && (!resolved || resolved.orphaned)) return
+    const range = resolved || selection
+    const anchor = range
+      ? createCommentAnchor(anchorText, range.from, range.to)
       : undefined
     session.comments.set(id, {
       id,
@@ -618,7 +645,7 @@ export const useCollaboration = (
     session.commentMessages.set(messageId, { ...message, github: mirror })
   }, [readOnly, session])
 
-  const resolveAnchor = useCallback((comment: SharedComment) => {
+  const resolveAnchor = useCallback((comment: Pick<SharedComment, 'anchor' | 'anchorTarget' | 'suggestion'>) => {
     if (!session || !comment.anchor) return null
     const anchorText = comment.anchorTarget === 'working'
       ? session.workingText
@@ -1108,6 +1135,7 @@ export const useCollaboration = (
     isMystConfigInitialized,
     areProjectFilesInitialized,
     addComment,
+    captureCommentAnchor,
     addCommentReply,
     editComment,
     editCommentReply,
