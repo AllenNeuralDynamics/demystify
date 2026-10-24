@@ -2,6 +2,31 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+test('uses neutral document text and blue focus for live editing', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Editing color semantics run once')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByRole('textbox', { name: 'MyST source' }).focus()
+  await expect(page.locator('.cm-cursor')).toHaveCSS('border-left-color', 'rgb(26, 115, 232)')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  for (const viewport of [{ width: 1440, height: 960 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    const paragraph = page.locator('.myst-preview p.myst-editable-block').first()
+    await paragraph.hover()
+    await expect(paragraph).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await paragraph.focus()
+    await paragraph.press('F2')
+    const field = page.getByRole('textbox', { name: 'Edit paragraph' })
+    await expect(field).toBeFocused()
+    await expect(field).toHaveCSS('color', 'rgb(32, 33, 36)')
+    await expect(page.locator('.visual-inline-surface')).toHaveCSS('border-color', 'rgb(26, 115, 232)')
+    await expect(page.locator('.visual-live-label')).toHaveCSS('color', 'rgb(95, 99, 104)')
+    await expect(page.locator('.is-visual-editing')).toHaveCSS('outline-color', 'rgb(26, 115, 232)')
+    await expect(page.locator('.is-visual-editing')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+    await page.screenshot({ path: testInfo.outputPath(`editing-colors-${viewport.width}.png`) })
+    await page.getByTitle('Close visual editor').click()
+  }
+})
+
 test('keeps document comments attached to the selected passage through replies and resolution', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Contextual comment workflow runs once')
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
@@ -395,7 +420,7 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   )
   await expect(page.locator('.cm-lineNumbers .cm-activeLineGutter')).toHaveCSS(
     'background-color',
-    'rgb(237, 245, 241)',
+    'rgb(241, 243, 244)',
   )
   const selectPhrase = async (selectedText = phrase) => {
     await source.focus()
