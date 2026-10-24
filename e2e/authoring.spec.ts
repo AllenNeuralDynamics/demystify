@@ -420,7 +420,7 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
   )
   await expect(page.locator('.cm-lineNumbers .cm-activeLineGutter')).toHaveCSS(
     'background-color',
-    'rgb(237, 245, 241)',
+    'rgb(241, 243, 244)',
   )
   const selectPhrase = async (selectedText = phrase) => {
     await source.focus()
