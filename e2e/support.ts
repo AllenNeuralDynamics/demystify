@@ -50,10 +50,13 @@ export const authenticateMaintainer = async (
   expect(sessionResponse.status()).toBe(204)
 
   const claimResponse = await page.request.post(`/api/rooms/${roomName}/claim`)
-  expect(claimResponse.status()).toBe(201)
+  expect([200, 201]).toContain(claimResponse.status())
 
   await page.goto(`/?doc=${roomName}`)
   await expect(page.locator('.sync-status')).toHaveText('Live')
+  if (claimResponse.status() === 201) {
+    await expect(page.locator('.document-title')).toHaveText('A shared language for reproducible manuscripts')
+  }
   await expect(page.getByRole('status', { name: 'Server save status' }))
     .toHaveAttribute('data-save-state', 'saved')
   await expect(page.getByTitle('Share access')).toBeVisible()

@@ -4,9 +4,53 @@ import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import type { SharedComment } from '../hooks/useCollaboration'
 import { createCommentAnchor, resolveCommentAnchor } from './commentAnchors'
-import { createCollaborationRecovery } from './collaborationRecovery'
+import { createCollaborationRecovery, getVisualDraftsForRecovery,
+  readVisualRecoveryDraft, writeVisualRecoveryDraft } from './collaborationRecovery'
 
 describe('collaboration recovery', () => {
+  it('scopes unsubmitted Visual drafts by room, actor, file and browser tab storage', () => {
+    const stored = new Map<string, string>()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+      removeItem: (key: string) => stored.delete(key),
+      key: (index: number) => Array.from(stored.keys())[index] ?? null,
+      get length() { return stored.size },
+    })
+    try {
+      const room = crypto.randomUUID()
+      const key = JSON.stringify([room, 'actor-a', 'paper.md'])
+      const otherFile = JSON.stringify([room, 'actor-a', 'methods.md'])
+      const otherActor = JSON.stringify([room, 'actor-b', 'paper.md'])
+      const draft = { base: 'Original.', source: 'Unsubmitted edit.', suggestionMode: true }
+      expect(writeVisualRecoveryDraft(key, draft)).toBe(true)
+      writeVisualRecoveryDraft(otherFile, draft)
+      writeVisualRecoveryDraft(otherActor, { ...draft, source: 'Private to another actor.' })
+      expect(readVisualRecoveryDraft(key)).toEqual(draft)
+      expect(getVisualDraftsForRecovery(key)).toEqual([
+        { filePath: 'paper.md', ...draft }, { filePath: 'methods.md', ...draft },
+      ])
+      writeVisualRecoveryDraft(key, null)
+      expect(readVisualRecoveryDraft(key)).toBeNull()
+      expect(getVisualDraftsForRecovery(key)).toHaveLength(1)
+      writeVisualRecoveryDraft(otherFile, null)
+      writeVisualRecoveryDraft(otherActor, null)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('retains an in-memory downloadable draft when browser storage is unavailable', () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => { throw new Error('Blocked') },
+      setItem: () => { throw new Error('Blocked') }, removeItem: () => { throw new Error('Blocked') } })
+    try {
+      const key = JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])
+      const draft = { base: 'Before.', source: 'After.', suggestionMode: true }
+      expect(writeVisualRecoveryDraft(key, draft)).toBe(false)
+      expect(readVisualRecoveryDraft(key)).toEqual(draft)
+      expect(getVisualDraftsForRecovery(key)).toEqual([{ filePath: 'paper.md', ...draft }])
+      writeVisualRecoveryDraft(key, null)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('retains unsent review data when the browser document is recreated', async () => {
     const key = `recovery-test-${crypto.randomUUID()}`
     const document = new Y.Doc()

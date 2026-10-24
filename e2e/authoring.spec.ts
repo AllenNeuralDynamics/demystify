@@ -2,9 +2,228 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+const selectSourceDocument = async (source: Locator) => {
+  const modifier = await source.evaluate(() => {
+    const ios = /Apple Computer/.test(navigator.vendor) &&
+      (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+    return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+  })
+  await source.press(`${modifier}+a`)
+}
+
+test('edits continuously across formatted paragraphs without approval controls', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  await source.fill('# Draft\n\nFirst paragraph.\n\nSecond paragraph.\n')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  await expect(formatted).toBeVisible()
+  await formatted.locator('p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText(' Updated.')
+  await expect(formatted.locator('p').first()).toHaveText('First paragraph. Updated.')
+  await page.keyboard.press('Enter')
+  await page.keyboard.insertText('A new paragraph.')
+  await expect(formatted.locator('p')).toHaveCount(3)
+  await expect(formatted).toBeFocused()
+  await expect(page.getByTitle('Finish visual edit')).toHaveCount(0)
+  await expect(page.getByTitle('Save visual edit')).toHaveCount(0)
+  await page.getByTitle('Source only').click()
+  await expect(source).toContainText('First paragraph. Updated.')
+  await expect(source).toContainText('A new paragraph.')
+  await expect(source).toContainText('Second paragraph.')
+})
+
+test('edits equations and protected MyST objects in place', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText('# Object editing\n\nBefore.\n\n$$\nx^2\n$$\n\n| Measure | Value |\n| --- | --- |\n| Cells | 10 |\n\n:::{figure} /sample-figure.svg\n:name: fig-demo\n:alt: Demo figure\n\nOriginal figure caption.\n:::\n\nAfter.')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  await expect(formatted.getByRole('button', { name: 'Edit equation', exact: true })).toHaveCount(1)
+  await formatted.getByRole('button', { name: 'Edit equation', exact: true }).click()
+  const equation = page.getByRole('textbox', { name: 'LaTeX equation', exact: true })
+  await expect(equation).toHaveValue('x^2')
+  await equation.fill('x^3 + y')
+  await expect(page.locator('.visual-object-preview .katex')).toHaveCount(1)
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })).toBe(true)
+  const geometry = await page.locator('.visual-object-editor').evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    return { left: bounds.left, right: bounds.right, width: window.innerWidth,
+      contained: element.scrollWidth <= element.clientWidth }
+  })
+  expect(geometry.left).toBeGreaterThanOrEqual(0)
+  expect(geometry.right).toBeLessThanOrEqual(geometry.width)
+  expect(geometry.contained).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('equation-object-editor.png') })
+  await page.getByTitle('Apply equation', { exact: true }).click()
+  await expect(equation).toHaveCount(0)
+  await page.getByTitle('Source only', { exact: true }).click()
+  await expect(source).toContainText('x^3 + y')
+  await expect(source).toContainText('Before.')
+  await expect(source).toContainText('After.')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await formatted.getByRole('button', { name: 'Edit equation', exact: true }).click()
+  await equation.fill('discarded draft')
+  await page.getByTitle('Cancel object edit', { exact: true }).click()
+  const table = formatted.locator('.visual-protected-block').filter({ has: page.locator('table') })
+  await table.click()
+  const objectSource = page.getByRole('textbox', { name: 'MyST object source', exact: true })
+  const original = await objectSource.inputValue()
+  await objectSource.fill(original.replace('10', '12'))
+  await expect(page.locator('.visual-object-preview')).toHaveCount(0)
+  await page.getByTitle('Apply MyST object', { exact: true }).click()
+  await expect(objectSource).toHaveCount(0)
+  await expect(formatted.locator('table')).toContainText('12')
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Undo', exact: true }).click()
+  await expect(formatted.locator('table')).toContainText('10')
+  await formatted.getByRole('button', { name: 'Edit figure', exact: true }).click()
+  await expect(objectSource).toHaveValue(/:::\{figure\}/)
+  const figureSource = await objectSource.inputValue()
+  expect(figureSource).toContain(':name: fig-demo')
+  await objectSource.fill(figureSource.replace('Original figure caption.', 'Updated figure caption.'))
+  await page.getByTitle('Apply MyST object', { exact: true }).click()
+  await expect(formatted.locator('figure figcaption')).toContainText('Updated figure caption.')
+  await expect(formatted.locator('figure figcaption p.myst-editable-block')).toHaveCount(1)
+  await page.getByTitle('Source only', { exact: true }).click()
+  await expect(source).toContainText('x^3 + y')
+  await expect(source).not.toContainText('discarded draft')
+})
+
+test('moves seamlessly between labeled equations, captions and prose', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText('# Labeled objects\n\nBefore.\n\n(first-equation)=\n\n$$\na^2\n$$\n\n' +
+    '(second-equation)=\n\n$$\nb^3\n$$\n\n:::{figure} /sample-figure.svg\n:name: fig-long\n\n' +
+    'Detailed caption with $c^4$ and a [linked result](https://example.org).\n:::\n\nAfter.')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  const equations = formatted.getByRole('button', { name: 'Edit equation', exact: true })
+  await expect(equations).toHaveCount(2)
+  await equations.first().click()
+  const equation = page.getByRole('textbox', { name: 'LaTeX equation', exact: true })
+  await expect(equation).toHaveValue('a^2')
+  await equation.fill('a^5')
+  await equations.last().click()
+  await expect(equation).toHaveValue('b^3')
+  await equation.fill('b^6')
+  await formatted.locator('p').filter({ hasText: /^Before\.$/ }).click()
+  await expect(equation).toHaveCount(0)
+  await formatted.locator('figcaption .visual-protected-block').click({ position: { x: 8, y: 8 } })
+  const caption = page.getByRole('textbox', { name: 'MyST object source', exact: true })
+  await expect(caption).toHaveValue(/^Detailed caption with \$c\^4\$/)
+  await expect(page.locator('.visual-object-preview')).toHaveCount(0)
+  await caption.fill((await caption.inputValue()).replace('Detailed caption', 'Updated detailed caption'))
+  await formatted.locator('p').filter({ hasText: /^After\.$/ }).click()
+  await expect(caption).toHaveCount(0)
+  await expect(formatted.locator('figcaption')).toContainText('Updated detailed caption')
+  await formatted.getByRole('button', { name: 'Edit figure', exact: true }).click()
+  await caption.fill((await caption.inputValue()).replace(':name: fig-long', ':name: fig-updated'))
+  await equations.first().click()
+  await expect(equation).toHaveValue('a^5')
+  await formatted.locator('p').filter({ hasText: /^After\.$/ }).click()
+  await expect(equation).toHaveCount(0)
+  await page.getByTitle('Source only', { exact: true }).click()
+  await expect(source).toContainText('(first-equation)=')
+  await expect(source).toContainText('(second-equation)=')
+  await expect(source).toContainText('a^5')
+  await expect(source).toContainText('b^6')
+  await expect(source).toContainText('Updated detailed caption')
+  await expect(source).toContainText(':name: fig-updated')
+})
+
+test('keeps object editor geometry and document scroll stable', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  const paragraphs = Array.from({ length: 18 }, (_, index) =>
+    `Context paragraph ${index + 1} keeps the document long enough to inspect scrolling.`).join('\n\n')
+  const caption = Array.from({ length: 14 }, (_, index) =>
+    `Caption section ${index + 1} describes the spatial component $c_${index}$ and its corresponding measurements.`).join(' ')
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText(`# Stable objects\n\n${paragraphs}\n\n$$\nx^2\n$$\n\n` +
+    `:::{figure} /sample-figure.svg\n:name: fig-stable\n\n${caption}\n:::\n\nFollowing paragraph.\n\n${paragraphs}`)
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  await expect.poll(() => formatted.locator('img').evaluate((image) => image.complete && image.naturalWidth > 0)).toBe(true)
+  const objects = [
+    { name: 'equation', target: formatted.getByRole('button', { name: 'Edit equation', exact: true }) },
+    { name: 'caption', target: formatted.locator('figcaption .visual-protected-block') },
+    { name: 'figure', target: formatted.getByRole('button', { name: 'Edit figure', exact: true }) },
+  ]
+  const geometry = () => page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>('.preview-pane')!
+    const following = Array.from(pane.querySelectorAll('p'))
+      .find((element) => element.textContent === 'Following paragraph.')!
+    return { scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight,
+      followingTop: following.getBoundingClientRect().top }
+  })
+  let stablePanel: { x: number; y: number; width: number; height: number } | null = null
+  for (const object of objects) {
+    await object.target.scrollIntoViewIfNeeded()
+    const before = await geometry()
+    await object.target.click(object.name === 'caption' ? { position: { x: 8, y: 8 } } : {})
+    const editor = page.locator('.visual-object-editor')
+    const input = editor.locator('textarea')
+    await expect(input).toBeFocused()
+    const opened = await geometry()
+    expect(opened.scrollHeight).toBe(before.scrollHeight)
+    expect(Math.abs(opened.scrollTop - before.scrollTop)).toBeLessThanOrEqual(2)
+    expect(Math.abs(opened.followingTop - before.followingTop)).toBeLessThanOrEqual(2)
+    const panelBefore = await editor.boundingBox()
+    if (stablePanel) expect(panelBefore).toEqual(stablePanel)
+    else stablePanel = panelBefore
+    await input.fill(`\\begin{aligned}\n${Array.from({ length: 25 }, (_, index) => `x_${index} &= y_${index}`).join(' \\\\\n')}\n\\end{aligned}`)
+    const panelAfter = await editor.boundingBox()
+    expect(panelAfter).toEqual(panelBefore)
+    expect(await geometry()).toEqual(opened)
+    expect(await input.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`stable-${object.name}-editor.png`) })
+    await page.getByTitle('Cancel object edit', { exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    const closed = await geometry()
+    expect(closed.scrollHeight).toBe(before.scrollHeight)
+    expect(Math.abs(closed.scrollTop - before.scrollTop)).toBeLessThanOrEqual(2)
+    expect(Math.abs(closed.followingTop - before.followingTop)).toBeLessThanOrEqual(2)
+  }
+})
+
+test('shared formatting toolbar targets the continuous Visual selection', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Shared toolbar routing runs once')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByRole('textbox', { name: 'MyST source' }).fill('# Draft\n\nFirst paragraph.\n')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  await formatted.locator('p').first().click()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.getByTitle('Bold', { exact: true }).click()
+  await expect(formatted.locator('strong')).toHaveText('F')
+  await page.getByTitle('Undo', { exact: true }).click()
+  await expect(formatted.locator('strong')).toHaveCount(0)
+  await expect(formatted).toContainText('First paragraph.')
+  await page.getByTitle('Insert MyST content').click()
+  await page.getByRole('dialog', { name: 'Insert MyST content' })
+    .getByRole('button', { name: /^Note/ }).click()
+  await expect(formatted.locator('aside')).toHaveCount(1)
+  await page.getByTitle('Source only').click()
+  await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText(':::{note}')
+})
+
 test('uses neutral document text and blue focus for live editing', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Editing color semantics run once')
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await expect(page.getByRole('status', { name: 'Server save status' })).toHaveCSS('color', 'rgb(24, 90, 188)')
+  await expect(page.locator('.file-row.active')).toHaveCSS('color', 'rgb(24, 90, 188)')
   await page.getByRole('textbox', { name: 'MyST source' }).focus()
   await expect(page.locator('.cm-cursor')).toHaveCSS('border-left-color', 'rgb(26, 115, 232)')
   await page.getByTitle('Visual editor', { exact: true }).click()
@@ -13,17 +232,13 @@ test('uses neutral document text and blue focus for live editing', async ({ page
     const paragraph = page.locator('.myst-preview p.myst-editable-block').first()
     await paragraph.hover()
     await expect(paragraph).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await paragraph.focus()
-    await paragraph.press('F2')
-    const field = page.getByRole('textbox', { name: 'Edit paragraph' })
+    await paragraph.click()
+    const field = page.getByRole('textbox', { name: 'Formatted manuscript' })
     await expect(field).toBeFocused()
     await expect(field).toHaveCSS('color', 'rgb(32, 33, 36)')
-    await expect(page.locator('.visual-inline-surface')).toHaveCSS('border-color', 'rgb(26, 115, 232)')
-    await expect(page.locator('.visual-live-label')).toHaveCSS('color', 'rgb(95, 99, 104)')
-    await expect(page.locator('.is-visual-editing')).toHaveCSS('outline-color', 'rgb(26, 115, 232)')
-    await expect(page.locator('.is-visual-editing')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+    await expect(field).toHaveCSS('caret-color', 'rgb(26, 115, 232)')
+    await expect(field).toHaveCSS('background-color', 'rgb(255, 255, 255)')
     await page.screenshot({ path: testInfo.outputPath(`editing-colors-${viewport.width}.png`) })
-    await page.getByTitle('Close visual editor').click()
   }
 })
 
@@ -64,7 +279,8 @@ test('keeps document comments attached to the selected passage through replies a
   const mark = page.locator('.myst-comment-highlight')
   await expect(mark).toHaveText('inspectable')
   await page.getByTitle('Close comments').click()
-  await mark.click()
+  await mark.focus()
+  await mark.press('Enter')
   await expect(page.locator('.document-panes')).toHaveClass(/view-preview/)
   await expect(thread).toHaveAttribute('aria-expanded', 'true')
   await expect.poll(async () => {
@@ -502,7 +718,7 @@ test('selects, copies, cuts, pastes, and formats Source text', async ({ page }, 
     .toBe(2)
 })
 
-test('preserves rendered text selection before entering visual editing', async ({ page }, testInfo) => {
+test('preserves rendered text selection in the continuous visual editor', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile-'), 'Mouse selection runs in desktop engines')
   await page.setViewportSize({ width: 1000, height: 760 })
   const roomName = createRoomName(testInfo)
@@ -525,13 +741,14 @@ test('preserves rendered text selection before entering visual editing', async (
 
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? ''))
     .not.toBe('')
-  await expect(page.locator('.visual-prosemirror')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Formatted manuscript' })).toBeFocused()
+  await expect(page.locator('.visual-inline-editor')).toHaveCount(0)
 
   await page.evaluate(() => window.getSelection()?.removeAllRanges())
   await paragraph.click()
-  await expect(page.getByRole('textbox', { name: 'Edit paragraph' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Formatted manuscript' })).toBeFocused()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('textbox', { name: 'Edit paragraph' })).toBeHidden()
+  await expect(page.getByRole('textbox', { name: 'Formatted manuscript' })).toBeVisible()
 })
 
 test('keeps mobile Escape ordering and focus deterministic', async ({ page }, testInfo) => {
