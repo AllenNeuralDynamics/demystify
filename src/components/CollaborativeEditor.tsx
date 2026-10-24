@@ -316,6 +316,8 @@ const commentHighlightField = StateField.define<DecorationSet>({
                 side: -1,
               }).range(suggestion.from)]
             : []
+          const insertionStyle = document.createElement('span').style
+          insertionStyle.setProperty('--cm-suggestion-color', suggestion.authorColor)
           const insertion = suggestion.to > suggestion.from
             ? [Decoration.mark({
                 class: [
@@ -325,6 +327,7 @@ const commentHighlightField = StateField.define<DecorationSet>({
                 attributes: {
                   'aria-label': `Suggested insertion by ${suggestion.authorName}. Press Enter to open review.`,
                   'data-comment-id': suggestion.id,
+                  style: insertionStyle.cssText,
                   role: 'button',
                   tabindex: '0',
                   title: `Suggested insertion by ${suggestion.authorName}; open review`,
@@ -367,7 +370,7 @@ const editorTheme = EditorView.theme({
   '&': {
     height: '100%',
     background: '#fff',
-    color: '#202723',
+    color: '#202124',
   },
   '.cm-scroller': {
     fontFamily: '"IBM Plex Mono", monospace',
@@ -378,7 +381,10 @@ const editorTheme = EditorView.theme({
   '.cm-content': {
     maxWidth: '780px',
     margin: '0 auto',
-    caretColor: '#16705d',
+    caretColor: 'var(--editor-accent, #1a73e8)',
+  },
+  '.cm-cursor, .cm-dropCursor': {
+    borderLeftColor: 'var(--editor-accent, #1a73e8)',
   },
   '.cm-line': {
     padding: '0 12px',
@@ -392,8 +398,8 @@ const editorTheme = EditorView.theme({
     background: 'transparent',
   },
   '.cm-activeLineGutter': {
-    background: '#edf5f1',
-    color: '#202723',
+    background: '#f1f3f4',
+    color: '#202124',
     fontWeight: '600',
   },
   '&.cm-focused': {
@@ -454,8 +460,8 @@ const editorTheme = EditorView.theme({
   },
   '.cm-suggestion-insertion': {
     borderBottom: '2px solid var(--cm-suggestion-color, #16705d)',
-    background: '#eaf7f1',
-    color: '#185b49',
+    background: 'transparent',
+    color: '#202124',
     cursor: 'pointer',
     textDecoration: 'none',
   },
@@ -468,8 +474,8 @@ const editorTheme = EditorView.theme({
     marginLeft: '7px',
     padding: '1px 3px',
     borderBottom: '2px solid var(--cm-suggestion-color, #16705d)',
-    background: '#eaf7f1',
-    color: '#202723',
+    background: 'transparent',
+    color: '#202124',
     cursor: 'pointer',
     whiteSpace: 'pre-wrap',
     overflowWrap: 'anywhere',
@@ -488,7 +494,7 @@ const editorTheme = EditorView.theme({
     fontWeight: '600',
   },
   '.cm-suggestion-source': {
-    color: '#185b49',
+    color: 'inherit',
   },
   '.cm-suggestion-author': {
     display: 'inline-block',

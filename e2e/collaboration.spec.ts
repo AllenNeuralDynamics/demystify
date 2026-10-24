@@ -131,6 +131,10 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     await expect(page.locator('.sync-status')).toHaveText('Live')
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
       .toContainText('A reviewer-proposed sentence.')
+    const insertion = page.locator('.myst-preview .myst-suggestion-insertion')
+    await expect(insertion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(insertion).toHaveCSS('color', 'rgb(32, 33, 36)')
+    await expect(insertion).toHaveCSS('border-bottom-color', 'rgb(166, 75, 54)')
     await expect(page.getByRole('button', { name: 'Editing' })).toBeVisible()
     await page.getByRole('button', { name: 'Tools', exact: true }).click()
     await page.getByRole('menu', { name: 'Tools menu' })
@@ -158,6 +162,7 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     await expect(resolvedAcceptedSuggestion.locator('.suggestion-summary'))
       .toContainText('Accepted')
     await expect(page.locator('.myst-preview')).toContainText('A reviewer-proposed sentence.')
+    await expect(page.locator('.myst-preview .myst-suggestion-insertion')).toHaveCount(0)
     await expect(page.getByTitle('Save snapshot to GitHub')).toBeEnabled()
 
     await replaceFirstVisualParagraph(
@@ -253,6 +258,10 @@ test('two Source reviewers keep independent attributed suggestions', async ({ br
     await expect(page.locator('.sync-status')).toHaveText('Live')
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
       .toContainText(replacement)
+    const sourceInsertion = page.locator('.cm-suggestion-insertion').first()
+    await expect(sourceInsertion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(sourceInsertion).toHaveCSS('color', 'rgb(32, 33, 36)')
+    await expect(sourceInsertion).toHaveCSS('border-bottom-color', 'rgb(166, 75, 54)')
 
     await page.getByRole('button', {
       name: /Suggested insertion by Source Reviewer/,
