@@ -195,6 +195,118 @@ describe('PostgresYjsPersistence', () => {
     document.destroy()
   })
 
+  it('waits for pending update writes before compacting a room', async () => {
+    let finishWrite!: (result: { rows: [] }) => void
+    const pendingWrite = new Promise<{ rows: [] }>((resolve) => {
+      finishWrite = resolve
+    })
+    const client = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    const connect = vi.fn().mockResolvedValue(client)
+    const query = vi.fn().mockResolvedValue({ rows: [] })
+    const persistence = new PostgresYjsPersistence({ connect, query } as unknown as Pool)
+    const document = new yjs.Doc()
+    persistence.bindState('pending-write-room', document)
+    await persistence.waitForHydration(document)
+
+    query.mockReturnValueOnce(pendingWrite)
+    document.getMap('comments').set('review-1', { body: 'Not yet stored' })
+    const compacted = persistence.writeState('pending-write-room', document)
+    try {
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(connect).not.toHaveBeenCalled()
+    } finally {
+      finishWrite({ rows: [] })
+      await compacted
+      document.destroy()
+    }
+    expect(connect).toHaveBeenCalledOnce()
+  })
+
+  it('retains failed updates until a persistence barrier retries them successfully', async () => {
+    const updates: Uint8Array[] = []
+    let available = true
+    const query = vi.fn(async (statement: string, values: unknown[]) => {
+      if (!available) throw new Error('database unavailable')
+      if (statement.includes('INSERT INTO demystify_yjs_updates')) {
+        updates.push(new Uint8Array(values[1] as Buffer))
+      }
+      return { rows: [] }
+    })
+    const persistence = new PostgresYjsPersistence({ query } as unknown as Pool)
+    const document = new yjs.Doc()
+    persistence.bindState('retry-room', document)
+    await persistence.waitForHydration(document)
+    available = false
+    document.getMap('comments').set('review-1', { body: 'Survives database outage' })
+    document.getText('content').insert(0, 'Manuscript')
+    await expect(persistence.flush('retry-room', document)).rejects.toThrow('database unavailable')
+    available = true
+    await persistence.flush('retry-room', document)
+    const restored = new yjs.Doc()
+    updates.forEach((update) => yjs.applyUpdate(restored, update))
+    expect(restored.getMap('comments').get('review-1')).toEqual({ body: 'Survives database outage' })
+    expect(restored.getText('content').toString()).toBe('Manuscript')
+    restored.destroy()
+    document.destroy()
+  })
+
+  it('automatically retries a failed deletion without another client update', async () => {
+    vi.useFakeTimers()
+    const updates: Uint8Array[] = []
+    let available = true
+    const persistence = new PostgresYjsPersistence({
+      query: vi.fn(async (statement: string, values: unknown[]) => {
+        if (!available) throw new Error('database unavailable')
+        if (statement.includes('INSERT INTO demystify_yjs_updates')) {
+          updates.push(new Uint8Array(values[1] as Buffer))
+        }
+        return { rows: [] }
+      }),
+    } as unknown as Pool)
+    const document = new yjs.Doc()
+    const restored = new yjs.Doc()
+    try {
+      persistence.bindState('retry-delete-room', document)
+      await persistence.waitForHydration(document)
+      document.getText('content').insert(0, 'Remove this')
+      await persistence.flush('retry-delete-room', document)
+      available = false
+      document.getText('content').delete(0, 7)
+      await vi.advanceTimersByTimeAsync(0)
+      available = true
+      await vi.advanceTimersByTimeAsync(1_000)
+      updates.forEach((update) => yjs.applyUpdate(restored, update))
+      expect(restored.getText('content').toString()).toBe('this')
+    } finally {
+      document.destroy()
+      restored.destroy()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries a failed final save without forgetting the room', async () => {
+    const client = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    const persistence = new PostgresYjsPersistence({
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValue(client),
+    } as unknown as Pool)
+    const document = new yjs.Doc()
+    persistence.bindState('retry-final-save', document)
+    await persistence.waitForHydration(document)
+    client.query.mockRejectedValueOnce(new Error('commit unavailable'))
+    await expect(persistence.writeState('retry-final-save', document)).rejects.toThrow('commit unavailable')
+    await expect(persistence.writeState('retry-final-save', document)).resolves.toBeUndefined()
+    expect(client.release).toHaveBeenCalledTimes(2)
+    document.destroy()
+  })
+
   it('does not compact when hydration fails', async () => {
     const connect = vi.fn()
     const persistence = new PostgresYjsPersistence({

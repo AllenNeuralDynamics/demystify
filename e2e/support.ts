@@ -54,6 +54,8 @@ export const authenticateMaintainer = async (
 
   await page.goto(`/?doc=${roomName}`)
   await expect(page.locator('.sync-status')).toHaveText('Live')
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'saved')
   await expect(page.getByTitle('Share access')).toBeVisible()
   await expect(page.getByTitle('Insert MyST content')).toBeEnabled()
 }

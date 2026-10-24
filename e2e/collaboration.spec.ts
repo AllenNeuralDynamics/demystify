@@ -483,6 +483,65 @@ test('keeps an attributed suggestion in the mobile reading flow', async ({ brows
   }
 })
 
+test('protects a Source draft before the autosave debounce sends it', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Buffered draft protection runs once')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByRole('button', { name: 'Editing', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Suggesting', exact: true }).click()
+  await page.clock.install()
+  await page.clock.pauseAt(new Date(Date.now() + 1_000))
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  const current = await source.innerText()
+  await source.fill(current.replace('A manuscript should be', 'A buffered source draft must be'))
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'unconfirmed')
+  const warned = await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(warned).toBe(true)
+  await page.clock.resume()
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'saved')
+})
+
+test('does not claim saved when a live socket stops delivering persistence receipts', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Covered by desktop engines')
+  test.setTimeout(60_000)
+  let dropReceipts = false
+  await page.routeWebSocket(/\/collaboration\//, (socket) => {
+    const server = socket.connectToServer()
+    server.onMessage((message) => {
+      const bytes = typeof message === 'string' ? null : new Uint8Array(message)
+      if (dropReceipts && bytes?.[0] === 4) return
+      socket.send(message)
+    })
+  })
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  await page.getByTitle('Open comments').click()
+  dropReceipts = true
+  await page.getByTitle('Add comment to selection').click()
+  await page.getByRole('textbox', { name: 'New comment' }).fill('Server save needs a receipt')
+  await page.locator('.comments-panel').getByRole('button', { name: 'Comment', exact: true }).click()
+  const saveStatus = page.getByRole('status', { name: 'Server save status' })
+  await expect(saveStatus).toHaveAttribute('data-save-state', 'unconfirmed')
+  await expect(page.locator('.sync-status')).toHaveText('Live')
+  await expect(saveStatus).toHaveAttribute('data-save-state', 'error', { timeout: 15_000 })
+  await expect(page.locator('.connection-warning')).toContainText('No server save receipt')
+  const warned = await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(warned).toBe(true)
+  dropReceipts = false
+  await expect(saveStatus).toHaveAttribute('data-save-state', 'saved', { timeout: 10_000 })
+  await expect(page.locator('.connection-warning')).toHaveCount(0)
+  await expect(page.locator('.comment')).toContainText('Server save needs a receipt')
+})
+
 test('exports 24 unsent comments from an existing disconnected tab without reloading it', async ({ browser, page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Recovery download runs once')
   test.setTimeout(90_000)

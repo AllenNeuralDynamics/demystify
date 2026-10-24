@@ -2,6 +2,8 @@
 import { act, createRef, forwardRef, useImperativeHandle } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WebsocketProvider } from 'y-websocket'
+import type * as Y from 'yjs'
 import { useCollaboration } from './useCollaboration'
 
 const reactTestGlobal = globalThis as typeof globalThis & {
@@ -29,12 +31,18 @@ vi.mock('y-websocket', () => ({
     }
 
     shouldConnect = true
+    wsconnected = false
+    synced = false
+    ws = { readyState: 1, send: vi.fn() } as unknown as WebSocket
+    messageHandlers: WebsocketProvider['messageHandlers'] = []
+    readonly doc: Y.Doc
 
     connect = vi.fn(() => this.emit('status', { status: 'connected' }))
     destroy = vi.fn()
     disconnect = vi.fn(() => this.emit('status', { status: 'disconnected' }))
 
-    constructor() {
+    constructor(_url: string, _room: string, doc: Y.Doc) {
+      this.doc = doc
       providerInstances.push(this)
     }
 
@@ -49,6 +57,8 @@ vi.mock('y-websocket', () => ({
     }
 
     emit(event: string, value: unknown) {
+      if (event === 'status') this.wsconnected = (value as { status: string }).status === 'connected'
+      if (event === 'sync') this.synced = value === true
       this.listeners.get(event)?.forEach((listener) => listener(value))
     }
   },

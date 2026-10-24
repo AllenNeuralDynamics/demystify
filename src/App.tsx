@@ -1217,8 +1217,23 @@ function App() {
     })
   }
 
+  const displayedSaveStatus = activeSourceDraftPreview !== null
+    ? 'unconfirmed'
+    : collaboration.serverSaveStatus
+
+  useEffect(() => {
+    if (activeSourceDraftPreview === null) return
+    const protectSourceDraft = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', protectSourceDraft)
+    return () => window.removeEventListener('beforeunload', protectSourceDraft)
+  }, [activeSourceDraftPreview])
+
   const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && (
     !collaboration.isSynced || collaboration.status !== 'connected' ||
+    collaboration.serverSaveStatus === 'error' ||
     collaboration.localBackupStatus === 'unavailable'
   )
   const localChangesRejected = collaboration.accessError?.startsWith('The server rejected') ?? false
@@ -1602,6 +1617,21 @@ function App() {
                           ? 'Suggesting'
                           : 'Live'}
               </span>
+              {!isViewer && collaboration.hasLoadedDocument && (
+                <span
+                  className={`server-save-status ${displayedSaveStatus}`}
+                  role="status"
+                  aria-label="Server save status"
+                  data-save-state={displayedSaveStatus}
+                  title={displayedSaveStatus === 'saved'
+                    ? 'The server confirmed persistent storage of the current changes.'
+                    : 'Persistent server storage has not yet been confirmed.'}
+                >
+                  {displayedSaveStatus === 'saved'
+                    ? 'Saved to server'
+                    : displayedSaveStatus === 'error' ? 'Save unconfirmed' : 'Saving...'}
+                </span>
+              )}
             </div>
             <nav className="document-menu-bar" aria-label="Document menu">
               <DocumentMenu
@@ -2054,6 +2084,8 @@ function App() {
                 <span>
                   {localChangesRejected
                     ? 'Server rejected changes. Download recovery.'
+                    : collaboration.serverSaveStatus === 'error'
+                      ? 'No server save receipt. Keep a recovery copy.'
                     : collaboration.localBackupStatus === 'ready'
                       ? 'Browser recovery available. Server save unconfirmed.'
                       : collaboration.localBackupStatus === 'unavailable'

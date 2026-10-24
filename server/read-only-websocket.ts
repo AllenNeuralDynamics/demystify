@@ -640,6 +640,7 @@ export const setupReadOnlyAwareWebSocket = (
   isReadOnly: () => boolean,
   setup: (socket: WebSocket) => void,
   isWritableMessageAllowed: (data: RawData) => boolean = () => true,
+  handleControlMessage: (data: RawData) => boolean = () => false,
 ) => {
   const originalOn = socket.on
   socket.on = function guardedOn(
@@ -654,6 +655,7 @@ export const setupReadOnlyAwareWebSocket = (
       this,
       event,
       (data: RawData, ...args: unknown[]) => {
+        if (handleControlMessage(data)) return
         const readOnly = isReadOnly()
         if (
           readOnly
