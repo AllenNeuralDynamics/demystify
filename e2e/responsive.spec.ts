@@ -65,6 +65,27 @@ test('critical application geometry remains inside every supported viewport', as
   }
 })
 
+test('wide manuscript tables stay inside the mobile document page', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Document table geometry runs once')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const table = page.locator('.myst-preview table').first()
+  await table.scrollIntoViewIfNeeded()
+  await expect(table).toHaveCSS('overflow-x', 'auto')
+  const geometry = await table.evaluate((element) => {
+    const paper = element.closest<HTMLElement>('.myst-preview')!
+    return {
+      paperClientWidth: paper.clientWidth,
+      paperScrollWidth: paper.scrollWidth,
+      tableRight: element.getBoundingClientRect().right,
+      pageRight: paper.getBoundingClientRect().right,
+    }
+  })
+  expect(geometry.paperScrollWidth).toBeLessThanOrEqual(geometry.paperClientWidth + 1)
+  expect(geometry.tableRight).toBeLessThanOrEqual(geometry.pageRight)
+})
+
 test('mobile sidebar Escape policy changes exactly above 820px', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Breakpoint policy runs once in Chromium')
   await page.setViewportSize({ width: 820, height: 560 })

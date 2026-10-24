@@ -1838,12 +1838,6 @@ function App() {
               <span>Connect GitHub</span>
             </button>
           ) : null}
-          {isMaintainer && !isArchived && (
-            <button className="button secondary-button" type="button" title="Share access" onClick={shareDocument}>
-              <Share2 size={16} />
-              <span>Share</span>
-            </button>
-          )}
           {isMaintainer && (isArchived || !repositoryBinding) ? (
             <button
               className="button github-button"
@@ -1877,6 +1871,12 @@ function App() {
               </span>
             </button>
           ) : null}
+          {isMaintainer && !isArchived && (
+            <button className="button share-button" type="button" title="Share access" onClick={shareDocument}>
+              <Share2 size={16} />
+              <span>Share</span>
+            </button>
+          )}
         </div>
       </header>
 

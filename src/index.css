@@ -6,17 +6,21 @@
 
 :root {
   font-family: 'IBM Plex Sans', sans-serif;
-  color: #202723;
-  background: #eef1ee;
+  color: #202124;
+  background: #f8fafd;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --ink: #202723;
-  --muted: #68716c;
-  --line: #d9dfda;
-  --soft-line: #e9edea;
+  --ink: #202124;
+  --muted: #5f6368;
+  --line: #dadce0;
+  --soft-line: #e8eaed;
   --surface: #ffffff;
-  --surface-soft: #f5f7f5;
+  --surface-soft: #f1f3f4;
+  --workspace-canvas: #f8fafd;
+  --toolbar-surface: #edf2fa;
+  --editor-accent: #1a73e8;
+  --editor-selection: #d3e3fd;
   --green: #16705d;
   --green-dark: #105748;
   --green-soft: #e1f0eb;
@@ -54,6 +58,6 @@ button {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--editor-accent);
   outline-offset: 2px;
 }

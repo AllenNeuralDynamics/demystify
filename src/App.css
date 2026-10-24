@@ -1,7 +1,7 @@
 .app-shell {
   width: 100%;
   height: 100%;
-  background: var(--surface);
+  background: var(--workspace-canvas);
 }
 
 .topbar {
@@ -12,8 +12,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
-  padding: 4px 12px 3px 8px;
-  background: rgba(255, 255, 255, 0.96);
+  padding: 4px 16px 3px 12px;
+  background: var(--workspace-canvas);
 }
 
 .brand-block,
@@ -26,7 +26,7 @@
 
 .brand-block {
   min-width: 0;
-  gap: 7px;
+  gap: 12px;
 }
 
 .brand-mark {
@@ -36,9 +36,9 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 6px;
-  background: var(--ink);
+  background: var(--editor-accent);
   color: white;
-  font-family: 'Fraunces', serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 20px;
 }
 
@@ -67,8 +67,8 @@
   min-width: 0;
   max-width: 520px;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -107,14 +107,14 @@
   color: var(--ink);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
 .document-menu-trigger:hover,
 .document-menu-trigger.active,
 .document-menu-trigger:focus-visible {
-  background: #e9efeb;
+  background: #e8edf3;
   outline: none;
 }
 
@@ -235,7 +235,7 @@
   padding: 0 7px;
   border: 0;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
 }
 
@@ -313,6 +313,19 @@
   background: white;
 }
 
+.share-button {
+  min-height: 36px;
+  padding-inline: 16px;
+  border-radius: 8px;
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+.share-button:hover,
+.share-button:focus-visible {
+  background: #b2d7ef;
+}
+
 .secondary-button:hover,
 .icon-button:hover {
   background: var(--surface-soft);
@@ -327,6 +340,16 @@
 .github-button:hover,
 .primary-button:hover {
   background: #343d38;
+}
+
+.topbar-actions .github-button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.topbar-actions .github-button:hover {
+  background: var(--surface-soft);
 }
 
 .viewer-button {
@@ -589,7 +612,7 @@
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   border-right: 1px solid var(--line);
-  background: #f6f8f6;
+  background: var(--workspace-canvas);
   transition: width 180ms ease;
 }
 
@@ -960,9 +983,11 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  padding: 0 9px;
-  border-bottom: 1px solid var(--line);
-  background: #f6f8f6;
+  padding: 0 12px;
+  margin: 0 8px 6px;
+  border-bottom: 0;
+  border-radius: 8px;
+  background: var(--toolbar-surface);
   container-type: inline-size;
 }
 
@@ -988,11 +1013,11 @@
 }
 
 .toolbar-save {
-  color: var(--green-dark);
+  color: var(--editor-accent);
 }
 
 .toolbar-save:hover:not(:disabled) {
-  background: #e4eee9;
+  background: var(--editor-selection);
 }
 
 .formatting-tools button:disabled,
@@ -1008,10 +1033,10 @@
   align-items: center;
   gap: 6px;
   padding: 0 9px;
-  border: 1px solid #bdd3ca;
+  border: 1px solid #c4c7c5;
   border-radius: 5px;
-  background: #edf5f1;
-  color: var(--green-dark);
+  background: transparent;
+  color: #3c4043;
   font-size: 11px;
   font-weight: 500;
 }
@@ -1389,9 +1414,9 @@
 .view-switcher {
   display: flex;
   padding: 2px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: #f4f6f4;
+  background: transparent;
 }
 
 .view-switcher button {
@@ -1407,9 +1432,9 @@
 }
 
 .view-switcher button.active {
-  background: white;
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(31, 42, 35, 0.12);
+  background: var(--editor-selection);
+  color: #174ea6;
+  box-shadow: none;
 }
 
 .document-panes {
@@ -1420,7 +1445,7 @@
   overflow: hidden;
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr);
-  background: #eef1ee;
+  background: var(--workspace-canvas);
 }
 
 .pane-scroll-link {
@@ -1556,9 +1581,7 @@
 
 .preview-pane {
   overflow-y: auto;
-  background-color: #f3f5f2;
-  background-image: radial-gradient(#d7ddd8 0.65px, transparent 0.65px);
-  background-size: 12px 12px;
+  background: var(--workspace-canvas);
 }
 
 .preview-label {
@@ -1570,12 +1593,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(246, 248, 246, 0.94);
+  border-bottom: 0;
+  background: var(--workspace-canvas);
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
 }
 
 .myst-selection-comment {
@@ -1593,39 +1616,40 @@
 }
 
 .myst-preview {
-  width: min(720px, calc(100% - 48px));
+  width: min(816px, calc(100% - 48px));
   min-height: calc(100% - 86px);
   overflow-x: hidden;
   margin: 24px auto 42px;
   padding: 54px 64px 70px;
-  border: 1px solid #dfe3df;
+  border: 1px solid var(--line);
   background: white;
-  box-shadow: 0 9px 24px rgba(45, 56, 49, 0.08);
-  color: #28302b;
-  font-family: Georgia, 'Times New Roman', serif;
+  box-shadow: 0 1px 3px rgb(60 64 67 / 10%);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 15px;
-  line-height: 1.72;
+  line-height: 1.6;
 }
 
 .myst-preview h1,
 .myst-preview h2,
 .myst-preview h3 {
-  color: #17201b;
-  font-family: 'Fraunces', Georgia, serif;
-  font-weight: 600;
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
 .myst-preview h1 {
   margin: 0 0 18px;
-  font-size: 30px;
-  line-height: 1.18;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.25;
 }
 
 .myst-preview h2 {
-  margin: 34px 0 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #dfe4e0;
+  margin: 28px 0 10px;
+  padding-bottom: 0;
+  border-bottom: 0;
   font-size: 20px;
 }
 
@@ -2053,7 +2077,7 @@
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   border-left: 1px solid var(--line);
-  background: #f4f6f5;
+  background: var(--workspace-canvas);
 }
 
 .comments-panel.composer-open {
@@ -2250,7 +2274,7 @@
   min-height: 0;
   padding: 8px;
   overflow-y: auto;
-  background: #f4f6f5;
+  background: var(--workspace-canvas);
 }
 
 .review-show-older {
@@ -2457,8 +2481,8 @@
 
 .comment {
   margin-bottom: 8px;
-  padding: 11px 11px 10px;
-  border: 1px solid #e1e6e3;
+  padding: 13px 13px 12px;
+  border: 1px solid var(--line);
   border-left: 3px solid transparent;
   border-radius: 7px;
   background: white;
@@ -2468,15 +2492,16 @@
 
 .comment:hover,
 .comment:focus-visible {
-  border-color: #cbd5cf;
+  border-color: #bdc1c6;
   outline: none;
   background: white;
 }
 
 .comment.active {
-  border-left-color: #c58c00;
+  border-color: #aecbfa;
+  border-left-color: var(--editor-accent);
   background: white;
-  box-shadow: 0 3px 10px rgba(25, 34, 28, 0.12);
+  box-shadow: 0 2px 6px rgb(60 64 67 / 12%);
 }
 
 .comment.resolved {
@@ -2493,7 +2518,7 @@
   grid-template-columns: 24px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .comment-thread-state {
@@ -2519,7 +2544,7 @@
 
 .comment p {
   margin: 9px 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -5003,6 +5028,7 @@
 
   .editor-toolbar {
     padding-inline: 7px;
+    margin-inline: 0;
   }
 
   .myst-insert-menu:not(.menu-variant) .myst-insert-trigger,
@@ -5289,6 +5315,13 @@
 
   .myst-preview h1 {
     font-size: 25px;
+  }
+
+  .myst-preview table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
   }
 
   .modal-backdrop {
