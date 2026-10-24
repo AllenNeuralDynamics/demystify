@@ -94,23 +94,6 @@ const objectSourceParts = (source: string) => {
     prefix: equation?.[1] ?? '', suffix: equation?.[3] ?? '', value: equation?.[2] ?? source }
 }
 
-const renderObjectPreview = (element: HTMLElement, source: string, options: VisualDocumentOptions) => {
-  const rendered = renderMyst(source, options)
-  element.innerHTML = rendered.html
-  for (const math of Array.from(element.querySelectorAll<HTMLElement>('.math-display, .math-inline'))) {
-    katex.render(math.textContent ?? '', math, { displayMode: math.classList.contains('math-display'),
-      throwOnError: false, strict: 'ignore' })
-  }
-}
-
-const VisualObjectPreview = ({ source, options }: { source: string; options: VisualDocumentOptions }) => {
-  const elementRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    if (elementRef.current) renderObjectPreview(elementRef.current, source, options)
-  }, [source, options])
-  return <div ref={elementRef} className="visual-object-preview" aria-label="Object preview" />
-}
-
 export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -132,7 +115,6 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const [objectEdit, setObjectEdit] = useState<VisualObjectEdit | null>(null)
   const objectPanelRef = useRef<HTMLElement>(null)
   const objectSourceRef = useRef<HTMLTextAreaElement>(null)
-  const [objectPlacement, setObjectPlacement] = useState({ left: 12, top: 120, width: 600, height: 340 })
   const objectEditRef = useRef<VisualObjectEdit | null>(null)
   const persistObjectRef = useRef<(edit: VisualObjectEdit | null) => void>(() => {})
   const finishObjectRef = useRef<(commit: boolean, focus?: boolean) => boolean>(() => true)
@@ -374,7 +356,10 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
               end.index > start.index && start.index === latest.range.from && end.index === latest.range.to)
           } catch { return false }
         }
+        const height = Math.max(96, Math.ceil(element.getBoundingClientRect().height))
+        element.style.setProperty('--visual-object-height', `${height}px`)
         element.classList.add('is-object-editing')
+        host.hidden = false
         if (initial.node.isAtom) element.setAttribute('role', 'group')
         const edit: VisualObjectEdit = {
           host, ...objectSourceParts(recovery?.source ?? source), base: recovery?.base ?? source,
@@ -387,6 +372,8 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           },
           close: () => {
             element.classList.remove('is-object-editing')
+            element.style.removeProperty('--visual-object-height')
+            host.hidden = true
             if (initial.node.isAtom) element.setAttribute('role', 'button')
           },
           apply: (draft) => {
@@ -497,6 +484,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           const image = dom.tagName === 'FIGURE' ? dom.querySelector('img') : null
           const host = document.createElement('div')
           host.className = 'visual-object-editor-host'
+          host.contentEditable = 'false'
           host.hidden = true
           if (image) dom.append(host)
           const figureOpener = createObjectOpener(dom, host, getPosition)
@@ -520,7 +508,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           }
           return { dom, contentDOM,
             stopEvent: (event) => event.target instanceof Element &&
-              Boolean(event.target.closest('summary, img[role="button"]')),
+              (host.contains(event.target) || Boolean(event.target.closest('summary, img[role="button"]'))),
             ignoreMutation: (mutation) => mutation.type !== 'selection' &&
               !contentDOM.contains(mutation.target),
             destroy: () => {
@@ -556,6 +544,8 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           const preview = document.createElement('div')
           const host = document.createElement('div')
           host.className = 'visual-object-editor-host'
+          host.contentEditable = 'false'
+          host.hidden = true
           element.append(preview, host)
           const render = () => {
             preview.innerHTML = currentNode.attrs.html
@@ -943,50 +933,18 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const objectEditing = objectEdit !== null
   const objectHost = objectEdit?.host
   useLayoutEffect(() => {
-    if (!objectEditing) return
-    const pane = containerRef.current?.closest<HTMLElement>('.preview-pane')
-    const marginBottom = pane?.style.marginBottom ?? ''
-    const place = () => {
-      const bounds = pane?.getBoundingClientRect()
-      const viewport = window.visualViewport
-      const viewportWidth = viewport?.width ?? window.innerWidth
-      const viewportHeight = viewport?.height ?? window.innerHeight
-      const compact = viewportWidth <= 820 || (bounds?.width ?? viewportWidth) < 720
-      const width = Math.max(200, Math.min(compact ? 600 : 420, (bounds?.width ?? viewportWidth) - 24, viewportWidth - 24))
-      const top = compact ? Math.max(12, viewportHeight - Math.min(280, viewportHeight * 0.4) - 12)
-        : Math.max(12, Math.min((bounds?.top ?? 108) + 12, viewportHeight - 140))
-      const left = Math.max(12, Math.min((bounds?.right ?? viewportWidth) - width - 12, viewportWidth - width - 12))
-      const height = Math.max(120, Math.min(compact ? 280 : 340, viewportHeight - top - 12))
-      if (pane) pane.style.marginBottom = compact ? `${height + 24}px` : marginBottom
-      setObjectPlacement({ left, top, width, height })
-    }
-    place()
-    window.addEventListener('resize', place)
-    window.visualViewport?.addEventListener('resize', place)
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
-    if (pane) observer?.observe(pane)
-    return () => {
-      observer?.disconnect()
-      if (pane) pane.style.marginBottom = marginBottom
-      window.removeEventListener('resize', place)
-      window.visualViewport?.removeEventListener('resize', place)
-    }
-  }, [objectEditing])
-  useLayoutEffect(() => {
     if (objectEditing) objectSourceRef.current?.focus({ preventScroll: true })
   }, [objectEditing, objectHost])
   const closeObject = () => { finishObjectRef.current(false) }
   const applyObject = () => { finishObjectRef.current(true) }
   const objectEditor = objectEdit && <section ref={objectPanelRef} className="visual-object-editor"
-    style={objectPlacement} aria-label={`Edit ${objectEdit.kind}`}>
+    aria-label={`Edit ${objectEdit.kind}`}>
     <header><strong>{objectEdit.kind === 'equation' ? 'Equation' : 'MyST object'}</strong>
       <div className="visual-object-actions">
         <button type="button" title={`Apply ${objectEdit.kind}`} disabled={!props.editable || !objectEdit.host || objectEdit.suggestionMode !== props.suggestionMode} onClick={applyObject}><Check size={16} /></button>
         <button type="button" title="Cancel object edit" onClick={closeObject}><X size={16} /></button>
       </div>
     </header>
-    {objectEdit.kind === 'equation' && <VisualObjectPreview
-      source={`${objectEdit.prefix}${objectEdit.value}${objectEdit.suffix}`} options={props} />}
     <textarea ref={objectSourceRef} spellCheck={false} aria-label={objectEdit.kind === 'equation' ? 'LaTeX equation' : 'MyST object source'}
       readOnly={!props.editable || objectEdit.suggestionMode !== props.suggestionMode}
       value={objectEdit.value} onChange={(event) => {
@@ -1036,7 +994,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       }}><input autoFocus aria-label="Link URL" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} />
         <button type="submit">Apply</button></form>}
       <div ref={containerRef} />
-      {objectEditor}
+      {objectEdit?.host ? createPortal(objectEditor, objectEdit.host) : objectEditor}
       {(pending || error || backupUnavailable) && <div className="visual-draft-status" role={error || backupUnavailable ? 'alert' : 'status'}>
         <span>{error ?? (backupUnavailable ? 'Browser draft backup unavailable. Keep this tab open or download recovery.' : 'Saving suggestion...')}</span>
         {error && <button type="button" onClick={() => flushRef.current()}>Retry</button>}

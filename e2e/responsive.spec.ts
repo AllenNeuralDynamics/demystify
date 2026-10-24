@@ -65,6 +65,42 @@ test('critical application geometry remains inside every supported viewport', as
   }
 })
 
+test('figure captions use the figure width and Visual comments stay beside the page', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Caption and comment geometry runs once')
+  await page.setViewportSize({ width: 1600, height: 960 })
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  const caption = formatted.locator('figure figcaption p').first()
+  await caption.fill('A detailed figure caption describing each panel and the measurements. '.repeat(12))
+  for (const width of [1600, 2560, 390]) {
+    await page.setViewportSize({ width, height: 960 })
+    const bounds = await caption.evaluate((element) => {
+      const figure = element.closest('figure')!.getBoundingClientRect()
+      const text = element.getBoundingClientRect()
+      return { figureWidth: figure.width, captionWidth: text.width, left: text.left - figure.left,
+        overflow: element.scrollWidth > element.clientWidth }
+    })
+    expect(Math.abs(bounds.captionWidth - bounds.figureWidth)).toBeLessThanOrEqual(2)
+    expect(Math.abs(bounds.left)).toBeLessThanOrEqual(2)
+    expect(bounds.overflow).toBe(false)
+  }
+  for (const width of [1600, 2560]) {
+    await page.setViewportSize({ width, height: 960 })
+    const originalWidth = await formatted.evaluate((element) => element.getBoundingClientRect().width)
+    await page.getByTitle('Open comments', { exact: true }).click()
+    const layout = await page.evaluate(() => {
+      const paper = document.querySelector('.continuous-visual-document')!.getBoundingClientRect()
+      const comments = document.querySelector('.comments-panel')!.getBoundingClientRect()
+      return { gap: comments.left - paper.right, paperWidth: paper.width }
+    })
+    expect(layout.gap).toBeGreaterThanOrEqual(0)
+    expect(layout.gap).toBeLessThanOrEqual(32)
+    expect(layout.paperWidth).toBe(originalWidth)
+    await page.getByTitle('Close comments', { exact: true }).click()
+  }
+})
+
 test('wide manuscript tables stay inside the mobile document page', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Document table geometry runs once')
   await page.setViewportSize({ width: 390, height: 844 })

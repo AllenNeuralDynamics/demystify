@@ -47,7 +47,7 @@ test('edits equations and protected MyST objects in place', async ({ page }, tes
   const equation = page.getByRole('textbox', { name: 'LaTeX equation', exact: true })
   await expect(equation).toHaveValue('x^2')
   await equation.fill('x^3 + y')
-  await expect(page.locator('.visual-object-preview .katex')).toHaveCount(1)
+  await expect(page.locator('.visual-object-preview')).toHaveCount(0)
   expect(await page.evaluate(() => {
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
@@ -167,27 +167,43 @@ test('keeps object editor geometry and document scroll stable', async ({ page },
     return { scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight,
       followingTop: following.getBoundingClientRect().top }
   })
-  let stablePanel: { x: number; y: number; width: number; height: number } | null = null
   for (const object of objects) {
     await object.target.scrollIntoViewIfNeeded()
     const before = await geometry()
+    const originalBounds = await object.target.evaluate((element) => {
+      const bounds = element.getBoundingClientRect()
+      return { height: bounds.height, width: bounds.width }
+    })
     await object.target.click(object.name === 'caption' ? { position: { x: 8, y: 8 } } : {})
     const editor = page.locator('.visual-object-editor')
     const input = editor.locator('textarea')
     await expect(input).toBeFocused()
     const opened = await geometry()
-    expect(opened.scrollHeight).toBe(before.scrollHeight)
+    const expansion = Math.max(96, Math.ceil(originalBounds.height)) - originalBounds.height
+    expect(Math.abs(opened.scrollHeight - before.scrollHeight - expansion)).toBeLessThanOrEqual(2)
     expect(Math.abs(opened.scrollTop - before.scrollTop)).toBeLessThanOrEqual(2)
-    expect(Math.abs(opened.followingTop - before.followingTop)).toBeLessThanOrEqual(2)
+    expect(Math.abs(opened.followingTop - before.followingTop - expansion)).toBeLessThanOrEqual(2)
     const panelBefore = await editor.boundingBox()
-    if (stablePanel) expect(panelBefore).toEqual(stablePanel)
-    else stablePanel = panelBefore
+    expect(panelBefore).not.toBeNull()
+    expect(Math.abs(panelBefore!.width - originalBounds.width)).toBeLessThanOrEqual(2)
+    expect(await editor.evaluate((element) => element.closest('.is-object-editing') !== null)).toBe(true)
     await input.fill(`\\begin{aligned}\n${Array.from({ length: 25 }, (_, index) => `x_${index} &= y_${index}`).join(' \\\\\n')}\n\\end{aligned}`)
     const panelAfter = await editor.boundingBox()
     expect(panelAfter).toEqual(panelBefore)
     expect(await geometry()).toEqual(opened)
     expect(await input.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath(`stable-${object.name}-editor.png`) })
+    const pane = page.locator('.preview-pane')
+    await pane.evaluate((element) => {
+      const object = element.querySelector('.is-object-editing')!
+      element.scrollTop += object.getBoundingClientRect().bottom - element.getBoundingClientRect().top + 80
+    })
+    await expect.poll(() => editor.evaluate((element) => {
+      const pane = element.closest('.preview-pane')!.getBoundingClientRect()
+      const bounds = element.getBoundingClientRect()
+      return bounds.bottom <= pane.top || bounds.top >= pane.bottom
+    })).toBe(true)
+    await pane.evaluate((element, top) => { element.scrollTop = top }, opened.scrollTop)
     await page.getByTitle('Cancel object edit', { exact: true }).click()
     await expect(editor).toHaveCount(0)
     const closed = await geometry()
