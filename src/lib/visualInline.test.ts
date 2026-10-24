@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { Schema } from 'prosemirror-model'
 import type { MystEditableInline } from './myst'
 import {
   createVisualInlineDocument,
   serializeVisualInlineDocument,
   visualCitationLabel,
   visualInlineSchema,
+  safeVisualLinkTarget,
 } from './visualInline'
 
 const bibliography = `@article{smith2024,
@@ -14,6 +16,34 @@ const bibliography = `@article{smith2024,
 }`
 
 describe('visual inline document', () => {
+  it('keeps safe link destinations while refusing executable or embedded protocols', () => {
+    for (const value of ['https://example.org', '/methods.md', '#figure', 'mailto:ada@example.org']) {
+      expect(safeVisualLinkTarget(value)).toBe(value)
+    }
+    for (const value of ['javascript:alert(1)', 'java\nscript:alert(1)', 'data:text/html,test', 'file:///etc/passwd']) {
+      expect(safeVisualLinkTarget(value)).toBeNull()
+    }
+  })
+
+  it('serializes inline content inside a document-wide editor schema', () => {
+    const schema = new Schema({
+      nodes: visualInlineSchema.spec.nodes
+        .update('doc', { content: 'paragraph+' })
+        .addBefore('text', 'paragraph', { content: 'inline*' }),
+      marks: visualInlineSchema.spec.marks,
+    })
+    const original = createVisualInlineDocument([
+      { type: 'strong', children: [{ type: 'text', value: 'Important' }] },
+      { type: 'text', value: ' ' },
+      { type: 'link', url: 'https://example.org', children: [{ type: 'text', value: 'result' }] },
+      { type: 'citation', keys: ['smith2024'], style: 'parenthetical' },
+    ], bibliography)
+    const paragraph = schema.nodes.paragraph.create(null,
+      original.content.toJSON()?.map((node: Parameters<typeof schema.nodeFromJSON>[0]) => schema.nodeFromJSON(node)))
+    expect(serializeVisualInlineDocument(paragraph))
+      .toBe('**Important** [result](https://example.org){cite:p}`smith2024`')
+  })
+
   it('serializes supported nested formatting, links, breaks, and citations to MyST', () => {
     const inline: MystEditableInline[] = [
       { type: 'text', value: 'See ' },

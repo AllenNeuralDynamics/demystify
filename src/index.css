@@ -21,9 +21,9 @@
   --toolbar-surface: #edf2fa;
   --editor-accent: #1a73e8;
   --editor-selection: #d3e3fd;
-  --green: #16705d;
-  --green-dark: #105748;
-  --green-soft: #e1f0eb;
+  --ui-accent: var(--editor-accent);
+  --ui-accent-strong: #185abc;
+  --ui-accent-soft: #e8f0fe;
   --coral: #c14f3d;
   --blue: #315f9b;
 }

@@ -24,12 +24,14 @@ import type {
 import { renderMyst, type MystEditableBlock } from '../lib/myst'
 import { detectCitationSyntax } from '../lib/references'
 import type { CommentHighlight } from './CollaborativeEditor'
+import { ContinuousVisualEditor, type ContinuousVisualOptions } from './ContinuousVisualEditor'
 import {
   VisualInlineEditor,
   type VisualCitationInserter,
 } from './VisualInlineEditor'
 
 interface MystPreviewProps {
+  continuous?: ContinuousVisualOptions
   assetBaseUrl?: string
   bibliography?: string
   content: string
@@ -147,6 +149,7 @@ const markCommentPassage = (target: HTMLElement, text: string, comment: CommentH
 }
 
 export const MystPreview = memo(({
+  continuous,
   assetBaseUrl,
   bibliography = '',
   content,
@@ -171,14 +174,15 @@ export const MystPreview = memo(({
   const [previewContent, setPreviewContent] = useState(deferredContent)
   const [activeEdit, setActiveEdit] = useState<ActiveVisualEdit | null>(null)
   const [selectionComment, setSelectionComment] = useState<SelectionComment | null>(null)
+  const usesContinuousEditor = Boolean(continuous)
   const preview = useMemo(
-    () => renderMyst(previewContent, {
+    () => renderMyst(usesContinuousEditor ? '' : previewContent, {
       assetBaseUrl,
       bibliography,
       projectFiles,
       sourcePath,
     }),
-    [assetBaseUrl, bibliography, previewContent, projectFiles, sourcePath],
+    [assetBaseUrl, bibliography, usesContinuousEditor, previewContent, projectFiles, sourcePath],
   )
   const editableBlocks = useMemo(
     () => new Map(preview.editableBlocks.map((block) => [block.id, block])),
@@ -699,6 +703,25 @@ export const MystPreview = memo(({
         }
       : current)
   }
+
+  if (continuous) return <ContinuousVisualEditor
+    {...continuous}
+    assetBaseUrl={assetBaseUrl}
+    bibliography={bibliography}
+    citationSyntax={citationSyntax}
+    content={content}
+    editable={editable}
+    projectFiles={projectFiles}
+    sourcePath={sourcePath}
+    comments={comments}
+    suggestions={suggestions}
+    onCommentClick={onCommentClick}
+    onCommentSelection={onCommentSelection}
+    onSuggestionClick={onSuggestionClick}
+    onEditError={onEditError}
+    onLayoutChange={onLayoutChange}
+    onRequestCitation={onRequestCitation}
+  />
 
   if (preview.error && !activeEdit) {
     return (

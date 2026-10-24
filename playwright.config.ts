@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const webUrl = 'http://127.0.0.1:4173'
+const useProductionBuild = process.env.DEMYSTIFY_E2E_BUILD === '1'
 
 export default defineConfig({
   testDir: './e2e',
@@ -8,7 +9,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  workers: process.env.CI ? 2 : useProductionBuild ? 1 : undefined,
   timeout: 30_000,
   expect: {
     timeout: 7_500,
@@ -28,7 +29,9 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
   }, {
-    command: 'npm run build && npm run test:e2e:web',
+    command: useProductionBuild
+      ? 'NODE_ENV=production npm run build && NODE_ENV=production DEMYSTIFY_API_TARGET=http://127.0.0.1:8791 npm run preview -- --host 127.0.0.1 --port 4173 --strictPort'
+      : 'npm run build && npm run test:e2e:web',
     url: webUrl,
     reuseExistingServer: false,
     timeout: 120_000,

@@ -28,6 +28,77 @@ const insertNote = async (page: Parameters<typeof authenticateMaintainer>[0]) =>
 const noteCount = (page: Parameters<typeof authenticateMaintainer>[0]) =>
   page.locator('.myst-preview aside').count()
 
+test('continuous Visual and Source editors merge same-paragraph edits without losing the Visual caret', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Mixed-mode collaboration uses desktop browser engines')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const original = '# Shared draft\n\nA shared paragraph.\n\nAnother paragraph.\n'
+  await page.getByRole('textbox', { name: 'MyST source' }).fill(original)
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+  const sourcePage = await context.newPage()
+  try {
+    await authenticateMaintainer(sourcePage, roomName, testInfo)
+    await expect(sourcePage.getByRole('textbox', { name: 'MyST source' })).toContainText('A shared paragraph.')
+    await page.getByTitle('Visual editor', { exact: true }).click()
+    const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+    await formatted.locator('p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' Visual one.')
+    const source = sourcePage.getByRole('textbox', { name: 'MyST source' })
+    await expect(source).toContainText('A shared paragraph. Visual one.')
+    await source.press('ControlOrMeta+Home')
+    await source.press('ArrowDown')
+    await source.press('ArrowDown')
+    await source.press('ArrowRight')
+    await source.press('ArrowRight')
+    await sourcePage.keyboard.insertText('Source-edited ')
+    await expect(formatted.locator('p').first()).toContainText('A Source-edited shared paragraph. Visual one.')
+    await expect(formatted.locator('.visual-remote-caret')).toHaveCount(1)
+    await expect(formatted).toBeFocused()
+    await page.keyboard.insertText(' Visual two.')
+    await expect(formatted.locator('p').first()).toHaveText('A Source-edited shared paragraph. Visual one. Visual two.')
+    await expect(source).toContainText('A Source-edited shared paragraph. Visual one. Visual two.')
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect(source).toContainText('A Source-edited shared paragraph.')
+    await expect(source).not.toContainText('Visual two.')
+    await page.getByTitle('Source only').click()
+    const sourceWithoutPresence = await page.getByRole('textbox', { name: 'MyST source' }).evaluate((element) => {
+      const copy = element.cloneNode(true) as HTMLElement
+      copy.querySelectorAll('.cm-ySelectionCaret').forEach((cursor) => cursor.remove())
+      return copy.textContent
+    })
+    expect(sourceWithoutPresence).toContain('A Source-edited shared paragraph.')
+  } finally { await context.close() }
+})
+
+test('two continuous Visual editors can keep editing the same paragraph', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Two-editor collaboration uses desktop browser engines')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  await page.getByRole('textbox', { name: 'MyST source' }).fill('# Draft\n\nShared paragraph.\n')
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+  const second = await context.newPage()
+  try {
+    await authenticateMaintainer(second, roomName, testInfo)
+    await page.getByTitle('Visual editor', { exact: true }).click()
+    await second.getByTitle('Visual editor', { exact: true }).click()
+    const firstEditor = page.getByRole('textbox', { name: 'Formatted manuscript' })
+    const secondEditor = second.getByRole('textbox', { name: 'Formatted manuscript' })
+    await firstEditor.locator('p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' First.')
+    await expect(secondEditor).toContainText('Shared paragraph. First.')
+    await secondEditor.locator('p').first().click()
+    await second.keyboard.press('End')
+    await second.keyboard.insertText(' Second.')
+    await expect(firstEditor).toContainText('Shared paragraph. First. Second.')
+    await expect(firstEditor).toBeFocused()
+    await page.keyboard.insertText(' Continued.')
+    await expect(secondEditor).toContainText('Continued.')
+    expect(await firstEditor.innerText()).toBe(await secondEditor.innerText())
+  } finally { await context.close() }
+})
+
 const replaceFirstVisualParagraph = async (
   page: Parameters<typeof authenticateMaintainer>[0],
   currentText: string,
@@ -38,12 +109,9 @@ const replaceFirstVisualParagraph = async (
   await expect(paragraph).toBeVisible()
   await expect(paragraph).toContainText(currentText)
   await page.evaluate(() => window.getSelection()?.removeAllRanges())
-  await paragraph.focus()
-  await paragraph.press('F2')
-  const editor = page.getByRole('textbox', { name: 'Edit paragraph' })
-  await expect(editor).toBeVisible()
-  await editor.fill(replacement)
-  await page.getByTitle(/(?:Finish|Save) visual edit/).click()
+  await paragraph.fill(replacement)
+  await expect(paragraph).toContainText(replacement)
+  await expect(page.locator('.visual-draft-status')).toHaveCount(0)
 }
 
 test('viewer receives live changes but cannot edit', async ({ browser, page }, testInfo) => {
@@ -117,20 +185,19 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     const paragraph = collaboratorPage.locator('.myst-preview p.myst-editable-block').first()
     const originalText = await paragraph.textContent()
     expect(originalText).toBeTruthy()
-    await paragraph.focus()
-    await paragraph.press('F2')
-    const visualEditor = collaboratorPage.getByRole('textbox', { name: 'Edit paragraph' })
+    await paragraph.click()
+    const visualEditor = collaboratorPage.getByRole('textbox', { name: 'Formatted manuscript' })
     await collaboratorPage.getByTitle('Cite a paper').click()
     await expect(collaboratorPage.getByRole('dialog', { name: 'Cite a paper' })
       .getByText(/Choose from this manuscript's library/)).toBeVisible()
     await collaboratorPage.keyboard.press('Escape')
     await expect(visualEditor).toBeVisible()
-    await visualEditor.fill('A reviewer-proposed sentence.')
-    await collaboratorPage.getByTitle('Save visual edit').click()
+    await paragraph.fill('A reviewer-proposed sentence.')
+    await expect(collaboratorPage.locator('.visual-draft-status')).toHaveCount(0)
 
     await expect(page.locator('.sync-status')).toHaveText('Live')
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
-      .toContainText('A reviewer-proposed sentence.')
+      .toContainText('reviewer-proposed sentence.')
     const insertion = page.locator('.myst-preview .myst-suggestion-insertion')
     await expect(insertion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(insertion).toHaveCSS('color', 'rgb(32, 33, 36)')
@@ -146,7 +213,7 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     await page.keyboard.press('Escape')
     await page.getByTitle('Open comments').click()
     const acceptedSuggestion = page.locator('.comment.suggestion-thread').filter({
-      hasText: 'A reviewer-proposed sentence.',
+      hasText: 'reviewer-proposed sentence.',
     })
     await expect(acceptedSuggestion).toContainText('E2E Reviewer')
     await acceptedSuggestion.click()
@@ -157,7 +224,7 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     await expect(acceptedSuggestion).toHaveCount(0)
     await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
     const resolvedAcceptedSuggestion = page.locator('.comment.suggestion-thread').filter({
-      hasText: 'A reviewer-proposed sentence.',
+      hasText: 'reviewer-proposed sentence.',
     })
     await expect(resolvedAcceptedSuggestion.locator('.suggestion-summary'))
       .toContainText('Accepted')
@@ -171,17 +238,17 @@ test('suggestion participant submits individually accepted or rejected Visual ed
       'A proposal that should be rejected.',
     )
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
-      .toContainText('A proposal that should be rejected.')
+      .toContainText('proposal that should be rejected')
     await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('open')
     const rejectedSuggestion = page.locator('.comment.suggestion-thread').filter({
-      hasText: 'A proposal that should be rejected.',
+      hasText: 'proposal that should be rejected',
     })
     await rejectedSuggestion.click()
     await rejectedSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect(rejectedSuggestion).toHaveCount(0)
     await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
     await expect(page.locator('.comment.suggestion-thread').filter({
-      hasText: 'A proposal that should be rejected.',
+      hasText: 'proposal that should be rejected',
     }).locator('.suggestion-summary')).toContainText('Rejected')
     await collaboratorPage.getByTitle('Source only').click()
     await expect(collaboratorPage.locator('.cm-content')).toContainText('A reviewer-proposed sentence.')
@@ -189,6 +256,61 @@ test('suggestion participant submits individually accepted or rejected Visual ed
       .not.toContainText('A proposal that should be rejected.')
   } finally {
     await collaboratorContext.close()
+  }
+})
+
+test('guest object edits autosave as suggestions when clicking away', async ({ browser, page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Guest object suggestion integration runs once')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  await source.focus()
+  await source.press('ControlOrMeta+a')
+  const acceptedSource = '# Guest equations\n\n$$\na^2\n$$\n\n$$\nb^3\n$$\n\nAfter.'
+  await page.keyboard.insertText(acceptedSource)
+  await expect(page.locator('.document-title')).toHaveText('Guest equations')
+  const token = await createShareToken(page, roomName, 'collaborator')
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4173' })
+  const guest = await context.newPage()
+  try {
+    await guest.addInitScript(() => localStorage.setItem('demystify.profile', JSON.stringify({
+      id: 'formula-reviewer', name: 'Formula Reviewer', color: '#315f9b', colorLight: '#e8f0fe',
+    })))
+    await guest.goto(`/?doc=${roomName}#collaborate=${token}`)
+    await expect(guest.locator('.sync-status')).toHaveText('Suggesting')
+    await guest.getByTitle('Visual editor', { exact: true }).click()
+    const formatted = guest.getByRole('textbox', { name: 'Formatted manuscript' })
+    const equations = formatted.getByRole('button', { name: 'Edit equation', exact: true })
+    await expect(equations).toHaveCount(2)
+    await equations.first().click()
+    const equation = guest.getByRole('textbox', { name: 'LaTeX equation', exact: true })
+    await equation.fill('a^5')
+    await equations.last().click()
+    await expect(equation).toHaveValue('b^3')
+    await equation.fill('b^6')
+    await formatted.locator('p').filter({ hasText: /^After\.$/ }).click()
+    await expect(equation).toHaveCount(0)
+    await expect(guest.locator('.visual-draft-status')).toHaveCount(0)
+    await expect(formatted.locator('.math-display annotation')).toHaveText(['a^5', 'b^6'])
+    await page.getByTitle('Open comments', { exact: true }).click()
+    await expect(page.locator('.comment.suggestion-thread').first()).toContainText('Formula Reviewer')
+    const canonical = await page.evaluate(() => {
+      type EditorFiber = { memoizedProps?: { sharedText?: Y.Text }; return?: EditorFiber | null }
+      let element = document.querySelector('.cm-content')
+      while (element) {
+        const key = Object.keys(element).find((property) => property.startsWith('__reactFiber$'))
+        let fiber = key ? (element as unknown as Record<string, EditorFiber>)[key] : null
+        for (let depth = 0; fiber && depth < 40; depth++, fiber = fiber.return ?? null) {
+          const document = fiber.memoizedProps?.sharedText?.doc
+          if (document) return document.getText('content').toString()
+        }
+        element = element.parentElement
+      }
+      throw new Error('Accepted document could not be found')
+    })
+    expect(canonical).toBe(acceptedSource)
+  } finally {
+    await context.close()
   }
 })
 
@@ -257,7 +379,7 @@ test('two Source reviewers keep independent attributed suggestions', async ({ br
     await secondSource.fill(secondDraft)
     await expect(page.locator('.sync-status')).toHaveText('Live')
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
-      .toContainText(replacement)
+      .toContainText('keep every source-level proposal inspectable')
     const sourceInsertion = page.locator('.cm-suggestion-insertion').first()
     await expect(sourceInsertion).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(sourceInsertion).toHaveCSS('color', 'rgb(32, 33, 36)')
@@ -400,6 +522,9 @@ test('only authors edit comments and replies while everyone can reply', async ({
     expect(mentionLayout.identityRight).toBeLessThanOrEqual(mentionLayout.optionRight)
     await mentionReply.press('Enter')
     await expect(mentionReply).toHaveValue(/^@e2e-editor-\d+ $/)
+    await mentionReply.evaluate(() => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve())
+    }))
     await mentionReply.pressSequentially('please review this.')
     await secondView.getByRole('button', { name: 'Reply', exact: true }).click()
 
@@ -438,14 +563,11 @@ test('keeps an attributed suggestion in the mobile reading flow', async ({ brows
     await expect(reviewerPage.locator('.sync-status')).toHaveText('Suggesting')
     await reviewerPage.getByTitle('Visual editor').click()
     const target = reviewerPage.locator('.myst-preview p.myst-editable-block').first()
-    await target.focus()
-    await target.press('F2')
-    await reviewerPage.getByRole('textbox', { name: 'Edit paragraph' })
-      .fill('A long attributed proposal that remains readable and wraps naturally on a narrow phone viewport.')
-    await reviewerPage.getByTitle('Save visual edit').click()
+    await target.fill('A long attributed proposal that remains readable and wraps naturally on a narrow phone viewport.')
+    await expect(reviewerPage.locator('.visual-draft-status')).toHaveCount(0)
 
     await page.getByTitle('Visual editor').click()
-    await expect(page.locator('.myst-preview')).toContainText('A long attributed proposal')
+    await expect(page.locator('.myst-preview .myst-suggestion-insertion')).toContainText('long attributed proposal')
     await page.getByTitle('Open comments').click()
     await expect(page.getByRole('complementary', { name: 'Comments' })).toBeVisible()
     const suggestion = page.locator('.comment.suggestion-thread').filter({
@@ -464,6 +586,9 @@ test('keeps an attributed suggestion in the mobile reading flow', async ({ brows
       expect(bounds.height).toBeLessThan(130)
     }
     await suggestion.click()
+    await suggestion.evaluate(() => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve())
+    }))
     const mobileReply = suggestion.getByRole('combobox', {
       name: /Reply to comment by Mobile Reviewer/,
     })
@@ -517,6 +642,42 @@ test('protects a Source draft before the autosave debounce sends it', async ({ p
     .toHaveAttribute('data-save-state', 'saved')
 })
 
+test('protects and exports a Visual draft before automatic suggestion submission', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Buffered Visual recovery runs once')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByRole('button', { name: 'Editing', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Suggesting', exact: true }).click()
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await page.clock.install()
+  await page.clock.pauseAt(new Date(Date.now() + 1_000))
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
+  await formatted.locator('p').first().fill('A buffered Visual draft remains recoverable.')
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'unconfirmed')
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })).toBe(true)
+  const downloadPromise = page.waitForEvent('download')
+  await page.evaluate(async (modulePath) => {
+    const recovery = await import(modulePath)
+    return recovery.downloadCurrentRoomRecovery()
+  }, process.env.DEMYSTIFY_E2E_BUILD === '1' ? '/recovery-export.js' : '/src/recovery.ts')
+  const download = await downloadPromise
+  const path = await download.path()
+  expect(path).not.toBeNull()
+  const backup = JSON.parse(await readFile(path!, 'utf8'))
+  expect(backup.localDrafts.visualDrafts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ filePath: 'manuscript.md',
+      source: expect.stringContaining('A buffered Visual draft remains recoverable.'), suggestionMode: true }),
+  ]))
+  await page.clock.resume()
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'saved')
+  await expect(page.locator('.visual-draft-status')).toHaveCount(0)
+})
+
 test('does not claim saved when a live socket stops delivering persistence receipts', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile'), 'Covered by desktop engines')
   test.setTimeout(60_000)
@@ -533,6 +694,10 @@ test('does not claim saved when a live socket stops delivering persistence recei
   await authenticateMaintainer(page, roomName, testInfo)
   await page.getByTitle('Open comments').click()
   dropReceipts = true
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await page.getByRole('textbox', { name: 'Formatted manuscript' }).locator('p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText(' Visual save needs a receipt.')
   await page.getByTitle('Add comment to selection').click()
   await page.getByRole('textbox', { name: 'New comment' }).fill('Server save needs a receipt')
   await page.locator('.comments-panel').getByRole('button', { name: 'Comment', exact: true }).click()
@@ -551,6 +716,8 @@ test('does not claim saved when a live socket stops delivering persistence recei
   await expect(saveStatus).toHaveAttribute('data-save-state', 'saved', { timeout: 10_000 })
   await expect(page.locator('.connection-warning')).toHaveCount(0)
   await expect(page.locator('.comment')).toContainText('Server save needs a receipt')
+  await expect(page.getByRole('textbox', { name: 'Formatted manuscript' }))
+    .toContainText('Visual save needs a receipt.')
 })
 
 test('exports 24 unsent comments from an existing disconnected tab without reloading it', async ({ browser, page }, testInfo) => {
@@ -592,11 +759,11 @@ test('exports 24 unsent comments from an existing disconnected tab without reloa
     const pageStartedAt = await reviewer.evaluate(() => performance.timeOrigin)
     const [download, summary] = await Promise.all([
       reviewer.waitForEvent('download'),
-      reviewer.evaluate(async () => {
-        const moduleUrl = new URL('/dist/recovery-export.js', window.location.href).href
+      reviewer.evaluate(async (modulePath) => {
+        const moduleUrl = new URL(modulePath, window.location.href).href
         const exporter = await import(moduleUrl)
         return exporter.downloadCurrentRoomRecovery()
-      }),
+      }, process.env.DEMYSTIFY_E2E_BUILD === '1' ? '/recovery-export.js' : '/dist/recovery-export.js'),
     ])
     const filePath = await download.path()
     expect(filePath).not.toBeNull()
@@ -658,6 +825,7 @@ test('exports 24 unsent comments from an existing disconnected tab without reloa
 
 test('queues local edits while disconnected and converges after reconnecting', async ({ browser, page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Network recovery runs once in Chromium')
+  test.setTimeout(60_000)
   const roomName = createRoomName(testInfo)
   let interruptCollaboration = false
   let activeSocket: WebSocketRoute | null = null
@@ -682,17 +850,31 @@ test('queues local edits while disconnected and converges after reconnecting', a
     await expect(viewerPage.locator('.myst-preview')).toContainText(sampleNote)
     const initialNoteCount = await noteCount(page)
     await expect.poll(() => noteCount(viewerPage)).toBe(initialNoteCount)
+    await page.getByTitle('Visual editor', { exact: true }).click()
 
     interruptCollaboration = true
     await activeSocket?.close({ code: 1013, reason: 'E2E network interruption' })
     await expect(page.locator('.sync-status')).not.toHaveText('Live')
+    await page.getByRole('textbox', { name: 'Formatted manuscript' }).locator('p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' Offline Visual edit.')
+    await expect(page.locator('.myst-preview')).toContainText('Offline Visual edit.')
+    await expect(viewerPage.locator('.myst-preview')).not.toContainText('Offline Visual edit.')
     await insertNote(page)
     await expect.poll(() => noteCount(page)).toBe(initialNoteCount + 1)
     await expect.poll(() => noteCount(viewerPage)).toBe(initialNoteCount)
+    page.once('dialog', (dialog) => dialog.accept())
+    await page.reload()
+    await expect(page.getByRole('textbox', { name: 'MyST source' })).toContainText('Offline Visual edit.')
+    await page.getByTitle('Visual editor', { exact: true }).click()
+    await expect.poll(() => noteCount(page)).toBe(initialNoteCount + 1)
 
     interruptCollaboration = false
     await expect(page.locator('.sync-status')).toHaveText('Live', { timeout: 15_000 })
     await expect.poll(() => noteCount(viewerPage), { timeout: 15_000 }).toBe(initialNoteCount + 1)
+    await expect(viewerPage.locator('.myst-preview')).toContainText('Offline Visual edit.')
+    await expect(page.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
   } finally {
     await viewerContext.close()
   }

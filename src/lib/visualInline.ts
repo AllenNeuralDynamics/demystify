@@ -9,6 +9,13 @@ import {
   type PaperReference,
 } from './references'
 
+export const safeVisualLinkTarget = (value: string) => {
+  try {
+    const protocol = new URL(value, 'https://demystify.invalid/').protocol
+    return ['http:', 'https:', 'mailto:'].includes(protocol) ? value : null
+  } catch { return null }
+}
+
 export const visualInlineSchema = new Schema({
   nodes: {
     doc: { content: 'inline*' },
@@ -87,7 +94,7 @@ export const visualInlineSchema = new Schema({
           : false,
       }],
       toDOM: (mark) => ['a', {
-        href: mark.attrs.href,
+        href: safeVisualLinkTarget(String(mark.attrs.href)),
         title: mark.attrs.title,
         rel: 'noreferrer',
       }, 0],
@@ -191,16 +198,16 @@ const inlineCode = (value: string) => {
 }
 
 const openMark = (mark: Mark) => {
-  if (mark.type === visualInlineSchema.marks.strong) return '**'
-  if (mark.type === visualInlineSchema.marks.emphasis) return '*'
-  if (mark.type === visualInlineSchema.marks.link) return '['
+  if (mark.type.name === 'strong') return '**'
+  if (mark.type.name === 'emphasis') return '*'
+  if (mark.type.name === 'link') return '['
   return ''
 }
 
 const closeMark = (mark: Mark) => {
-  if (mark.type === visualInlineSchema.marks.strong) return '**'
-  if (mark.type === visualInlineSchema.marks.emphasis) return '*'
-  if (mark.type === visualInlineSchema.marks.link) {
+  if (mark.type.name === 'strong') return '**'
+  if (mark.type.name === 'emphasis') return '*'
+  if (mark.type.name === 'link') {
     const href = String(mark.attrs.href).replace(/\)/g, '%29')
     const title = mark.attrs.title ? ` "${String(mark.attrs.title).replace(/"/g, '\\"')}"` : ''
     return `](${href}${title})`
@@ -219,13 +226,13 @@ export const serializeVisualInlineDocument = (document: ProseMirrorNode) => {
   }
   document.forEach((node) => {
     if (node.isText) {
-      const code = node.marks.find((mark) => mark.type === visualInlineSchema.marks.code)
+      const code = node.marks.find((mark) => mark.type.name === 'code')
       if (code) {
         closeTo(0)
         source += inlineCode(node.text ?? '')
         return
       }
-      const desiredMarks = node.marks.filter((mark) => mark.type !== visualInlineSchema.marks.code)
+      const desiredMarks = node.marks.filter((mark) => mark.type.name !== 'code')
       let shared = 0
       while (
         shared < activeMarks.length &&
@@ -238,10 +245,10 @@ export const serializeVisualInlineDocument = (document: ProseMirrorNode) => {
       }
       activeMarks = desiredMarks
       source += escapeMystText(node.text ?? '')
-    } else if (node.type === visualInlineSchema.nodes.hard_break) {
+    } else if (node.type.name === 'hard_break') {
       closeTo(0)
       source += '  \n'
-    } else if (node.type === visualInlineSchema.nodes.citation) {
+    } else if (node.type.name === 'citation') {
       closeTo(0)
       const keys = node.attrs.keys as string[]
       const style = node.attrs.style === 'narrative' ? 'narrative' : 'parenthetical'

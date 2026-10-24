@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view'
 import type { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
-import { createCollaborationRecovery } from './lib/collaborationRecovery'
+import { createCollaborationRecovery, getVisualDraftsForRecovery } from './lib/collaborationRecovery'
 
 interface RecoveryContext {
   document: Y.Doc
@@ -41,8 +41,11 @@ export const downloadRoomRecovery = (context: RecoveryContext) => {
         'textarea[aria-label^="Reply to comment"]',
       ), (field) => ({ label: field.getAttribute('aria-label'), text: field.value })),
       visualEditorHtml: document.querySelector<HTMLElement>(
-        '.is-visual-editing [contenteditable="true"]',
+        '.is-visual-editing [contenteditable="true"], .continuous-visual-document',
       )?.innerHTML ?? null,
+      visualDrafts: getVisualDraftsForRecovery(document.querySelector<HTMLElement>(
+        '.continuous-visual-document',
+      )?.dataset.visualDraftKey),
     },
   }
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })

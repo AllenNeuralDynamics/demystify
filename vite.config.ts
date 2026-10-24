@@ -31,6 +31,8 @@ export default defineConfig({
     __YJS_VERSION__: JSON.stringify(dependencyVersion('yjs')),
   },
   build: {
+    minify: 'terser',
+    terserOptions: { compress: { passes: 2 }, maxWorkers: 1 },
     rollupOptions: {
       preserveEntrySignatures: 'strict',
       input: {

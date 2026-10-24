@@ -65,6 +65,7 @@ import { ParticipantsMenu } from './components/ParticipantsMenu'
 import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
+import type { ContinuousVisualEditorHandle } from './components/ContinuousVisualEditor'
 import {
   useCollaboration,
   type CommentDraftAnchor,
@@ -277,6 +278,8 @@ function App() {
     filePath: string
     content: string
   } | null>(null)
+  const [visualDraftPending, setVisualDraftPending] = useState(false)
+  const [visualToolbarHost, setVisualToolbarHost] = useState<HTMLDivElement | null>(null)
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
   const [activeLiveProposalChangeId, setActiveLiveProposalChangeId] = useState<string | null>(null)
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
@@ -317,6 +320,11 @@ function App() {
   const [commentPollError, setCommentPollError] = useState<string | null>(null)
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
+  const visualEditorRef = useRef<ContinuousVisualEditorHandle | null>(null)
+  const lastFocusedEditorRef = useRef<'source' | 'visual'>('source')
+  const getActiveTextEditor = () => view === 'preview' ||
+    (view === 'split' && lastFocusedEditorRef.current === 'visual')
+    ? visualEditorRef.current : editorRef.current
   const previewPaneRef = useRef<HTMLElement>(null)
   const visualScrollPointsRef = useRef<LinkedScrollPoint[]>([])
   const visualScrollHeightRef = useRef(0)
@@ -539,6 +547,26 @@ function App() {
     ? sourceDraftPreview.content
     : null
   const displayedContent = activeSourceDraftPreview ?? suggestionBaseContent
+  const proposeSourceDraft = (draft: string): ReturnType<typeof collaboration.createTextSuggestion> => {
+    const projected = getProjectedSuggestionReplacement(activeSuggestionProjection, draft)
+    if (!projected || projected === 'conflict') {
+      return { result: projected === 'conflict' ? 'conflict' : 'unavailable' }
+    }
+    const { replacement, supersedes } = projected
+    const anchor = collaboration.beginTextEdit(
+      replacement.from, replacement.to, replacement.before, activeFilePath, primaryFilePath,
+    )
+    if (!anchor) return { result: 'conflict' }
+    const proposal = collaboration.createTextSuggestion(
+      anchor, replacement.after, activeFilePath, primaryFilePath, supersedes,
+    )
+    if (proposal.suggestionId) {
+      setActiveCommentId(proposal.suggestionId)
+      setCommentsOpen(true)
+      showNotice('Suggestion ready for review')
+    }
+    return proposal
+  }
   const activeOutline = useMemo(
     () => isActiveMystSource ? getMystOutline(displayedContent) : [],
     [displayedContent, isActiveMystSource],
@@ -1298,11 +1326,11 @@ function App() {
     })
   }
 
-  const displayedSaveStatus = activeSourceDraftPreview !== null
+  const displayedSaveStatus = activeSourceDraftPreview !== null || visualDraftPending
     ? 'unconfirmed'
     : collaboration.serverSaveStatus
   const hasPendingReviewDraft = Boolean(
-    commentDraft.trim() || Object.values(replyDrafts).some((draft) => draft.trim()) || editingReviewItem,
+    visualDraftPending || commentDraft.trim() || Object.values(replyDrafts).some((draft) => draft.trim()) || editingReviewItem,
   )
 
   useEffect(() => {
@@ -1368,14 +1396,14 @@ function App() {
     setReviewForMe(false)
   }
 
-  const openCommentComposer = () => {
+  const openCommentComposerForSelection = (selection: { from: number; to: number } | null) => {
     if (!isPrimaryFile) {
       showNotice('Review comments on secondary project files are not available yet.')
       return
     }
     if (!commentDraft.trim()) {
       setCommentDraftAnchor(collaboration.captureCommentAnchor(
-        editorRef.current?.getCommentSelection() ?? undefined,
+        selection ?? undefined,
       ))
     }
     setContextualComments(view === 'preview')
@@ -1387,11 +1415,14 @@ function App() {
     })
   }
 
+  const openCommentComposer = () => openCommentComposerForSelection(
+    getActiveTextEditor()?.getCommentSelection() ?? null,
+  )
+
   const canCommentOnSelection = !effectiveReadOnly && isPrimaryFile
 
   const commentOnVisualSelection = (range: { from: number; to: number }) => {
-    editorRef.current?.revealRange(range.from, range.to, false)
-    openCommentComposer()
+    openCommentComposerForSelection(range)
   }
 
   const submitReply = (comment: SharedComment) => {
@@ -1613,7 +1644,7 @@ function App() {
           citationSyntax,
         )
       }
-      else editorRef.current?.insertCitation(formatCitation(
+      else getActiveTextEditor()?.insertCitation(formatCitation(
         keys,
         style,
         details,
@@ -1691,6 +1722,10 @@ function App() {
   }
 
   const saveOrConnectRepository = () => {
+    if (visualDraftPending || activeSourceDraftPreview !== null) {
+      showNotice('A local draft is still pending. Wait for submission or download recovery before saving to GitHub.')
+      return
+    }
     if (repositoryBinding) void saveToGitHub()
     else setGitHubDialogOpen(true)
   }
@@ -1773,14 +1808,14 @@ function App() {
                     icon: Undo2,
                     shortcut: '⌘Z',
                     disabled: isSourceReadOnly,
-                    onSelect: () => editorRef.current?.undo(),
+                    onSelect: () => getActiveTextEditor()?.undo(),
                   },
                   {
                     label: 'Redo',
                     icon: Redo2,
                     shortcut: '⌘⇧Z',
                     disabled: isSourceReadOnly,
-                    onSelect: () => editorRef.current?.redo(),
+                    onSelect: () => getActiveTextEditor()?.redo(),
                   },
                 ]}
               />
@@ -1819,7 +1854,7 @@ function App() {
                 variant="menu"
                 disabled={isSourceReadOnly || !isActiveMystSource}
                 onAddComment={openCommentComposer}
-                onInsert={(pattern) => editorRef.current?.insertSnippet(
+                onInsert={(pattern) => getActiveTextEditor()?.insertSnippet(
                   pattern.template,
                   pattern.selectedTextPlaceholder,
                 )}
@@ -1832,20 +1867,20 @@ function App() {
                     icon: Bold,
                     shortcut: '⌘B',
                     disabled: isSourceReadOnly || !isActiveMystSource,
-                    onSelect: () => editorRef.current?.wrapSelection('**'),
+                    onSelect: () => getActiveTextEditor()?.wrapSelection('**'),
                   },
                   {
                     label: 'Italic',
                     icon: Italic,
                     shortcut: '⌘I',
                     disabled: isSourceReadOnly || !isActiveMystSource,
-                    onSelect: () => editorRef.current?.wrapSelection('*'),
+                    onSelect: () => getActiveTextEditor()?.wrapSelection('*'),
                   },
                   {
                     label: 'Inline code',
                     icon: Code2,
                     disabled: isSourceReadOnly || !isActiveMystSource,
-                    onSelect: () => editorRef.current?.wrapSelection('`'),
+                    onSelect: () => getActiveTextEditor()?.wrapSelection('`'),
                   },
                 ]}
               />
@@ -2224,20 +2259,20 @@ function App() {
                 >
                   {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.undo()}>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.undo()}>
                   <Undo2 size={17} />
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => editorRef.current?.redo()}>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.redo()}>
                   <Redo2 size={17} />
                 </button>
                 <span className="toolbar-divider collapsible-authoring-tool" />
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('**')}>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('**')}>
                   <Bold size={17} />
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('*')}>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('*')}>
                   <Italic size={17} />
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => editorRef.current?.wrapSelection('`')}>
+                <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('`')}>
                   <Code2 size={17} />
                 </button>
               </div>
@@ -2249,31 +2284,31 @@ function App() {
                 <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
                 <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  editorRef.current?.undo()
+                  getActiveTextEditor()?.undo()
                 }}>
                   <Undo2 size={15} /> Undo
                 </button>
                 <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  editorRef.current?.redo()
+                  getActiveTextEditor()?.redo()
                 }}>
                   <Redo2 size={15} /> Redo
                 </button>
                 <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  editorRef.current?.wrapSelection('**')
+                  getActiveTextEditor()?.wrapSelection('**')
                 }}>
                   <Bold size={15} /> Bold
                 </button>
                 <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  editorRef.current?.wrapSelection('*')
+                  getActiveTextEditor()?.wrapSelection('*')
                 }}>
                   <Italic size={15} /> Italic
                 </button>
                 <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  editorRef.current?.wrapSelection('`')
+                  getActiveTextEditor()?.wrapSelection('`')
                 }}>
                   <Code2 size={15} /> Inline code
                 </button>
@@ -2364,7 +2399,8 @@ function App() {
           </div>
 
           <div className={`document-panes view-${view} ${commentsOpen ? 'comments-open' : ''}`}>
-            <section className="source-pane" aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}>
+            <section className="source-pane" aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}
+              onFocusCapture={() => { lastFocusedEditorRef.current = 'source' }}>
               {activeSharedText && collaboration.provider ? (
                 <CollaborativeEditor
                   key={activeFilePath}
@@ -2374,39 +2410,7 @@ function App() {
                   commentHighlights={commentHighlights}
                   onCommentClick={openLiveProposalChange}
                   onCommentSelection={canCommentOnSelection ? openCommentComposer : undefined}
-                  onProposeSourceEdit={(draft) => {
-                    const projected = getProjectedSuggestionReplacement(
-                      activeSuggestionProjection,
-                      draft,
-                    )
-                    if (!projected || projected === 'conflict') {
-                      return {
-                        result: projected === 'conflict' ? 'conflict' : 'unavailable',
-                      }
-                    }
-                    const { replacement, supersedes } = projected
-                    const anchor = collaboration.beginTextEdit(
-                      replacement.from,
-                      replacement.to,
-                      replacement.before,
-                      activeFilePath,
-                      primaryFilePath,
-                    )
-                    if (!anchor) return { result: 'conflict' as const }
-                    const proposal = collaboration.createTextSuggestion(
-                      anchor,
-                      replacement.after,
-                      activeFilePath,
-                      primaryFilePath,
-                      supersedes,
-                    )
-                    if (proposal.suggestionId) {
-                      setActiveCommentId(proposal.suggestionId)
-                      setCommentsOpen(true)
-                      showNotice('Suggestion ready for review')
-                    }
-                    return proposal
-                  }}
+                  onProposeSourceEdit={proposeSourceDraft}
                   onScrollAnchor={synchronizePreviewScroll}
                   onSourceDraftChange={(draft) => setSourceDraftPreview(
                     draft === null ? null : { filePath: activeFilePath, content: draft },
@@ -2455,10 +2459,23 @@ function App() {
             >
               <div className="preview-label">
                 <span>{effectiveReadOnly ? 'Browser preview' : 'Visual editor'}</span>
+                <div ref={setVisualToolbarHost} />
                 <span>{collaboration.isSynced ? 'Live draft' : collaboration.hasLoadedDocument ? 'Local draft' : 'Preparing'}</span>
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
+                  continuous={activeSharedText && collaboration.provider && !isViewer &&
+                    collaboration.hasLoadedDocument && isActiveMystSource ? {
+                    draftKey: JSON.stringify([roomName, collaborationProfile.id, activeFilePath]),
+                    toolbarHost: visualToolbarHost,
+                    sharedText: activeSharedText,
+                    provider: collaboration.provider,
+                    suggestionMode: isAtomicSuggestionMode,
+                    onProposeSourceEdit: proposeSourceDraft,
+                    onDraftChange: (draft) => setVisualDraftPending(draft !== null),
+                    onReady: (handle) => { visualEditorRef.current = handle },
+                    onFocus: () => { lastFocusedEditorRef.current = 'visual' },
+                  } : undefined}
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
                   comments={isPrimaryFile ? visualCommentHighlights : []}
