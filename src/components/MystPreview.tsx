@@ -1,6 +1,7 @@
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import morphdom from 'morphdom'
+import { MessageSquarePlus } from 'lucide-react'
 import {
   memo,
   startTransition,
@@ -22,6 +23,7 @@ import type {
 } from '../lib/collaborativeTextEdit'
 import { renderMyst, type MystEditableBlock } from '../lib/myst'
 import { detectCitationSyntax } from '../lib/references'
+import type { CommentHighlight } from './CollaborativeEditor'
 import {
   VisualInlineEditor,
   type VisualCitationInserter,
@@ -37,6 +39,8 @@ interface MystPreviewProps {
   sourcePath?: string
   onBeginEdit?: (block: MystEditableBlock) => CollaborativeTextEditAnchor | null
   onCommentSelection?: (range: { from: number; to: number }) => void
+  comments?: CommentHighlight[]
+  onCommentClick?: (commentId: string) => void
   onCommitEdit?: (
     anchor: CollaborativeTextEditAnchor,
     replacement: string,
@@ -106,6 +110,42 @@ const enableSuggestionKeyboardActivation = (element: HTMLElement) => {
   })
 }
 
+const markCommentPassage = (target: HTMLElement, text: string, comment: CommentHighlight) => {
+  const content = target.textContent ?? ''
+  const start = text ? content.indexOf(text) : -1
+  const range = document.createRange()
+  if (start >= 0 && content.indexOf(text, start + Math.max(1, text.length)) < 0) {
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+    let offset = 0
+    let started = false
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      const length = node.textContent?.length ?? 0
+      if (!started && start < offset + length) {
+        range.setStart(node, start - offset)
+        started = true
+      }
+      if (started && start + text.length <= offset + length) {
+        range.setEnd(node, start + text.length - offset)
+        break
+      }
+      offset += length
+    }
+    if (!started) return
+  } else range.selectNodeContents(target)
+  if (Array.from(target.querySelectorAll('[data-myst-comment-id]'))
+    .some((element) => range.intersectsNode(element))) return
+  const mark = document.createElement('mark')
+  mark.className = `myst-comment-highlight${comment.active ? ' is-active' : ''}`
+  mark.dataset.mystCommentId = comment.id
+  mark.tabIndex = 0
+  mark.setAttribute('role', 'button')
+  mark.setAttribute('aria-label', `Open comment on ${text || content}`)
+  mark.title = 'Open comment'
+  mark.append(range.extractContents())
+  range.insertNode(mark)
+}
+
 export const MystPreview = memo(({
   assetBaseUrl,
   bibliography = '',
@@ -116,6 +156,8 @@ export const MystPreview = memo(({
   sourcePath,
   onBeginEdit,
   onCommentSelection,
+  comments = [],
+  onCommentClick,
   onCommitEdit,
   onEditError,
   onLayoutChange,
@@ -417,6 +459,24 @@ export const MystPreview = memo(({
         })
       })
 
+    for (const comment of [...comments].filter((item) => !item.resolved)
+      .sort((first, second) => Number(second.active) - Number(first.active))) {
+      for (const block of preview.editableBlocks) {
+        if (comment.from >= block.to || comment.to <= block.from) continue
+        const target = Array.from(previewElement.querySelectorAll<HTMLElement>('[data-myst-edit-id]'))
+          .find((element) => element.dataset.mystEditId === block.id)
+        if (!target || target === editTarget || target.querySelector('[data-myst-suggestion-id]')) continue
+        const source = block.value.slice(
+          Math.max(0, comment.from - block.from),
+          Math.min(block.value.length, comment.to - block.from),
+        )
+        const fragment = document.createElement('template')
+        fragment.innerHTML = renderMyst(source).html
+        const text = fragment.content.textContent?.trim() ?? ''
+        markCommentPassage(target, text, comment)
+      }
+    }
+
     if (canEdit) {
       previewElement
         .querySelectorAll<HTMLElement>('[data-myst-edit-id]')
@@ -433,6 +493,7 @@ export const MystPreview = memo(({
     assetBaseUrl,
     bibliography,
     canEdit,
+    comments,
     preview.editableBlocks,
     preview.html,
     projectFiles,
@@ -485,7 +546,11 @@ export const MystPreview = memo(({
           to: Math.max(startBlock.to, endBlock.to),
         }
     const rect = selection.getRangeAt(0).getBoundingClientRect()
-    setSelectionComment({ left: rect.left + rect.width / 2, top: rect.bottom + 6, range })
+    setSelectionComment({
+      left: Math.max(56, Math.min(window.innerWidth - 56, rect.left + rect.width / 2)),
+      top: Math.max(8, Math.min(window.innerHeight - 42, rect.bottom + 6)),
+      range,
+    })
   }
 
   const beginEditing = (target: HTMLElement) => {
@@ -508,6 +573,15 @@ export const MystPreview = memo(({
   const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target
     if (!(target instanceof Element)) return
+    const selection = window.getSelection()
+    const comment = target.closest<HTMLElement>('[data-myst-comment-id]')
+    if (comment?.dataset.mystCommentId) {
+      if (selection && !selection.isCollapsed &&
+        previewRef.current?.contains(selection.anchorNode) &&
+        previewRef.current.contains(selection.focusNode)) return
+      onCommentClick?.(comment.dataset.mystCommentId)
+      return
+    }
     const dropdownSummary = target.closest('summary')
     if (
       dropdownSummary?.parentElement instanceof HTMLDetailsElement &&
@@ -521,7 +595,6 @@ export const MystPreview = memo(({
       return
     }
     const block = target.closest<HTMLElement>('[data-myst-edit-id]')
-    const selection = window.getSelection()
     if (
       selection &&
       !selection.isCollapsed &&
@@ -534,6 +607,14 @@ export const MystPreview = memo(({
   const handlePreviewKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'F2') return
     const target = event.target
+    const comment = target instanceof Element
+      ? target.closest<HTMLElement>('[data-myst-comment-id]')
+      : null
+    if (comment?.dataset.mystCommentId && event.key !== 'F2') {
+      event.preventDefault()
+      onCommentClick?.(comment.dataset.mystCommentId)
+      return
+    }
     const suggestion = target instanceof Element
       ? target.closest<HTMLElement>('[data-myst-suggestion-id]')
       : null
@@ -656,7 +737,8 @@ export const MystPreview = memo(({
             setSelectionComment(null)
           }}
         >
-          Comment
+          <MessageSquarePlus size={16} aria-hidden="true" />
+          <span>Comment</span>
         </button>,
         document.body,
       )}

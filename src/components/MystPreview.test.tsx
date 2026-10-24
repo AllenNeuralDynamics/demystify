@@ -152,6 +152,70 @@ Critical **methods** body.
     yDocument.destroy()
   })
 
+  it('opens a thread from a rendered comment highlight without editing the paragraph', async () => {
+    const content = '# Draft\n\nAn important finding with **details**.'
+    const from = content.indexOf('important finding')
+    const onCommentClick = vi.fn()
+    const onBeginEdit = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => root.render(
+      <MystPreview
+        content={content}
+        editable
+        onBeginEdit={onBeginEdit}
+        onCommitEdit={() => 'applied'}
+        comments={[{ id: 'comment-1', from, to: from + 'important finding'.length, resolved: false, active: true }]}
+        onCommentClick={onCommentClick}
+      />,
+    ))
+    const highlight = container.querySelector<HTMLElement>('[data-myst-comment-id="comment-1"]')
+    expect(highlight?.textContent).toBe('important finding')
+    expect(highlight?.classList).toContain('is-active')
+    await act(async () => highlight?.click())
+    expect(onCommentClick).toHaveBeenCalledWith('comment-1')
+    expect(onBeginEdit).not.toHaveBeenCalled()
+    const selection = window.getSelection()!
+    const range = document.createRange()
+    range.selectNodeContents(highlight!)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await act(async () => highlight?.click())
+    expect(onCommentClick).toHaveBeenCalledTimes(1)
+    selection.removeAllRanges()
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  it('keeps formatted text intact when comment ranges overlap or resolve', async () => {
+    const content = '# Draft\n\nA **strong finding** in context.'
+    const from = content.indexOf('**strong')
+    const finding = content.indexOf('finding')
+    const comments = [
+      { id: 'wide', from, to: from + '**strong finding**'.length, resolved: false, active: false },
+      { id: 'focused', from: finding, to: finding + 'finding'.length, resolved: false, active: true },
+    ]
+    const onCommentClick = vi.fn()
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () => root.render(
+      <MystPreview content={content} comments={comments} onCommentClick={onCommentClick} />,
+    ))
+    expect(container.querySelector('p strong')?.textContent).toBe('strong finding')
+    const mark = container.querySelector<HTMLElement>('[data-myst-comment-id="focused"]')
+    expect(mark?.textContent).toBe('finding')
+    expect(container.querySelector('.myst-comment-highlight .myst-comment-highlight')).toBeNull()
+    await act(async () => mark?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(onCommentClick).toHaveBeenCalledWith('focused')
+    await act(async () => root.render(
+      <MystPreview content={content} comments={comments.map((comment) => ({ ...comment, resolved: true }))} />,
+    ))
+    expect(container.querySelector('.myst-comment-highlight')).toBeNull()
+    expect(container.querySelector('p strong')?.textContent).toBe('strong finding')
+    await act(async () => root.unmount())
+  })
+
   it('shows pending suggestions inline and opens their review thread', async () => {
     const content = '# Draft\n\nOriginal *claim*.'
     const onSuggestionClick = vi.fn()

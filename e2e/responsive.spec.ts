@@ -86,6 +86,28 @@ test('wide manuscript tables stay inside the mobile document page', async ({ pag
   expect(geometry.tableRight).toBeLessThanOrEqual(geometry.pageRight)
 })
 
+test('phone comments open as a full-width sheet directly below the toolbar', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Phone comment geometry runs once')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await page.getByTitle('Open comments').click()
+  const panel = page.getByRole('complementary', { name: 'Comments' })
+  await expect(panel).toBeVisible()
+  const geometry = await panel.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    const documentArea = element.closest('.document-panes')!.getBoundingClientRect()
+    return { top: bounds.top, documentTop: documentArea.top, left: bounds.left, right: bounds.right, width: window.innerWidth }
+  })
+  expect(Math.abs(geometry.top - geometry.documentTop)).toBeLessThanOrEqual(1)
+  expect(geometry.left).toBe(0)
+  expect(geometry.right).toBe(geometry.width)
+  await page.getByTitle('Add comment to selection').click()
+  await expect(panel.getByRole('textbox', { name: 'New comment' })).toBeFocused()
+  expect(await panel.locator('.comment-composer').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
 test('mobile sidebar Escape policy changes exactly above 820px', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Breakpoint policy runs once in Chromium')
   await page.setViewportSize({ width: 820, height: 560 })

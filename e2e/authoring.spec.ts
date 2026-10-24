@@ -2,6 +2,66 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+test('keeps document comments attached to the selected passage through replies and resolution', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Contextual comment workflow runs once')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await page.locator('.myst-preview p').filter({ hasText: 'A manuscript should be as inspectable' }).waitFor()
+  await page.evaluate(() => {
+    const paragraph = Array.from(document.querySelectorAll('.myst-preview p'))
+      .find((element) => element.textContent?.includes('A manuscript should be as inspectable'))!
+    const node = paragraph.firstChild!
+    const start = node.textContent!.indexOf('inspectable')
+    const range = document.createRange()
+    range.setStart(node, start)
+    range.setEnd(node, start + 'inspectable'.length)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    paragraph.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  await page.locator('.myst-selection-comment').click()
+  await expect(page.locator('.comment-composer-quote')).toHaveText('inspectable')
+  await expect(page.getByRole('searchbox', { name: 'Search review' })).toHaveCount(0)
+  await page.getByRole('textbox', { name: 'New comment' }).fill('Clarify the scope of this finding.')
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })).toBe(true)
+  await page.getByTitle('Source only', { exact: true }).click()
+  const source = page.getByRole('textbox', { name: 'MyST source' })
+  await source.click()
+  await source.press('ControlOrMeta+End')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await page.locator('.comment-composer').getByRole('button', { name: 'Comment', exact: true }).click()
+  const thread = page.locator('.comment').filter({ hasText: 'Clarify the scope of this finding.' })
+  await expect(thread).toBeVisible()
+  const mark = page.locator('.myst-comment-highlight')
+  await expect(mark).toHaveText('inspectable')
+  await page.getByTitle('Close comments').click()
+  await mark.click()
+  await expect(page.locator('.document-panes')).toHaveClass(/view-preview/)
+  await expect(thread).toHaveAttribute('aria-expanded', 'true')
+  await expect.poll(async () => {
+    const highlight = await mark.boundingBox()
+    const card = await thread.boundingBox()
+    return highlight && card ? Math.abs(highlight.y - card.y) : Number.POSITIVE_INFINITY
+  }).toBeLessThan(100)
+  await thread.getByRole('combobox', { name: /Reply to comment/ }).fill('Agreed, I will clarify it.')
+  await thread.getByRole('button', { name: 'Reply', exact: true }).click()
+  await expect(thread.locator('.comment-reply')).toContainText('Agreed, I will clarify it.')
+  await thread.getByRole('button', { name: 'Resolve', exact: true }).click()
+  await expect(thread).toHaveCount(0)
+  await expect(mark).toHaveCount(0)
+  await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
+  await expect(thread).toBeVisible()
+  await thread.getByRole('button', { name: 'Reopen', exact: true }).click()
+  await expect(mark).toHaveText('inspectable')
+  await expect(page.locator('.document-panes')).toHaveClass(/view-preview/)
+  await page.getByTitle('Search and filter comments').click()
+  await expect(page.getByRole('searchbox', { name: 'Search review' })).toBeVisible()
+})
+
 test('supports core maintainer authoring and dialog workflows', async ({ page }, testInfo) => {
   const roomName = createRoomName(testInfo)
   await authenticateMaintainer(page, roomName, testInfo)

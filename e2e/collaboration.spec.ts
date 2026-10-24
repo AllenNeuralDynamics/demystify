@@ -151,7 +151,7 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     await expect(page.locator('.myst-suggestion-option.is-active')).toHaveCount(1)
     await acceptedSuggestion.getByRole('button', { name: 'Accept', exact: true }).click()
     await expect(acceptedSuggestion).toHaveCount(0)
-    await page.getByRole('button', { name: 'Resolved', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
     const resolvedAcceptedSuggestion = page.locator('.comment.suggestion-thread').filter({
       hasText: 'A reviewer-proposed sentence.',
     })
@@ -167,14 +167,14 @@ test('suggestion participant submits individually accepted or rejected Visual ed
     )
     await expect(page.locator('.myst-preview .myst-suggestion-insertion'))
       .toContainText('A proposal that should be rejected.')
-    await page.getByRole('button', { name: 'Open', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('open')
     const rejectedSuggestion = page.locator('.comment.suggestion-thread').filter({
       hasText: 'A proposal that should be rejected.',
     })
     await rejectedSuggestion.click()
     await rejectedSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect(rejectedSuggestion).toHaveCount(0)
-    await page.getByRole('button', { name: 'Resolved', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
     await expect(page.locator('.comment.suggestion-thread').filter({
       hasText: 'A proposal that should be rejected.',
     }).locator('.suggestion-summary')).toContainText('Rejected')
@@ -277,7 +277,7 @@ test('two Source reviewers keep independent attributed suggestions', async ({ br
     await expect(secondSuggestion).toHaveAttribute('aria-expanded', 'true')
     await secondSuggestion.getByRole('button', { name: 'Reject', exact: true }).click()
     await expect(secondSuggestion).toHaveCount(0)
-    await page.getByRole('button', { name: 'Resolved', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('resolved')
     await expect(page.locator('.comment.suggestion-thread').filter({
       has: page.getByText('Source Reviewer', { exact: true }),
     }).locator('.suggestion-summary')).toContainText('Accepted')
@@ -332,11 +332,12 @@ test('only authors edit comments and replies while everyone can reply', async ({
     const maintainerView = page.locator('.comment').filter({
       has: page.getByText('Reviewer A', { exact: true }),
     })
-    await expect(firstComment.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
-    await expect(secondView.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
-    await expect(maintainerView.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
+    await expect(firstComment.getByRole('button', { name: 'Comment actions', exact: true })).toBeVisible()
+    await expect(secondView.getByRole('button', { name: 'Comment actions', exact: true })).toHaveCount(0)
+    await expect(maintainerView.getByRole('button', { name: 'Comment actions', exact: true })).toHaveCount(0)
 
-    await firstComment.getByRole('button', { name: 'Edit', exact: true }).click()
+    await firstComment.getByRole('button', { name: 'Comment actions', exact: true }).click()
+    await firstComment.getByRole('menuitem', { name: 'Edit', exact: true }).click()
     const commentEditor = firstComment.getByRole('textbox', { name: 'Edit comment by Reviewer A' })
     await commentEditor.fill('Author-edited comment text.')
     await first.reviewer.keyboard.press('Meta+Enter')
@@ -396,6 +397,7 @@ test('only authors edit comments and replies while everyone can reply', async ({
     await maintainerView.click()
     await expect(maintainerView).toContainText(/@e2e-editor-\d+ please review this\./)
     await expect(secondView.getByText('Queued for maintainer', { exact: true })).toHaveCount(1)
+    await page.getByTitle('Search and filter comments').click()
     await page.getByRole('button', { name: 'For you', exact: true }).click()
     await expect(page.getByRole('button', { name: 'For you', exact: true }))
       .toHaveAttribute('aria-pressed', 'true')

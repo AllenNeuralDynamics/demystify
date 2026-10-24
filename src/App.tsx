@@ -67,6 +67,7 @@ import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationInserter } from './components/VisualInlineEditor'
 import {
   useCollaboration,
+  type CommentDraftAnchor,
   type Collaborator,
   type PrimaryEditMode,
   type SharedComment,
@@ -252,6 +253,8 @@ const formatRelativeTime = (isoDate: string) => {
   return `${Math.floor(elapsedMinutes / 1_440)}d`
 }
 
+const composingCommentId = 'local-comment-draft'
+
 function App() {
   const [roomName] = useState(getRoomName)
   const [profile, setProfile] = useState(loadProfile)
@@ -261,6 +264,9 @@ function App() {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentComposerOpen, setCommentComposerOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [commentDraftAnchor, setCommentDraftAnchor] = useState<CommentDraftAnchor | undefined>()
+  const [reviewFiltersOpen, setReviewFiltersOpen] = useState(false)
+  const [contextualComments, setContextualComments] = useState(false)
   const [reviewQuery, setReviewQuery] = useState('')
   const [reviewStatus, setReviewStatus] = useState<ReviewStatusFilter>('open')
   const [reviewType, setReviewType] = useState<ReviewTypeFilter>('all')
@@ -318,6 +324,7 @@ function App() {
   const pendingPreviewAlignmentFrameRef = useRef<number | null>(null)
   const visualSuggestionSupersedesRef = useRef<string[]>([])
   const reviewThreadRefs = useRef(new Map<string, HTMLElement>())
+  const commentRailRef = useRef<HTMLDivElement>(null)
   const commentSyncAttempts = useRef(new Map<string, string>())
   const messageSyncAttempts = useRef(new Map<string, string>())
   const narrowViewport = useRef(window.innerWidth <= 820)
@@ -473,6 +480,29 @@ function App() {
         : []
     }) : [],
     [activeCommentId, commentLocations, isPrimaryFile, sharedComments],
+  )
+  const composingCommentRange = useMemo(
+    () => {
+      if (!commentComposerOpen || !commentDraftAnchor) return null
+      const source = commentDraftAnchor.anchorTarget === 'working'
+        ? collaboration.workingContent
+        : collaboration.content
+      const range = resolveCommentAnchor(commentDraftAnchor)
+      return range && range.to <= source.length ? range : null
+    },
+    [commentComposerOpen, commentDraftAnchor, resolveCommentAnchor, collaboration.content, collaboration.workingContent],
+  )
+  const visualCommentHighlights = useMemo(
+    () => composingCommentRange && !composingCommentRange.orphaned
+      ? [...commentHighlights, {
+          id: composingCommentId,
+          from: composingCommentRange.from,
+          to: composingCommentRange.to,
+          active: true,
+          resolved: false,
+        }]
+      : commentHighlights,
+    [commentHighlights, composingCommentRange],
   )
   const primarySuggestionProjection = useMemo(
     () => projectPendingSuggestions(
@@ -787,6 +817,57 @@ function App() {
     })
     return () => window.cancelAnimationFrame(frame)
   }, [activeCommentId, commentsOpen, visibleReviewComments])
+
+  useLayoutEffect(() => {
+    const rail = commentRailRef.current
+    const preview = previewPaneRef.current
+    if (!rail || !preview || !commentsOpen || !contextualComments || view !== 'preview') return
+    let pendingFrame: number | undefined
+    const align = () => {
+      window.cancelAnimationFrame(pendingFrame ?? 0)
+      pendingFrame = window.requestAnimationFrame(() => {
+        if (window.innerWidth <= 820) {
+          rail.style.paddingTop = ''
+          rail.style.paddingBottom = ''
+          return
+        }
+        const id = commentComposerOpen ? composingCommentId : activeCommentId
+        const target = id ? preview.querySelector<HTMLElement>(`[data-myst-comment-id="${CSS.escape(id)}"]`) : null
+        const card = commentComposerOpen
+          ? rail.querySelector<HTMLElement>('.comment-composer')
+          : activeCommentId ? reviewThreadRefs.current.get(activeCommentId) : null
+        if (!target || !card) return
+        const railBounds = rail.getBoundingClientRect()
+        const cardBounds = card.getBoundingClientRect()
+        const oldPadding = parseFloat(getComputedStyle(rail).paddingTop) || 0
+        const preceding = cardBounds.top - railBounds.top + rail.scrollTop - oldPadding
+        const wanted = Math.max(12, Math.min(
+          target.getBoundingClientRect().top - railBounds.top,
+          rail.clientHeight - cardBounds.height - 12,
+        ))
+        const padding = Math.max(12, wanted - preceding)
+        rail.style.paddingTop = `${padding}px`
+        rail.style.paddingBottom = `${Math.max(12, rail.clientHeight - wanted - cardBounds.height)}px`
+        rail.scrollTop = Math.max(0, preceding + padding - wanted)
+      })
+    }
+    const observer = new ResizeObserver(align)
+    observer.observe(preview)
+    observer.observe(rail)
+    const card = commentComposerOpen
+      ? rail.querySelector<HTMLElement>('.comment-composer')
+      : activeCommentId ? reviewThreadRefs.current.get(activeCommentId) : null
+    if (card) observer.observe(card)
+    preview.addEventListener('scroll', align, { passive: true })
+    align()
+    return () => {
+      window.cancelAnimationFrame(pendingFrame ?? 0)
+      observer.disconnect()
+      preview.removeEventListener('scroll', align)
+      rail.style.paddingTop = ''
+      rail.style.paddingBottom = ''
+    }
+  }, [activeCommentId, commentComposerOpen, commentsOpen, contextualComments, view, visibleReviewComments])
 
   const refreshVisualScrollPoints = () => {
     const previewScroller = previewPaneRef.current
@@ -1220,16 +1301,19 @@ function App() {
   const displayedSaveStatus = activeSourceDraftPreview !== null
     ? 'unconfirmed'
     : collaboration.serverSaveStatus
+  const hasPendingReviewDraft = Boolean(
+    commentDraft.trim() || Object.values(replyDrafts).some((draft) => draft.trim()) || editingReviewItem,
+  )
 
   useEffect(() => {
-    if (activeSourceDraftPreview === null) return
+    if (activeSourceDraftPreview === null && !hasPendingReviewDraft) return
     const protectSourceDraft = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', protectSourceDraft)
     return () => window.removeEventListener('beforeunload', protectSourceDraft)
-  }, [activeSourceDraftPreview])
+  }, [activeSourceDraftPreview, hasPendingReviewDraft])
 
   const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && (
     !collaboration.isSynced || collaboration.status !== 'connected' ||
@@ -1267,13 +1351,21 @@ function App() {
     }
     const commentId = collaboration.addComment(
       commentDraft,
-      editorRef.current?.getCommentSelection() ?? undefined,
+      undefined,
+      commentDraftAnchor,
     )
-    if (commentId) {
-      setActiveCommentId(commentId)
-      setCommentComposerOpen(false)
+    if (!commentId) {
+      showNotice('Could not post this comment. Your draft has been kept; check the selected passage and try again.')
+      return
     }
+    setActiveCommentId(commentId)
+    setCommentComposerOpen(false)
     setCommentDraft('')
+    setCommentDraftAnchor(undefined)
+    setReviewStatus('open')
+    setReviewQuery('')
+    setReviewType('all')
+    setReviewForMe(false)
   }
 
   const openCommentComposer = () => {
@@ -1281,6 +1373,12 @@ function App() {
       showNotice('Review comments on secondary project files are not available yet.')
       return
     }
+    if (!commentDraft.trim()) {
+      setCommentDraftAnchor(collaboration.captureCommentAnchor(
+        editorRef.current?.getCommentSelection() ?? undefined,
+      ))
+    }
+    setContextualComments(view === 'preview')
     setCommentsOpen(true)
     setCommentComposerOpen(true)
     setActiveCommentId(null)
@@ -1381,13 +1479,17 @@ function App() {
     setActiveLiveProposalChangeId(null)
     const location = commentLocations.get(commentId)
     if (!location || location.orphaned) return
-    if (view === 'preview') setView('split')
     window.requestAnimationFrame(() => {
-      editorRef.current?.revealRange(location.from, location.to, false)
+      if (view === 'preview') {
+        previewPaneRef.current?.querySelector<HTMLElement>(
+          `[data-myst-comment-id="${CSS.escape(commentId)}"]`,
+        )?.scrollIntoView({ block: 'center' })
+      } else editorRef.current?.revealRange(location.from, location.to, false)
     })
   }
 
   const openLiveProposalChange = (changeId: string) => {
+    setContextualComments(false)
     const change = liveProposalChanges.find((candidate) => candidate.id === changeId)
     if (!change) {
       openCommentThread(changeId)
@@ -2199,6 +2301,9 @@ function App() {
                 title={isPrimaryFile ? 'Open comments' : 'Comments are currently limited to the primary manuscript'}
                 disabled={!isPrimaryFile}
                 onClick={() => {
+                  const showHistory = commentsOpen && contextualComments
+                  setContextualComments(false)
+                  if (showHistory) return
                   setCommentsOpen((open) => {
                     if (open) setCommentComposerOpen(false)
                     return !open
@@ -2356,6 +2461,15 @@ function App() {
                 <MystPreview
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
+                  comments={isPrimaryFile ? visualCommentHighlights : []}
+                  onCommentClick={(commentId) => {
+                    if (commentId === composingCommentId) {
+                      document.querySelector<HTMLTextAreaElement>('[aria-label="New comment"]')?.focus()
+                      return
+                    }
+                    setContextualComments(true)
+                    openCommentThread(commentId)
+                  }}
                   content={displayedContent}
                   liveEditing={!isAtomicSuggestionMode}
                   onCommentSelection={canCommentOnSelection ? commentOnVisualSelection : undefined}
@@ -2448,13 +2562,26 @@ function App() {
               >
                 <div className="comments-heading">
                   <div>
-                    <strong>Review</strong>
+                    <strong>Comments</strong>
                     <span title={commentPollError ?? undefined}>
                       {openCommentCount} open
                       {commentPollError ? ' | GitHub sync retrying' : ''}
                     </span>
                   </div>
                   <div className="comments-heading-actions">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="Search and filter comments"
+                      aria-expanded={reviewFiltersOpen}
+                      aria-controls="comment-search-filters"
+                      onClick={() => {
+                        setContextualComments(false)
+                        setReviewFiltersOpen((current) => !current)
+                      }}
+                    >
+                      <Search size={16} />
+                    </button>
                     {!effectiveReadOnly && (
                       <button
                         className="icon-button"
@@ -2471,6 +2598,7 @@ function App() {
                       title="Close comments"
                       onClick={() => {
                         setCommentsOpen(false)
+                        setContextualComments(false)
                         setCommentComposerOpen(false)
                         window.requestAnimationFrame(() => commentsTriggerRef.current?.focus())
                       }}
@@ -2479,7 +2607,23 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <div className="review-inbox-controls">
+                <div className="comments-toolbar">
+                  <select
+                    aria-label="Review status"
+                    value={reviewStatus}
+                    onChange={(event) => {
+                      setContextualComments(false)
+                      setReviewStatus(event.target.value as ReviewStatusFilter)
+                      setReviewVisibleLimit(reviewBatchSize)
+                    }}
+                  >
+                    <option value="open">Open comments</option>
+                    <option value="resolved">Resolved comments</option>
+                    <option value="all">All comments</option>
+                  </select>
+                  <span>{filteredReviewComments.length}</span>
+                </div>
+                {reviewFiltersOpen && <div className="review-inbox-controls" id="comment-search-filters">
                   <label className="review-search">
                     <Search size={14} aria-hidden="true" />
                     <input
@@ -2494,21 +2638,6 @@ function App() {
                     />
                   </label>
                   <div className="review-filter-row">
-                    <div className="review-segmented" role="group" aria-label="Review status">
-                      {(['open', 'resolved', 'all'] as const).map((status) => (
-                        <button
-                          aria-pressed={reviewStatus === status}
-                          key={status}
-                          type="button"
-                          onClick={() => {
-                            setReviewStatus(status)
-                            setReviewVisibleLimit(reviewBatchSize)
-                          }}
-                        >
-                          {status[0].toUpperCase() + status.slice(1)}
-                        </button>
-                      ))}
-                    </div>
                     <button
                       aria-pressed={reviewForMe}
                       className="review-for-me"
@@ -2539,17 +2668,30 @@ function App() {
                       {visibleReviewComments.length} of {filteredReviewComments.length}
                     </span>
                   </div>
-                </div>
-                {commentComposerOpen && (
+                </div>}
+                <div className="comment-list" ref={commentRailRef}>
+                  {commentComposerOpen && (
                   <div className="comment-composer">
+                    <div className="comment-meta">
+                      <span className="mini-avatar" aria-hidden="true" style={{ background: `${collaborationProfile.color}1f`, color: collaborationProfile.color }}>
+                        {collaborationProfile.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <strong>{collaborationProfile.name}</strong>
+                    </div>
+                    {commentDraftAnchor?.anchor.quote && (
+                      <blockquote className="comment-composer-quote">{commentDraftAnchor.anchor.quote}</blockquote>
+                    )}
                     <textarea
                       aria-label="New comment"
-                      placeholder="Comment on the current selection..."
+                      placeholder="Add a comment..."
                       disabled={effectiveReadOnly}
                       value={commentDraft}
                       onChange={(event) => setCommentDraft(event.target.value)}
                       onKeyDown={(event) => {
-                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submitComment()
+                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                          event.preventDefault()
+                          submitComment()
+                        }
                       }}
                     />
                     <div className="comment-composer-actions">
@@ -2557,6 +2699,7 @@ function App() {
                         type="button"
                         onClick={() => {
                           setCommentDraft('')
+                          setCommentDraftAnchor(undefined)
                           setCommentComposerOpen(false)
                         }}
                       >
@@ -2573,7 +2716,6 @@ function App() {
                     </div>
                   </div>
                 )}
-                <div className="comment-list">
                   {collaboration.hasPendingWorkingChanges && (
                     <article className="live-proposal-card">
                       <div className="live-proposal-heading">
@@ -2726,19 +2868,54 @@ function App() {
                       }}
                       tabIndex={0}
                     >
-                      <div className="comment-meta">
+                      <div className="comment-thread-header">
+                        <div className="comment-meta">
                         <span aria-hidden="true" className="mini-avatar" style={{ background: `${comment.authorColor}1f`, color: comment.authorColor }}>
                           {comment.authorName.slice(0, 1).toUpperCase()}
                         </span>
-                        <strong>{comment.authorName}</strong>
-                        <time dateTime={comment.createdAt}>{formatRelativeTime(comment.createdAt)}</time>
-                        {(replies.length > 0 || comment.resolved) && (
-                          <span className="comment-thread-state">
-                            {replies.length > 0
-                              ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`
-                              : 'Resolved'}
-                          </span>
-                        )}
+                          <div className="comment-author">
+                            <strong>{comment.authorName}</strong>
+                            <time dateTime={comment.createdAt} title={new Date(comment.createdAt).toLocaleString()}>
+                              {formatRelativeTime(comment.createdAt)}{comment.resolved ? ' - Resolved' : ''}
+                            </time>
+                          </div>
+                        </div>
+                        <div className="comment-thread-controls">
+                          {!comment.suggestion && (
+                            <button
+                              className="icon-button"
+                              type="button"
+                              aria-label={comment.resolved ? 'Reopen' : 'Resolve'}
+                              title={comment.resolved ? 'Reopen comment' : 'Resolve comment'}
+                              disabled={effectiveReadOnly}
+                              onClick={() => {
+                                collaboration.toggleComment(comment)
+                                setActiveCommentId(comment.resolved ? comment.id : null)
+                                if (comment.resolved) setReviewStatus('open')
+                                showNotice(comment.resolved ? 'Comment reopened' : 'Comment resolved')
+                              }}
+                            >
+                              {comment.resolved ? <RefreshCw size={16} /> : <Check size={17} />}
+                            </button>
+                          )}
+                          {!comment.suggestion && ownedActorIds.includes(comment.authorId) && (
+                            <DocumentMenu
+                              className="comment-more-menu"
+                              label="Comment actions"
+                              icon={MoreHorizontal}
+                              align="right"
+                              items={[{
+                                label: 'Edit',
+                                icon: PencilLine,
+                                disabled: effectiveReadOnly,
+                                onSelect: () => {
+                                  openCommentThread(comment.id, true)
+                                  beginCommentEdit(comment)
+                                },
+                              }]}
+                            />
+                          )}
+                        </div>
                       </div>
                       {!comment.suggestion && comment.anchor ? (
                         <button
@@ -2802,6 +2979,11 @@ function App() {
                             {comment.editedAt && <small className="edited-label"> edited</small>}
                           </p>
                         )
+                      )}
+                      {!isActiveThread && replies.length > 0 && (
+                        <button className="comment-reply-count" type="button" onClick={() => openCommentThread(comment.id, true)}>
+                          {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
+                        </button>
                       )}
                       {isActiveThread && replies.length > 0 && (
                         <div className="comment-replies">
@@ -2893,6 +3075,7 @@ function App() {
                             onClick={() => submitReply(comment)}
                           >
                             <Reply size={14} />
+                            <span>Reply</span>
                           </button>
                         </div>
                       )}
@@ -2912,18 +3095,9 @@ function App() {
                               </button>
                             </div>
                           ) : null
-                        ) : (
-                          <>
-                            {ownedActorIds.includes(comment.authorId) && (
-                              <button type="button" disabled={effectiveReadOnly} onClick={() => beginCommentEdit(comment)}>
-                                <PencilLine size={13} /> Edit
-                              </button>
-                            )}
-                            <button type="button" disabled={effectiveReadOnly} onClick={() => collaboration.toggleComment(comment)}>
-                              <Check size={13} /> {comment.resolved ? 'Reopen' : 'Resolve'}
-                            </button>
-                          </>
-                        )}
+                        ) : null}
+                        <details className="comment-sync-details" open={commentSyncErrors[comment.id] ? true : undefined}>
+                          <summary>GitHub sync</summary>
                         <div className="comment-github-state">
                           {comment.github && (
                             <a
@@ -2954,6 +3128,7 @@ function App() {
                             </span>
                           ) : null}
                         </div>
+                        </details>
                       </div>}
                     </article>
                   )})}
