@@ -1789,6 +1789,8 @@
   caret-color: var(--editor-accent);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .continuous-visual-document .myst-editable-block,
@@ -1814,19 +1816,35 @@
   outline-color: var(--editor-accent);
 }
 
+figure.is-object-editing,
 .visual-protected-block.is-object-editing {
+  height: var(--visual-object-height);
   outline: 2px solid var(--editor-accent);
+  outline-offset: 2px;
   cursor: default;
 }
 
+figure.is-object-editing > :not(.visual-object-editor-host),
+.visual-protected-block.is-object-editing > :not(.visual-object-editor-host) {
+  display: none;
+}
+
+.is-object-editing > .visual-object-editor-host {
+  width: 100%;
+  height: 100%;
+}
+
 .visual-object-editor {
-  position: fixed;
-  z-index: 60;
+  position: sticky;
+  top: 44px;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  max-width: calc(100vw - 24px);
+  height: min(var(--visual-object-height, 280px), 420px);
+  min-height: 96px;
+  max-height: calc(100dvh - 160px);
   margin: 0;
   overflow: hidden;
   border: 1px solid var(--editor-accent);
@@ -1883,13 +1901,6 @@
   color: var(--muted);
   opacity: 0.5;
   cursor: default;
-}
-
-.visual-object-preview {
-  min-height: 0;
-  flex: 0 1 96px;
-  overflow: auto;
-  padding: 12px;
 }
 
 .visual-object-editor textarea {
@@ -2276,7 +2287,11 @@
 }
 
 .myst-preview figcaption {
+  display: block;
+  width: 100%;
+  min-width: 0;
   margin-top: 8px;
+  text-align: left;
   color: var(--muted);
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 11px;
@@ -2285,6 +2300,18 @@
 
 .myst-preview .caption-number {
   font-weight: 600;
+}
+
+.continuous-visual-document figcaption > .visual-container-content {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.continuous-visual-document figcaption .visual-protected-block,
+.continuous-visual-document figcaption p {
+  width: 100%;
+  min-width: 0;
 }
 
 .myst-preview .math {
@@ -3273,7 +3300,14 @@
 }
 
 .document-panes.view-preview.comments-open {
+  width: 100%;
+  max-width: 1138px;
+  margin-inline: auto;
   grid-template-columns: minmax(0, 1fr) 290px;
+}
+
+.document-panes.view-preview.comments-open .myst-preview {
+  width: min(816px, calc(100% - 16px));
 }
 
 .modal-backdrop {
