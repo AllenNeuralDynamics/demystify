@@ -172,9 +172,13 @@ test('keeps object editor geometry and document scroll stable', async ({ page },
     const before = await geometry()
     const originalBounds = await object.target.evaluate((element) => {
       const bounds = element.getBoundingClientRect()
-      return { height: bounds.height, width: bounds.width }
+      const pane = element.closest('.preview-pane')!
+      const label = pane.querySelector('.preview-label')!.getBoundingClientRect()
+      const top = Math.max(bounds.top, label.bottom)
+      const bottom = Math.min(bounds.bottom, pane.getBoundingClientRect().bottom, window.innerHeight)
+      return { height: bounds.height, width: bounds.width, clickY: (top + bottom) / 2 - bounds.top }
     })
-    await object.target.click(object.name === 'caption' ? { position: { x: 8, y: 8 } } : {})
+    await object.target.click(object.name === 'caption' ? { position: { x: 8, y: originalBounds.clickY } } : {})
     const editor = page.locator('.visual-object-editor')
     const input = editor.locator('textarea')
     await expect(input).toBeFocused()

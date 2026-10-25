@@ -2292,10 +2292,19 @@ figure.is-object-editing > :not(.visual-object-editor-host),
   min-width: 0;
   margin-top: 8px;
   text-align: left;
-  color: var(--muted);
+  color: var(--ink);
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: normal;
+}
+
+.myst-preview figcaption p {
+  margin: 0 0 10px;
+}
+
+.myst-preview figcaption p:last-child {
+  margin-bottom: 0;
 }
 
 .myst-preview .caption-number {

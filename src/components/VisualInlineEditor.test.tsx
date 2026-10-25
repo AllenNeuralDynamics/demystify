@@ -7,6 +7,7 @@ import { Awareness } from 'y-protocols/awareness'
 import type { WebsocketProvider } from 'y-websocket'
 import type { MystEditableBlock } from '../lib/myst'
 import { readVisualRecoveryDraft, visualObjectDraftKey, writeVisualRecoveryDraft } from '../lib/collaborationRecovery'
+import * as visualModel from '../lib/visualDocument'
 import { ContinuousVisualEditor, type ContinuousVisualEditorHandle } from './ContinuousVisualEditor'
 import { VisualInlineEditor } from './VisualInlineEditor'
 
@@ -98,6 +99,142 @@ describe('VisualInlineEditor', () => {
 })
 
 describe('continuous Visual draft recovery', () => {
+  it('coalesces Source typing without delaying shared edits or remote updates', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'A shared paragraph.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const input = window.document.createElement('div')
+    input.className = 'cm-content'
+    input.tabIndex = 0
+    window.document.body.append(input)
+    const root = createRoot(container)
+    const render = vi.spyOn(visualModel, 'createVisualDocument')
+    const configuration = {
+      draftKey: JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md']),
+      sharedText: text, provider, editable: true, suggestionMode: false,
+      comments: [], suggestions: [], onDraftChange: () => {}, onReady: () => {},
+      onProposeSourceEdit: () => ({ result: 'applied' as const }),
+    }
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration} content={text.toString()} />))
+      render.mockClear()
+      vi.useFakeTimers()
+      input.focus()
+      await act(async () => { text.insert(0, 'Updated ') })
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration} content={text.toString()} />))
+      expect(text.toString()).toBe('Updated A shared paragraph.')
+      expect(container.textContent).not.toContain('Updated A shared paragraph.')
+      expect(render).not.toHaveBeenCalled()
+      await act(async () => { vi.advanceTimersByTime(150) })
+      expect(container.textContent).toContain(text.toString())
+      expect(render).toHaveBeenCalledOnce()
+      await act(async () => { text.insert(text.length, ' Locally updated.') })
+      const peer = new Y.Doc()
+      Y.applyUpdate(peer, Y.encodeStateAsUpdate(document))
+      peer.getText('content').insert(0, 'Remote ')
+      await act(async () => { Y.applyUpdate(document, Y.encodeStateAsUpdate(peer)) })
+      expect(container.textContent).toContain(text.toString())
+      expect(render).toHaveBeenCalledTimes(2)
+      await act(async () => { vi.advanceTimersByTime(150) })
+      expect(render).toHaveBeenCalledTimes(2)
+      await act(async () => { text.insert(text.length, ' Before Visual interaction.') })
+      expect(render).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        container.querySelector('[contenteditable]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      })
+      expect(container.textContent).toContain(text.toString())
+      expect(render).toHaveBeenCalledTimes(3)
+      await act(async () => { vi.advanceTimersByTime(150) })
+      expect(render).toHaveBeenCalledTimes(3)
+      const modeButton = window.document.createElement('button')
+      input.after(modeButton)
+      try {
+        await act(async () => { text.insert(text.length, ' Before changing views.') })
+        expect(render).toHaveBeenCalledTimes(3)
+        await act(async () => { modeButton.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+        expect(container.textContent).toContain(text.toString())
+        expect(render).toHaveBeenCalledTimes(4)
+      } finally { modeButton.remove() }
+      peer.destroy()
+    } finally {
+      vi.useRealTimers()
+      await act(async () => root.unmount())
+      render.mockRestore()
+      input.remove()
+      document.destroy()
+    }
+  })
+
+  it('refreshes source and included files on activation without rebuilding while hidden', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'A shared paragraph.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const render = vi.spyOn(visualModel, 'createVisualDocument')
+    const configuration = {
+      draftKey: JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md']),
+      sharedText: text, provider, editable: true, suggestionMode: false,
+      comments: [], suggestions: [], onDraftChange: () => {}, onReady: () => {},
+      onProposeSourceEdit: () => ({ result: 'applied' as const }),
+    }
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration} active={false}
+        content={text.toString()} projectFiles={{ 'included.md': 'Original included file.' }} />))
+      render.mockClear()
+      await act(async () => { text.insert(0, 'Updated ') })
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration} active={false}
+        content={text.toString()} projectFiles={{ 'included.md': 'Updated included file.' }} />))
+      expect(render).not.toHaveBeenCalled()
+      expect(container.textContent).not.toContain('Updated A shared paragraph.')
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration} active
+        content={text.toString()} projectFiles={{ 'included.md': 'Updated included file.' }} />))
+      expect(render).toHaveBeenCalledOnce()
+      expect(container.textContent).toContain('Updated A shared paragraph.')
+      expect(render).toHaveBeenCalledWith(text.toString(), expect.objectContaining({
+        projectFiles: { 'included.md': 'Updated included file.' },
+      }))
+    } finally {
+      await act(async () => root.unmount())
+      render.mockRestore()
+      document.destroy()
+    }
+  })
+
+  it('does not rebuild the document for unchanged project-file values', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'A shared paragraph.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const render = vi.spyOn(visualModel, 'createVisualDocument')
+    const configuration = {
+      draftKey: JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md']),
+      content: text.toString(), sharedText: text, provider, editable: true,
+      suggestionMode: false, comments: [], suggestions: [], onDraftChange: () => {},
+      onReady: () => {}, onProposeSourceEdit: () => ({ result: 'applied' as const }),
+    }
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration}
+        projectFiles={{ 'included.md': 'Unchanged content.' }} />))
+      render.mockClear()
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration}
+        projectFiles={{ 'included.md': 'Unchanged content.' }} />))
+      expect(render).not.toHaveBeenCalled()
+      await act(async () => root.render(<ContinuousVisualEditor {...configuration}
+        projectFiles={{ 'included.md': 'Changed content.' }} />))
+      expect(render).toHaveBeenCalledOnce()
+    } finally {
+      await act(async () => root.unmount())
+      render.mockRestore()
+      document.destroy()
+    }
+  })
+
   const changeObject = async (container: HTMLElement, source: string) => {
     const input = container.querySelector<HTMLTextAreaElement>('.visual-object-editor textarea')
     expect(input).not.toBeNull()

@@ -69,21 +69,41 @@ test('figure captions use the figure width and Visual comments stay beside the p
   test.skip(testInfo.project.name !== 'chromium', 'Caption and comment geometry runs once')
   await page.setViewportSize({ width: 1600, height: 960 })
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const wrappedCaption = 'A detailed caption explains the panels.\n'.repeat(16).trim()
+  await page.getByRole('textbox', { name: 'MyST source' }).fill([
+    '# Caption geometry', '', ':::{figure} /sample-figure.svg', ':name: fig-plain', '',
+    'A detailed figure caption describing each panel and the measurements. '.repeat(12), ':::', '',
+    ':::{figure} /sample-figure.svg', ':name: fig-wrapped', '',
+    `**Panel A.** [Panel reference](#fig-plain). ${wrappedCaption}`, ':::', '',
+  ].join('\n'))
   await page.getByTitle('Visual editor', { exact: true }).click()
   const formatted = page.getByRole('textbox', { name: 'Formatted manuscript' })
-  const caption = formatted.locator('figure figcaption p').first()
-  await caption.fill('A detailed figure caption describing each panel and the measurements. '.repeat(12))
+  await expect(formatted.locator('#fig-wrapped figcaption')).toBeVisible()
+  const captions = formatted.locator('figure figcaption p')
+  await expect(captions).toHaveCount(2)
+  const legend = formatted.locator('figure figcaption').first()
+  await expect(legend).toHaveCSS('font-size', '13px')
+  expect(await legend.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight)))
+    .toBeCloseTo(20.8, 2)
+  await expect(legend).toHaveCSS('color', 'rgb(32, 33, 36)')
+  await expect(legend).toHaveCSS('white-space', 'normal')
   for (const width of [1600, 2560, 390]) {
     await page.setViewportSize({ width, height: 960 })
-    const bounds = await caption.evaluate((element) => {
-      const figure = element.closest('figure')!.getBoundingClientRect()
-      const text = element.getBoundingClientRect()
-      return { figureWidth: figure.width, captionWidth: text.width, left: text.left - figure.left,
-        overflow: element.scrollWidth > element.clientWidth }
-    })
-    expect(Math.abs(bounds.captionWidth - bounds.figureWidth)).toBeLessThanOrEqual(2)
-    expect(Math.abs(bounds.left)).toBeLessThanOrEqual(2)
-    expect(bounds.overflow).toBe(false)
+    for (const caption of await captions.all()) {
+      const bounds = await caption.evaluate((element) => {
+        const figure = element.closest('figure')!.getBoundingClientRect()
+        const text = element.getBoundingClientRect()
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const lineWidth = Math.max(...Array.from(range.getClientRects()).map((rect) => rect.width))
+        return { figureWidth: figure.width, captionWidth: text.width, left: text.left - figure.left,
+          lineWidth, overflow: element.scrollWidth > element.clientWidth }
+      })
+      expect(Math.abs(bounds.captionWidth - bounds.figureWidth)).toBeLessThanOrEqual(2)
+      expect(Math.abs(bounds.left)).toBeLessThanOrEqual(2)
+      expect(bounds.lineWidth).toBeGreaterThan(bounds.figureWidth * 0.85)
+      expect(bounds.overflow).toBe(false)
+    }
   }
   for (const width of [1600, 2560]) {
     await page.setViewportSize({ width, height: 960 })

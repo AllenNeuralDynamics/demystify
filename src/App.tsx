@@ -2467,6 +2467,7 @@ function App() {
                   continuous={activeSharedText && collaboration.provider && !isViewer &&
                     collaboration.hasLoadedDocument && isActiveMystSource ? {
                     draftKey: JSON.stringify([roomName, collaborationProfile.id, activeFilePath]),
+                    active: view !== 'source',
                     toolbarHost: visualToolbarHost,
                     sharedText: activeSharedText,
                     provider: collaboration.provider,

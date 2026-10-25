@@ -347,10 +347,25 @@ export const getVisualDocumentChanges = (before: string, after: string): TextRep
   return changes
 }
 
-const mapTextOffset = (source: string, target: string, offset: number, association: number) => {
+interface TextOffsetDiffs {
+  toSource?: ReturnType<typeof diffChars>
+  toVisual?: ReturnType<typeof diffChars>
+}
+
+const textOffsetDiffs = new WeakMap<ProseMirrorNode, TextOffsetDiffs>()
+
+const mapTextOffset = (source: string, target: string, offset: number, association: number,
+  node: ProseMirrorNode, direction: keyof TextOffsetDiffs) => {
+  if (source === target) return Math.max(0, Math.min(source.length, offset))
+  let cached = textOffsetDiffs.get(node)
+  if (!cached) {
+    cached = {}
+    textOffsetDiffs.set(node, cached)
+  }
+  const parts = cached[direction] ??= diffChars(source, target)
   let sourceOffset = 0
   let targetOffset = 0
-  for (const part of diffChars(source, target)) {
+  for (const part of parts) {
     if (part.added) {
       targetOffset += part.value.length
     } else if (part.removed) {
@@ -414,7 +429,7 @@ export const visualPositionToSource = (document: ProseMirrorNode, position: numb
   if (!block) return 0
   if (block.node.isAtom) return position > block.position ? block.to : block.from
   const local = Math.max(0, Math.min(block.node.content.size, position - block.position - 1))
-  return block.from + mapTextOffset(block.visible, block.body, local, 1)
+  return block.from + mapTextOffset(block.visible, block.body, local, 1, block.node, 'toSource')
 }
 
 export const sourcePositionToVisual = (document: ProseMirrorNode, position: number, association = 1) => {
@@ -423,5 +438,5 @@ export const sourcePositionToVisual = (document: ProseMirrorNode, position: numb
   if (!block) return 0
   if (block.node.isAtom) return block.position + (association > 0 ? block.node.nodeSize : 0)
   const local = Math.max(0, Math.min(block.body.length, position - block.from))
-  return block.position + 1 + mapTextOffset(block.body, block.visible, local, association)
+  return block.position + 1 + mapTextOffset(block.body, block.visible, local, association, block.node, 'toVisual')
 }
