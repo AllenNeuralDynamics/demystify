@@ -98,7 +98,7 @@ describe('GitHubDialog identity mode', () => {
 })
 
 describe('GitHubDialog bound manuscripts', () => {
-  it('shows the current source and draft branches instead of rebinding the room', async () => {
+  it.each(['https://avatars.example/researcher.png', ''])('shows bound branches without an empty avatar request: %s', async (avatarUrl) => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected repository import'))
     const binding: RepositoryBinding = {
       owner: 'research', repository: 'paper', fullName: 'research/paper',
@@ -107,7 +107,7 @@ describe('GitHubDialog bound manuscripts', () => {
     }
     const { container, root } = await renderDialog({
       ...disconnectedSession,
-      user: { id: 42, login: 'researcher', name: 'Ada', avatarUrl: 'https://avatars.example/researcher.png' },
+      user: { id: 42, login: 'researcher', name: 'Ada', avatarUrl },
     }, { binding, canManageRepository: true })
 
     expect(container.textContent).toContain('Manuscript versions')
@@ -116,6 +116,8 @@ describe('GitHubDialog bound manuscripts', () => {
     expect(container.textContent).toContain('paper/index.md')
     expect(container.querySelector('.repository-controls')).toBeNull()
     expect(container.querySelector('.repo-browser')).toBeNull()
+    expect(container.querySelector('img[src=""]')).toBeNull()
+    expect(container.querySelector('.github-user img') !== null).toBe(Boolean(avatarUrl))
     expect(container.textContent).not.toContain('Bind current draft')
     expect(fetch).not.toHaveBeenCalled()
 

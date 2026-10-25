@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Check,
+  CircleUserRound,
   ExternalLink,
   FilePlus2,
   FileText,
@@ -298,7 +299,7 @@ export const GitHubDialog = ({
   const accountBar = session?.user ? (
     <div className="github-account-bar">
       <span className="github-user">
-        <img src={session.user.avatarUrl} alt="" />
+        {session.user.avatarUrl ? <img src={session.user.avatarUrl} alt="" /> : <CircleUserRound size={24} aria-hidden="true" />}
         <span><strong>{session.user.name ?? session.user.login}</strong><small>@{session.user.login}</small></span>
       </span>
       <span className="account-actions">
