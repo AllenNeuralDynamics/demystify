@@ -121,13 +121,13 @@ test('figure captions use the figure width and Visual comments stay beside the p
   }
 })
 
-test('single-pane comments fill remaining width while Split comments stay compact', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name.startsWith('mobile'), 'Desktop comment rails use the remaining pane width')
+test('single-pane comments stay readable on wide screens while Split stays compact', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Desktop comment rails use a bounded reading width')
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
   const panel = page.getByRole('complementary', { name: 'Comments' })
-  const commentText = 'This comment should use the available width rather than wrapping into a narrow rail. '.repeat(12).trim()
+  const commentText = 'This comment should retain a readable width when the application window becomes wider. '.repeat(12).trim()
   let postedComment = false
-  for (const width of [1600, 2560]) {
+  for (const width of [1180, 1600, 2560, 3840]) {
     await page.setViewportSize({ width, height: 960 })
     for (const mode of ['Visual editor', 'Source only']) {
       await page.getByTitle(mode, { exact: true }).click()
@@ -136,11 +136,12 @@ test('single-pane comments fill remaining width while Split comments stay compac
       const geometry = await panel.evaluate((element) => {
         const bounds = element.getBoundingClientRect()
         const panes = element.closest('.document-panes')!.getBoundingClientRect()
-        return { width: bounds.width, availableWidth: panes.width - 848,
+        return { width: bounds.width, groupWidth: panes.width,
           rightGap: panes.right - bounds.right, overflow: element.scrollWidth > element.clientWidth }
       })
-      expect(geometry.width).toBeGreaterThan(320)
-      expect(Math.abs(geometry.width - geometry.availableWidth)).toBeLessThanOrEqual(2)
+      expect(geometry.width).toBeGreaterThanOrEqual(320)
+      expect(geometry.width).toBeLessThanOrEqual(400)
+      expect(geometry.groupWidth).toBeLessThanOrEqual(1248)
       expect(Math.abs(geometry.rightGap)).toBeLessThanOrEqual(1)
       expect(geometry.overflow).toBe(false)
       await page.getByTitle('Add comment to selection', { exact: true }).click()
