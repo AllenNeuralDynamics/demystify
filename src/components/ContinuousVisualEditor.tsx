@@ -1,4 +1,4 @@
-import { AtSign, Check, Link2, MessageSquarePlus, X } from 'lucide-react'
+import { AtSign, Check, Code2, ExternalLink, Link2, MessageSquarePlus, Unlink, X } from 'lucide-react'
 import { baseKeymap, chainCommands, createParagraphNear, liftEmptyBlock, newlineInCode,
   splitBlockAs, toggleMark } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
@@ -31,7 +31,7 @@ import { readVisualRecoveryDraft, visualObjectDraftKey, writeVisualRecoveryDraft
   type VisualRecoveryDraft } from '../lib/collaborationRecovery'
 import type { CommentHighlight } from './CollaborativeEditor'
 import type { MystPreviewSuggestion } from './MystPreview'
-import type { VisualCitationInserter } from './VisualInlineEditor'
+import type { VisualCitationDraft, VisualCitationInserter } from './VisualInlineEditor'
 
 export interface ContinuousVisualEditorHandle {
   undo: () => void
@@ -68,7 +68,8 @@ interface ContinuousVisualEditorProps extends VisualDocumentOptions, ContinuousV
   onSuggestionClick?: (id: string) => void
   onEditError?: (message: string) => void
   onLayoutChange?: () => void
-  onRequestCitation?: (insert: VisualCitationInserter) => void
+  onRequestCitation?: (insert: VisualCitationInserter, initial?: VisualCitationDraft) => void
+  onEditReference?: (key: string) => void
 }
 
 interface VisualObjectEdit {
@@ -89,10 +90,37 @@ interface VisualObjectEdit {
   close: () => void
 }
 
+interface VisualObjectOpener {
+  source: () => string
+  position: () => number | undefined
+  begin: (cached?: VisualRecoveryDraft) => void
+}
+
 const objectSourceParts = (source: string) => {
   const equation = source.match(/^(\$\$(?:\r?\n)?)([\s\S]*?)((?:\r?\n)?\$\$[^\n]*)$/)
   return { kind: equation ? 'equation' as const : 'MyST object' as const,
     prefix: equation?.[1] ?? '', suffix: equation?.[3] ?? '', value: equation?.[2] ?? source }
+}
+
+const visualLinkAt = (view: EditorView, index: number) => {
+  const position = view.state.doc.resolve(index)
+  let child = position.parent.childAfter(position.parentOffset)
+  if (!child.node?.marks.some((mark) => mark.type === visualDocumentSchema.marks.link)) {
+    child = position.parent.childBefore(position.parentOffset)
+  }
+  const mark = child.node?.marks.find((candidate) => candidate.type === visualDocumentSchema.marks.link)
+  if (!mark || !child.node) return null
+  let from = position.start() + child.offset
+  let to = from + child.node.nodeSize
+  let childIndex = child.index
+  while (childIndex > 0 && mark.isInSet(position.parent.child(childIndex - 1).marks)) {
+    from -= position.parent.child(--childIndex).nodeSize
+  }
+  childIndex = child.index + 1
+  while (childIndex < position.parent.childCount && mark.isInSet(position.parent.child(childIndex).marks)) {
+    to += position.parent.child(childIndex++).nodeSize
+  }
+  return { from, to, href: String(mark.attrs.href), title: mark.attrs.title as string | null }
 }
 
 export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
@@ -113,9 +141,18 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const [error, setError] = useState<string | null>(null)
   const [backupUnavailable, setBackupUnavailable] = useState(false)
   const [linkUrl, setLinkUrl] = useState<string | null>(null)
+  const [linkText, setLinkText] = useState('')
+  const [linkIsExisting, setLinkIsExisting] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
+  const [linkPosition, setLinkPosition] = useState({ left: 8, top: 8 })
+  const linkSelectionRef = useRef<{ from: number; to: number; source: string; title: string | null } | null>(null)
+  const requestCitationRef = useRef<() => void>(() => {})
+  const editSelectedObjectRef = useRef<() => void>(() => {})
+  const [hasSelectedObject, setHasSelectedObject] = useState(false)
   const [objectEdit, setObjectEdit] = useState<VisualObjectEdit | null>(null)
   const objectPanelRef = useRef<HTMLElement>(null)
   const objectSourceRef = useRef<HTMLTextAreaElement>(null)
+  const objectInputScrollRef = useRef<Array<{ element: HTMLElement; top: number; left: number }>>([])
   const objectEditRef = useRef<VisualObjectEdit | null>(null)
   const persistObjectRef = useRef<(edit: VisualObjectEdit | null) => void>(() => {})
   const finishObjectRef = useRef<(commit: boolean, focus?: boolean) => boolean>(() => true)
@@ -124,6 +161,21 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   } | null>(null)
   const renderOptionsRef = useRef({ bibliography: props.bibliography, assetBaseUrl: props.assetBaseUrl,
     projectFiles: props.projectFiles, sourcePath: props.sourcePath })
+
+  const openLinkEditor = (element: Element, from: number, to: number, href = 'https://', title: string | null = null,
+    linked = false) => {
+    const view = viewRef.current
+    if (!view) return
+    const bounds = element.getBoundingClientRect()
+    const width = Math.min(360, window.innerWidth - 16)
+    linkSelectionRef.current = { from, to, source: sourceRef.current, title }
+    setLinkIsExisting(linked)
+    setLinkText(view.state.doc.textBetween(from, to))
+    setLinkPosition({ left: Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8)),
+      top: Math.max(8, Math.min(bounds.bottom + 6, window.innerHeight - 164)) })
+    setLinkError(null)
+    setLinkUrl(href)
+  }
 
   useLayoutEffect(() => {
     latestPropsRef.current = props
@@ -164,8 +216,21 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
     window.document.addEventListener('click', finishOutsideObject, true)
     const objectKey = visualObjectDraftKey(draftKey)
     const cachedObject = readVisualRecoveryDraft(objectKey)
-    const objectOpeners = new Set<{ source: () => string; position: () => number | undefined;
-      begin: (cached?: VisualRecoveryDraft) => void }>()
+    const objectOpeners = new Set<VisualObjectOpener>()
+    const appendixOpeners = new WeakMap<HTMLElement, VisualObjectOpener[]>()
+    const selectedObject = () => {
+      const state = viewRef.current?.state
+      if (!state) return undefined
+      const candidates = []
+      for (const opener of objectOpeners) {
+        const position = opener.position()
+        const node = position === undefined ? null : state.doc.nodeAt(position)
+        if (position !== undefined && node && state.selection.from >= position &&
+          state.selection.to <= position + node.nodeSize) candidates.push({ opener, position })
+      }
+      return candidates.sort((left, right) => right.position - left.position)[0]?.opener
+    }
+    editSelectedObjectRef.current = () => selectedObject()?.begin()
     const cached = readVisualRecoveryDraft(draftKey)
     const restored = cached ? rebaseTextDraft(cached.base, cached.source, initial.content) : null
     const initialSource = cached ? restored ?? cached.source : initial.content
@@ -200,6 +265,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
     const rememberSelection = () => {
       const view = viewRef.current
       if (!view) return
+      setHasSelectedObject(Boolean(selectedObject()))
       const from = visualPositionToSource(view.state.doc, view.state.selection.anchor)
       const to = visualPositionToSource(view.state.doc, view.state.selection.head)
       if (!propsRef.current.suggestionMode && from <= sharedText.length && to <= sharedText.length) {
@@ -288,8 +354,82 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         element.className = 'visual-readonly-appendix'
         element.contentEditable = 'false'
         element.innerHTML = state.doc.attrs.appendixHtml
+        if (propsRef.current.editable && propsRef.current.onEditReference) {
+          for (const entry of Array.from(element.querySelectorAll<HTMLElement>('[data-reference-key]'))) {
+            entry.setAttribute('role', 'button')
+            entry.tabIndex = 0
+            entry.setAttribute('aria-label', `Edit reference ${entry.dataset.referenceKey}`)
+            entry.title = 'Edit reference'
+            entry.addEventListener('click', (event) => {
+              if (!propsRef.current.editable || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+              propsRef.current.onEditReference?.(entry.dataset.referenceKey!)
+            })
+            entry.addEventListener('keydown', (event) => {
+              if (!propsRef.current.editable || !['Enter', ' '].includes(event.key)) return
+              event.preventDefault()
+              event.stopPropagation()
+              propsRef.current.onEditReference?.(entry.dataset.referenceKey!)
+            })
+          }
+        }
+        const footnotes = new Map<string, string>()
+        state.doc.descendants((node) => {
+          if (node.attrs.footnoteKey) footnotes.set(String(node.attrs.footnoteKey).toLowerCase(), node.attrs.footnoteKey)
+        })
+        const openers: VisualObjectOpener[] = []
+        if (propsRef.current.editable) for (const entry of Array.from(element.querySelectorAll<HTMLElement>('[data-footnotes] li[id]'))) {
+          let label = entry.id.replace(/^user-content-fn-/, '')
+          try { label = decodeURIComponent(label) } catch { label = entry.id.replace(/^user-content-fn-/, '') }
+          const key = footnotes.get(label.toLowerCase())
+          if (!key) continue
+          entry.classList.add('visual-footnote-object')
+          entry.dataset.footnoteEditKey = key
+          entry.setAttribute('role', 'button')
+          entry.setAttribute('aria-label', `Edit footnote ${key}`)
+          entry.title = 'Edit footnote'
+          entry.tabIndex = 0
+          const host = document.createElement('div')
+          host.className = 'visual-object-editor-host'
+          host.contentEditable = 'false'
+          host.hidden = true
+          entry.append(host)
+          const position = () => {
+            let result: number | undefined
+            viewRef.current?.state.doc.descendants((node, index) => {
+              if (node.attrs.footnoteKey === key) result = index
+            })
+            return result
+          }
+          const opener = createObjectOpener(entry, host, position)
+          openers.push(opener)
+          objectOpeners.add(opener)
+          entry.addEventListener('click', (event) => {
+            if (!propsRef.current.editable || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            event.preventDefault()
+            opener.begin()
+          })
+          entry.addEventListener('keydown', (event) => {
+            if (!propsRef.current.editable || event.target !== entry || !['Enter', ' ', 'F2'].includes(event.key)) return
+            event.preventDefault()
+            event.stopPropagation()
+            opener.begin()
+          })
+        }
+        appendixOpeners.set(element, openers)
         return element
-      }, { key: state.doc.attrs.appendixHtml }))
+      }, { key: `${state.doc.attrs.appendixHtml}:${current.editable}:${Boolean(current.onEditReference)}`,
+        destroy: (element) => {
+          if (!(element instanceof HTMLElement)) return
+          for (const opener of appendixOpeners.get(element) ?? []) objectOpeners.delete(opener)
+          const edit = objectEditRef.current
+          if (!destroyed && edit?.host && element.contains(edit.host)) {
+            const detached = { ...edit, host: null, error: 'This object changed elsewhere. Your draft is retained.' }
+            persistObjectRef.current(detached)
+            setObjectEdit(detached)
+          }
+        },
+      }))
       if (!current.suggestionMode && sharedText.doc) provider.awareness.getStates().forEach((remote, clientId) => {
         if (clientId === provider.awareness.clientID || !remote.cursor?.anchor || !remote.cursor?.head) return
         let anchor: Y.AbsolutePosition | null
@@ -461,6 +601,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           const shell = template.content.firstElementChild
           const dom = shell instanceof HTMLElement ? shell.cloneNode(false) as HTMLElement
             : document.createElement('div')
+          dom.classList.add('visual-myst-container')
           const contentDOM = document.createElement('div')
           contentDOM.className = 'visual-container-content'
           if (shell?.tagName === 'FIGURE') {
@@ -487,8 +628,9 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           host.className = 'visual-object-editor-host'
           host.contentEditable = 'false'
           host.hidden = true
-          if (image) dom.append(host)
+          dom.append(host)
           const figureOpener = createObjectOpener(dom, host, getPosition)
+          objectOpeners.add(figureOpener)
           const imageClick = () => figureOpener.begin()
           const imageMouseDown = (event: MouseEvent) => event.preventDefault()
           const imageKeydown = (event: KeyboardEvent) => {
@@ -505,7 +647,6 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
             image.addEventListener('click', imageClick)
             image.addEventListener('mousedown', imageMouseDown)
             image.addEventListener('keydown', imageKeydown)
-            objectOpeners.add(figureOpener)
           }
           return { dom, contentDOM,
             stopEvent: (event) => event.target instanceof Element &&
@@ -562,10 +703,14 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           }
           render()
           const objectOpener = createObjectOpener(element, host, getPosition)
-          objectOpeners.add(objectOpener)
+          if (!node.attrs.footnoteKey) objectOpeners.add(objectOpener)
           const doubleClick = () => objectOpener.begin()
           const click = (event: MouseEvent) => {
-            if (event.target instanceof Element && event.target.closest('a, summary, button, input, textarea, select')) return
+            if (event.target instanceof Element && event.target.closest('summary, button, input, textarea, select')) return
+            if (event.target instanceof Element && event.target.closest('a')) {
+              if (!propsRef.current.editable || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+              event.preventDefault()
+            }
             if (window.getSelection()?.isCollapsed === false && !(view.state.selection instanceof NodeSelection)) return
             objectOpener.begin()
           }
@@ -615,12 +760,36 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         return true
       },
       handleDOMEvents: {
+        click: (_view, event) => {
+          const citation = event.target instanceof Element ? event.target.closest('[data-visual-citation]') : null
+          if (citation && propsRef.current.editable) {
+            event.preventDefault()
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, view.posAtDOM(citation, 0))))
+            requestCitationRef.current()
+            return true
+          }
+          const anchor = event.target instanceof Element ? event.target.closest('a') : null
+          if (!anchor || !propsRef.current.editable || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+            anchor.closest('.visual-protected-block')) return false
+          event.preventDefault()
+          const link = visualLinkAt(view, view.posAtDOM(anchor, 0))
+          if (!link) return true
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, link.from, link.to)))
+          openLinkEditor(anchor, link.from, link.to, link.href, link.title, true)
+          return true
+        },
         focus: () => { propsRef.current.onFocus?.(); rememberSelection(); return false },
         mouseup: () => { queueMicrotask(rememberSelection); return false },
         keydown: (_view, event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return false
           const target = event.target instanceof HTMLElement ? event.target : null
           if (!target || target.getAttribute('role') !== 'button') return false
+          if (target.matches('[data-visual-citation]') && propsRef.current.editable) {
+            event.preventDefault()
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, view.posAtDOM(target, 0))))
+            requestCitationRef.current()
+            return true
+          }
           const commentId = target.dataset.mystCommentId
           const suggestionId = target.dataset.mystSuggestionId
           if (commentId) propsRef.current.onCommentClick?.(commentId)
@@ -914,36 +1083,45 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   }, [props.active, props.content, props.editable, props.suggestionMode, props.comments, props.suggestions, props.draftKey,
     props.bibliography, props.assetBaseUrl, props.projectFiles, props.sourcePath])
 
-  const run = (command: Command) => {
-    const view = viewRef.current
-    if (!view) return
-    command(view.state, view.dispatch, view)
-    view.focus()
-  }
   const requestCitation = () => {
     const view = viewRef.current
     if (!view) return
     const bookmark = view.state.selection.getBookmark()
+    const originalSource = sourceRef.current
+    const citation = view.state.selection instanceof NodeSelection &&
+      view.state.selection.node.type === visualDocumentSchema.nodes.citation ? view.state.selection.node : null
     props.onRequestCitation?.((keys, style, details, bibliography, syntax) => {
       const current = viewRef.current
       if (!current) return
-      const transaction = current.state.tr
-      try { transaction.setSelection(bookmark.resolve(current.state.doc)) } catch {
-        transaction.setSelection(current.state.selection)
+      if (!propsRef.current.editable || originalSource !== sourceRef.current) {
+        throw new Error('The document changed while the citation was open. Reopen it before applying your changes.')
       }
+      const transaction = current.state.tr
+      transaction.setSelection(bookmark.resolve(current.state.doc))
       transaction.replaceSelectionWith(visualDocumentSchema.nodes.citation.create({
         keys, style, prefix: details?.prefix ?? '', suffix: details?.suffix ?? '',
-        syntax: syntax ?? propsRef.current.citationSyntax ?? 'role',
+        syntax: citation?.attrs.syntax ?? syntax ?? propsRef.current.citationSyntax ?? 'role',
         label: visualCitationLabel(keys, style, bibliography ?? propsRef.current.bibliography ?? '', details),
       }))
       current.dispatch(transaction.scrollIntoView())
+      if (bibliography === undefined || bibliography === propsRef.current.bibliography) refreshRef.current(sourceRef.current, true)
       current.focus()
-    })
+    }, citation ? { keys: citation.attrs.keys, style: citation.attrs.style,
+      prefix: citation.attrs.prefix, suffix: citation.attrs.suffix } : undefined)
   }
+  useLayoutEffect(() => { requestCitationRef.current = requestCitation })
 
   const toolbar = <div className="visual-inline-toolbar continuous-visual-toolbar" onMouseDown={(event) => event.preventDefault()}>
-        <button type="button" title="Link" disabled={!props.editable} onClick={() => setLinkUrl((current) => current === null ? 'https://' : null)}><Link2 size={15} /></button>
+        <button type="button" title="Link" disabled={!props.editable} onClick={(event) => {
+          const view = viewRef.current
+          if (!view) return
+          const link = visualLinkAt(view, view.state.selection.from)
+          if (link) openLinkEditor(event.currentTarget, link.from, link.to, link.href, link.title, true)
+          else openLinkEditor(event.currentTarget, view.state.selection.from, view.state.selection.to)
+        }}><Link2 size={15} /></button>
         <button type="button" title="Cite a paper" disabled={!props.editable} onClick={requestCitation}><AtSign size={15} /></button>
+        <button type="button" title="Edit object source" disabled={!props.editable || !hasSelectedObject}
+          onClick={() => editSelectedObjectRef.current()}><Code2 size={15} /></button>
       </div>
   const finishObject = (commit: boolean, focus = true) => {
     const edit = objectEditRef.current
@@ -963,12 +1141,12 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         return false
       }
     }
-    const restoreFigure = commit && source !== edit.base && /^(?::::|```|~~~)\{figure\}/.test(edit.base)
+    const refreshObject = commit && source !== edit.base
     edit.close()
     writeVisualRecoveryDraft(edit.recoveryKey, null)
     persistObjectRef.current(null)
     setObjectEdit(null)
-    if (restoreFigure) refreshRef.current(sourceRef.current, true)
+    if (refreshObject) refreshRef.current(sourceRef.current, true)
     if (focus) viewRef.current?.focus()
     if (pane && scrollTop !== undefined && scrollLeft !== undefined) {
       pane.scrollTop = scrollTop
@@ -984,6 +1162,41 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   }, [objectEditing, objectHost])
   const closeObject = () => { finishObjectRef.current(false) }
   const applyObject = () => { finishObjectRef.current(true) }
+  const restoreObjectInputScroll = () => {
+    for (const { element, top, left } of objectInputScrollRef.current) {
+      element.scrollTop = top
+      element.scrollLeft = left
+    }
+  }
+  const closeLink = () => {
+    setLinkUrl(null)
+    setLinkError(null)
+    linkSelectionRef.current = null
+    viewRef.current?.focus()
+  }
+  const applyLink = (remove = false) => {
+    const href = remove ? null : safeVisualLinkTarget((linkUrl ?? '').trim())
+    if (!remove && !href) { setLinkError('This link destination is not allowed.'); return }
+    const view = viewRef.current
+    const selection = linkSelectionRef.current
+    if (!view || !props.editable || !selection || selection.source !== sourceRef.current) {
+      setLinkError('The document changed while this link was open. Reopen it before applying your changes.')
+      return
+    }
+    const transaction = view.state.tr
+    let to = selection.to
+    if (!remove) {
+      const label = linkText || href!
+      if (view.state.doc.textBetween(selection.from, to) !== label) {
+        transaction.insertText(label, selection.from, to)
+        to = selection.from + label.length
+      }
+    }
+    transaction.removeMark(selection.from, to, visualDocumentSchema.marks.link)
+    if (href) transaction.addMark(selection.from, to, visualDocumentSchema.marks.link.create({ href, title: selection.title }))
+    view.dispatch(transaction)
+    closeLink()
+  }
   const objectEditor = objectEdit && <section ref={objectPanelRef} className="visual-object-editor"
     aria-label={`Edit ${objectEdit.kind}`}>
     <header><strong>{objectEdit.kind === 'equation' ? 'Equation' : 'MyST object'}</strong>
@@ -994,10 +1207,19 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
     </header>
     <textarea ref={objectSourceRef} spellCheck={false} aria-label={objectEdit.kind === 'equation' ? 'LaTeX equation' : 'MyST object source'}
       readOnly={!props.editable || objectEdit.suggestionMode !== props.suggestionMode}
+      onBeforeInput={() => {
+        const positions = []
+        for (let element = objectSourceRef.current?.parentElement; element; element = element.parentElement) {
+          positions.push({ element, top: element.scrollTop, left: element.scrollLeft })
+        }
+        objectInputScrollRef.current = positions
+      }}
       value={objectEdit.value} onChange={(event) => {
         const next = { ...objectEdit, value: event.target.value }
         persistObjectRef.current(next)
         setObjectEdit(next)
+        restoreObjectInputScroll()
+        window.requestAnimationFrame(restoreObjectInputScroll)
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeObject() }
@@ -1031,15 +1253,23 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         else if (review.suggestionId) props.onSuggestionClick?.(review.suggestionId)
       }}>
       {props.toolbarHost ? createPortal(toolbar, props.toolbarHost) : toolbar}
-      {linkUrl !== null && <form className="visual-link-editor" onSubmit={(event) => {
-        event.preventDefault()
-        const href = safeVisualLinkTarget(linkUrl.trim())
-        if (!href) { setError('This link destination is not allowed.'); return }
-        run(toggleMark(visualDocumentSchema.marks.link, { href, title: null }))
-        setError(null)
-        setLinkUrl(null)
-      }}><input autoFocus aria-label="Link URL" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} />
-        <button type="submit">Apply</button></form>}
+      {linkUrl !== null && createPortal(<form className="visual-link-editor visual-link-popover" role="dialog"
+        aria-label="Edit link" style={linkPosition} onSubmit={(event) => { event.preventDefault(); applyLink() }}
+        onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeLink() } }}>
+        <label><span>Text</span><input aria-label="Link text" value={linkText} onChange={(event) => setLinkText(event.target.value)} /></label>
+        <label><span>URL</span><input autoFocus aria-label="Link URL" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} /></label>
+        <div className="visual-link-actions">
+          <button type="button" title="Open link" disabled={!safeVisualLinkTarget(linkUrl.trim())} onClick={() => {
+            const href = safeVisualLinkTarget(linkUrl.trim())
+            if (href) window.open(href, '_blank', 'noopener,noreferrer')
+          }}><ExternalLink size={15} /></button>
+          <button type="button" title="Remove link" disabled={!props.editable || !linkIsExisting} onClick={() => applyLink(true)}><Unlink size={15} /></button>
+          <span />
+          <button type="button" title="Cancel link edit" onClick={closeLink}><X size={15} /></button>
+          <button type="submit" title="Apply link" disabled={!props.editable}><Check size={15} /></button>
+        </div>
+        {linkError && <p className="visual-block-error" role="alert">{linkError}</p>}
+      </form>, document.body)}
       <div ref={containerRef} />
       {objectEdit?.host ? createPortal(objectEditor, objectEdit.host) : objectEditor}
       {(pending || error || backupUnavailable) && <div className="visual-draft-status" role={error || backupUnavailable ? 'alert' : 'status'}>

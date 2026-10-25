@@ -282,6 +282,7 @@ const preparePreviewCitations = (
       return [{
         type: 'listItem',
         spread: false,
+        data: { hProperties: { 'data-reference-key': reference.key } },
         children: [{
           type: 'paragraph',
           children: [referenceContent],
@@ -466,9 +467,16 @@ const prepareEditableBlocks = (
     if (supportedContainer && (node.type === 'heading' || node.type === 'paragraph')) {
       const range = getNodeContentRange(node, source, lineStarts)
       const inline = parseEditableInline(node.children)
+      const line = node.position?.start?.line
+      const protectedContent = range && Array.from(protectedTokens).some((token) =>
+        source.slice(range.from, range.to).includes(token))
+      if (range && line && lineStarts[line - 1] !== undefined && !inline?.length && !protectedContent) {
+        node.data = { ...node.data, hProperties: { ...node.data?.hProperties,
+          'data-myst-node-from': lineStarts[line - 1] } }
+      }
       if (range && inline?.length) {
         const value = source.slice(range.from, range.to)
-        if (!Array.from(protectedTokens).some((token) => value.includes(token))) {
+        if (!protectedContent) {
           const block: MystEditableBlock = {
             id: `myst-editable-${editableBlocks.length}`,
             kind: node.type,

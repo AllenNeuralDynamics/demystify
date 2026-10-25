@@ -21,6 +21,46 @@ import {
 vi.mock('diff', { spy: true })
 
 describe('continuous visual document', () => {
+  it('preserves raw HTML object rendering when source-position metadata is enabled', () => {
+    const source = '# Before\n\n<div class="scroll-test-spacer" style="height: 900px">Rendered spacing</div>\n\n## After'
+    const model = createVisualDocument(source)
+    let html = ''
+    model.descendants((node) => { if (node.attrs.source?.includes('scroll-test-spacer')) html = node.attrs.html })
+    const template = document.createElement('template')
+    template.innerHTML = html
+    expect(template.content.querySelector<HTMLElement>('.scroll-test-spacer')?.style.height).toBe('900px')
+    expect(serializeVisualDocument(model)).toBe(source)
+  })
+
+  it('keeps cross-references resolved inside their source object rather than duplicating them in the appendix', () => {
+    const source = '# References\n\n(target)=\n\n## Target\n\nSee {ref}`target` and this note[^note].\n\n[^note]: Footnote body.'
+    const model = createVisualDocument(source)
+    let html = ''
+    model.descendants((node) => {
+      if (node.attrs.source?.startsWith('See ')) html = node.attrs.html
+    })
+    const template = document.createElement('template')
+    template.innerHTML = html
+    expect(template.content.querySelector('a[href="#target"]')?.textContent).toBe('Target')
+    expect(model.attrs.appendixHtml).not.toContain('See ')
+    expect(model.attrs.appendixHtml).toContain('Footnote body.')
+    expect(serializeVisualDocument(model)).toBe(source)
+  })
+
+  it.each([
+    'A note[^note].\n\n[^note]: Footnote body.',
+    'A note[^note].\n\n[^note]: Footnote body.\n\nClosing paragraph.',
+    'A note[^note].\n\n[^note]:\n    Footnote body.\n\n    Second paragraph.',
+  ])('keeps a footnote definition available as an editable object: %s', (source) => {
+    const model = createVisualDocument(source)
+    let editable = false
+    model.descendants((node) => {
+      if (node.type.name === 'protected_block' && String(node.attrs.source).startsWith('[^note]:')) editable = true
+    })
+    expect(serializeVisualDocument(model)).toBe(source)
+    expect(editable).toBe(true)
+  })
+
   it('reuses unchanged paragraph position diffs after editing another paragraph', () => {
     const source = 'First paragraph.\n\nAn **unchanged** paragraph with [a link](https://example.org).'
     const model = createVisualDocument(source)

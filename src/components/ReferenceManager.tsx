@@ -22,6 +22,7 @@ import {
 } from '../lib/references'
 
 interface ReferenceManagerProps {
+  initialKey?: string | null
   bibliography: string
   manuscript: string
   readOnly: boolean
@@ -51,17 +52,23 @@ const importSummary = (
 ].filter(Boolean).join('; ')
 
 export const ReferenceManager = ({
+  initialKey,
   bibliography,
   manuscript,
   readOnly,
   onApply,
   onClose,
 }: ReferenceManagerProps) => {
-  const [mode, setMode] = useState<ManagerMode>('library')
-  const [query, setQuery] = useState('')
-  const [editingKey, setEditingKey] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const [expectedBibliography, setExpectedBibliography] = useState('')
+  const [initialEntry] = useState(() => {
+    if (!initialKey) return null
+    try { return parseBibliographySourceEntries(bibliography).find((entry) => entry.key === initialKey) ?? null }
+    catch { return null }
+  })
+  const [mode, setMode] = useState<ManagerMode>(initialEntry ? 'edit' : 'library')
+  const [query, setQuery] = useState(initialKey ?? '')
+  const [editingKey, setEditingKey] = useState<string | null>(initialEntry?.key ?? null)
+  const [draft, setDraft] = useState(initialEntry?.raw ?? '')
+  const [expectedBibliography, setExpectedBibliography] = useState(initialEntry ? bibliography : '')
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
