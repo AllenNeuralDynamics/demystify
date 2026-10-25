@@ -2,18 +2,26 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  FilePlus2,
   FileText,
   Folder,
+  GitBranch,
   GitFork,
   GitPullRequest,
   LoaderCircle,
   LogOut,
   LockKeyhole,
+  RefreshCw,
+  Save,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { structuredPatch } from 'diff'
+import type { ServerSaveStatus } from '../lib/collaborationDurability'
 import {
   createPullRequest,
+  getNewManuscriptRoomUrl,
+  getRepositoryFileGitHubUrl,
   listRepositories,
   listRepositoryContents,
   loadRepositoryFile,
@@ -33,6 +41,10 @@ interface GitHubDialogProps {
   canManageRepository: boolean
   binding: RepositoryBinding | null
   review: RoomReview | null
+  draftSource?: string
+  draftSaveStatus?: ServerSaveStatus
+  initialRepository?: string
+  initialPath?: string
   onClose: () => void
   onOpenFile: (binding: RepositoryBinding, content: string) => Promise<void>
   onBindDraft: (binding: RepositoryBinding) => Promise<void>
@@ -53,6 +65,10 @@ export const GitHubDialog = ({
   canManageRepository,
   binding,
   review,
+  draftSource = '',
+  draftSaveStatus = 'unconfirmed',
+  initialRepository,
+  initialPath,
   onClose,
   onOpenFile,
   onBindDraft,
@@ -61,12 +77,21 @@ export const GitHubDialog = ({
   onNotice,
 }: GitHubDialogProps) => {
   const [repositories, setRepositories] = useState<GitHubRepository[] | null>(null)
-  const [selectedFullName, setSelectedFullName] = useState(binding?.fullName ?? '')
-  const [directory, setDirectory] = useState('')
+  const [selectedFullName, setSelectedFullName] = useState(binding?.fullName ?? initialRepository ?? '')
+  const [directory, setDirectory] = useState(() => (binding?.path ?? initialPath ?? '').split('/').slice(0, -1).join('/'))
   const [entries, setEntries] = useState<GitHubEntry[] | null>(null)
-  const [filePath, setFilePath] = useState(binding?.path ?? 'manuscript.md')
+  const [filePath, setFilePath] = useState(binding?.path ?? initialPath ?? 'manuscript.md')
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [comparison, setComparison] = useState<{
+    bindingKey: string
+    draft: string
+    sourceSha: string
+    hunks: ReturnType<typeof structuredPatch>['hunks']
+  } | null>(null)
+  const comparisonRequest = useRef(0)
+  const bindingKey = JSON.stringify(binding ? [roomName, binding.fullName, binding.path, binding.baseBranch, binding.branchName] : null)
+  const currentComparison = comparison?.bindingKey === bindingKey ? comparison : null
 
   const selectedRepository = repositories?.find(
     (repository) => repository.fullName === selectedFullName,
@@ -75,7 +100,7 @@ export const GitHubDialog = ({
   const isLoadingDirectory = entries === null
 
   useEffect(() => {
-    if (!open || !session?.user || !canManageRepository) return
+    if (!open || !session?.user || !canManageRepository || binding) return
     let active = true
     listRepositories()
       .then((nextRepositories) => {
@@ -84,7 +109,7 @@ export const GitHubDialog = ({
         setSelectedFullName((current) =>
           nextRepositories.some((repository) => repository.fullName === current)
             ? current
-            : (nextRepositories[0]?.fullName ?? ''),
+            : initialRepository ? '' : (nextRepositories[0]?.fullName ?? ''),
         )
       })
       .catch((requestError: unknown) => {
@@ -95,10 +120,10 @@ export const GitHubDialog = ({
     return () => {
       active = false
     }
-  }, [canManageRepository, open, session?.user])
+  }, [binding, canManageRepository, initialRepository, open, session?.user])
 
   useEffect(() => {
-    if (!open || !selectedRepository) return
+    if (!open || !selectedRepository || binding) return
     let active = true
     listRepositoryContents(selectedRepository, directory)
       .then((nextEntries) => {
@@ -112,12 +137,18 @@ export const GitHubDialog = ({
     return () => {
       active = false
     }
-  }, [directory, open, selectedRepository])
+  }, [binding, directory, open, selectedRepository])
 
   useEffect(() => {
     if (!open) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        comparisonRequest.current += 1
+        setComparison(null)
+        setError(null)
+        setIsWorking(false)
+        onClose()
+      }
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
@@ -143,7 +174,7 @@ export const GitHubDialog = ({
 
   const openFile = async () => {
     const nextBinding = makeBinding()
-    if (!nextBinding) return
+    if (binding || !nextBinding) return
     setIsWorking(true)
     setError(null)
     try {
@@ -160,7 +191,7 @@ export const GitHubDialog = ({
 
   const bindDraft = async () => {
     const nextBinding = makeBinding()
-    if (!nextBinding) return
+    if (binding || !nextBinding) return
     setIsWorking(true)
     setError(null)
     try {
@@ -199,6 +230,51 @@ export const GitHubDialog = ({
     }
   }
 
+  const compareSource = async () => {
+    if (!binding) return
+    const request = ++comparisonRequest.current
+    setIsWorking(true)
+    setError(null)
+    try {
+      const file = await loadRepositoryFile(binding)
+      if (comparisonRequest.current !== request) return
+      setComparison({
+        bindingKey,
+        draft: draftSource,
+        sourceSha: file.sha,
+        hunks: structuredPatch(binding.path, binding.path, file.content, draftSource, '', '', { context: 3 }).hunks,
+      })
+    } catch (requestError) {
+      if (comparisonRequest.current === request) setError(getErrorMessage(requestError))
+    } finally {
+      if (comparisonRequest.current === request) setIsWorking(false)
+    }
+  }
+
+  const saveSnapshot = async () => {
+    setIsWorking(true)
+    try {
+      await onSave()
+    } catch (requestError) {
+      setError(getErrorMessage(requestError))
+    } finally {
+      setIsWorking(false)
+    }
+  }
+
+  const openNewRoom = (manuscript?: RepositoryBinding) => {
+    window.open(getNewManuscriptRoomUrl(window.location.href, crypto.randomUUID(), manuscript),
+      '_blank', 'noopener,noreferrer')
+  }
+
+  const closeDialog = () => {
+    comparisonRequest.current += 1
+    setComparison(null)
+    setError(null)
+    setIsWorking(false)
+    onClose()
+  }
+
   const moveUp = () => {
     const parts = directory.split('/').filter(Boolean)
     parts.pop()
@@ -235,7 +311,7 @@ export const GitHubDialog = ({
   ) : null
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={closeDialog}>
       <section
         className="github-dialog"
         role="dialog"
@@ -248,16 +324,16 @@ export const GitHubDialog = ({
             <span className="dialog-icon"><GitFork size={20} /></span>
             <div>
               <h2 id="github-dialog-title">
-                {canManageRepository ? 'GitHub repository' : 'GitHub identity'}
+                {canManageRepository ? binding ? 'Manuscript versions' : 'GitHub repository' : 'GitHub identity'}
               </h2>
               <p>
                 {canManageRepository
-                  ? 'Open a MyST file or publish this live draft to a review branch.'
+                  ? binding ? binding.fullName : 'Open a MyST file or publish this live draft to a review branch.'
                   : 'Use a verified name and avatar without granting repository access.'}
               </p>
             </div>
           </div>
-          <button className="icon-button" type="button" title="Close GitHub dialog" onClick={onClose}>
+          <button className="icon-button" type="button" title="Close GitHub dialog" onClick={closeDialog}>
             <X size={18} />
           </button>
         </header>
@@ -313,13 +389,49 @@ export const GitHubDialog = ({
             </div>
           </div>
         ) : (
-          <div className="github-dialog-body">
+          <div className={`github-dialog-body ${binding ? 'bound-manuscript' : ''}`}>
             {accountBar}
 
+            {binding ? (
+              <section className="manuscript-versions" aria-label="Manuscript versions">
+                <dl>
+                  <div><dt>Manuscript</dt><dd>{binding.path}</dd></div>
+                  <div><dt>Room draft</dt><dd>{draftSaveStatus === 'saved' ? 'Saved to server' : draftSaveStatus === 'error' ? 'Server save failed' : 'Server save not confirmed'}</dd></div>
+                  <div><dt>Source branch</dt><dd><GitBranch size={14} /> {binding.baseBranch}</dd></div>
+                  <div><dt>Draft branch</dt><dd><GitBranch size={14} /> {binding.branchName}</dd></div>
+                  <div><dt>Review</dt><dd>{review ? `PR #${review.number} (${review.state})` : 'No pull request'}</dd></div>
+                </dl>
+                <a className="text-link" href={getRepositoryFileGitHubUrl(binding, binding.baseBranch)} target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} /> View source on GitHub
+                </a>
+                <div className="manuscript-version-actions">
+                  <button className="button secondary-button" type="button" disabled={isWorking} onClick={() => void compareSource()}>
+                    {isWorking ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+                    {currentComparison ? 'Refresh comparison' : `Compare with ${binding.baseBranch}`}
+                  </button>
+                  <button className="button secondary-button" type="button" onClick={() => openNewRoom(binding)}>
+                    <FilePlus2 size={14} /> Open source as new version
+                  </button>
+                </div>
+                {currentComparison && <section className="manuscript-comparison" aria-label={`Comparison with ${binding.baseBranch}`}>
+                  <header>
+                    <h3>{currentComparison.hunks.length ? `Room differs from ${binding.baseBranch}` : `Room matches ${binding.baseBranch}`}</h3>
+                    <span>Source {currentComparison.sourceSha.slice(0, 7)}</span>
+                  </header>
+                  {currentComparison.draft !== draftSource && <p role="status">The room draft changed. Refresh the comparison.</p>}
+                  {currentComparison.hunks.length > 0 && <div className="version-diff-legend"><span>- {binding.baseBranch}</span><span>+ Room draft</span></div>}
+                  {currentComparison.hunks.map((hunk) => <div className="version-diff-hunk" key={`${hunk.oldStart}:${hunk.newStart}`}>
+                    <div className="version-diff-location">Source line {hunk.oldStart} / room line {hunk.newStart}</div>
+                    <pre>{hunk.lines.map((line, index) => <code key={index} data-change={line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : 'context'}>{line}</code>)}</pre>
+                  </div>)}
+                </section>}
+              </section>
+            ) : <>
             <div className="repository-controls">
               <label>
                 Repository
                 <select
+                  aria-label="Repository"
                   value={selectedFullName}
                   disabled={isLoadingRepositories}
                   onChange={(event) => {
@@ -329,6 +441,7 @@ export const GitHubDialog = ({
                     setDirectory('')
                   }}
                 >
+                  <option value="" disabled>Select a repository</option>
                   {(repositories ?? []).map((repository) => (
                     <option key={repository.id} value={repository.fullName}>
                       {repository.fullName}{repository.private ? ' (private)' : ''}
@@ -373,6 +486,7 @@ export const GitHubDialog = ({
                 ))}
               </div>
             </div>
+            </>}
 
             {error && <div className="github-error" role="alert">{error}</div>}
 
@@ -388,17 +502,21 @@ export const GitHubDialog = ({
               <span className="permission-note"><LockKeyhole size={13} /> GitHub App permissions apply</span>
               <div>
                 {binding && (
-                  <button className="button secondary-button" type="button" disabled={isWorking || binding.isFork} onClick={() => void openPullRequest()} title={binding.isFork ? 'Automatic pull requests are disabled for forks' : 'Create pull request'}>
-                    <GitPullRequest size={15} /> {review ? `PR #${review.number}` : 'Create draft PR'}
-                  </button>
+                  review ? <a className="button secondary-button" href={review.htmlUrl} target="_blank" rel="noreferrer"><GitPullRequest size={15} /> PR #{review.number}</a>
+                    : <button className="button secondary-button" type="button" disabled={isWorking || binding.isFork} onClick={() => void openPullRequest()} title={binding.isFork ? 'Automatic pull requests are disabled for forks' : 'Create pull request'}>
+                      <GitPullRequest size={15} /> Create draft PR
+                    </button>
                 )}
-                <button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void bindDraft()}>
+                {binding && <button className="button secondary-button" type="button" onClick={() => openNewRoom()}><FilePlus2 size={15} /> Open another manuscript</button>}
+                {binding && <button className="button primary-button" type="button" disabled={isWorking} onClick={() => void saveSnapshot()}><Save size={15} /> Save snapshot</button>}
+                {!binding && <><button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void bindDraft()}>
                   Bind current draft
                 </button>
                 <button className="button primary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void openFile()}>
                   {isWorking ? <LoaderCircle className="spin" size={15} /> : <FileText size={15} />}
                   Open file
                 </button>
+                </>}
               </div>
             </footer>
           </div>

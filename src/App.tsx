@@ -293,7 +293,14 @@ function App() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
   const [notice, setNotice] = useState<string | null>(consumeGitHubResult)
-  const [githubDialogOpen, setGitHubDialogOpen] = useState(false)
+  const [repositoryImport] = useState(() => {
+    const parameters = new URLSearchParams(window.location.search)
+    return parameters.get('import') === 'github' ? {
+      repository: parameters.get('repository') ?? undefined,
+      path: parameters.get('path') ?? undefined,
+    } : null
+  })
+  const [githubDialogOpen, setGitHubDialogOpen] = useState(Boolean(repositoryImport))
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
@@ -2084,7 +2091,8 @@ function App() {
                 <span className="repository-icon"><GitFork size={15} /></span>
                 <span>
                   <strong>{formatRepositoryName(repositoryBinding.fullName)}</strong>
-                  <small>GitHub repository</small>
+                  <small title={repositoryBinding.baseBranch}>Source: {repositoryBinding.baseBranch}</small>
+                  <small title={repositoryBinding.branchName}>Draft: {repositoryBinding.branchName}</small>
                 </span>
                 <ExternalLink size={14} />
               </a>
@@ -2092,7 +2100,8 @@ function App() {
                 <button
                   className="repository-change-button"
                   type="button"
-                  title="Change repository or file"
+                  title="Manuscript versions"
+                  aria-label="Manuscript versions"
                   onClick={() => setGitHubDialogOpen(true)}
                 >
                   <ChevronDown size={14} />
@@ -3255,7 +3264,18 @@ function App() {
         canManageRepository={canManageRepository}
         binding={repositoryBinding}
         review={roomAccess.review}
-        onClose={() => setGitHubDialogOpen(false)}
+        draftSource={collaboration.hasPendingWorkingChanges ? collaboration.workingContent : collaboration.content}
+        draftSaveStatus={displayedSaveStatus}
+        initialRepository={repositoryImport?.repository}
+        initialPath={repositoryImport?.path}
+        onClose={() => {
+          setGitHubDialogOpen(false)
+          if (repositoryImport) {
+            const url = new URL(window.location.href)
+            for (const key of ['import', 'repository', 'path']) url.searchParams.delete(key)
+            window.history.replaceState(null, '', url)
+          }
+        }}
         onOpenFile={openRepositoryFile}
         onBindDraft={bindRepositoryDraft}
         onSave={saveToGitHub}

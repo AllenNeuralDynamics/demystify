@@ -701,6 +701,7 @@
 }
 
 .repository-picker small {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5053,6 +5054,121 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto auto minmax(160px, 1fr) auto auto;
+}
+
+.github-dialog-body.bound-manuscript {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bound-manuscript .github-account-bar,
+.bound-manuscript .github-dialog-footer {
+  flex-shrink: 0;
+}
+
+.bound-manuscript .github-dialog-footer,
+.bound-manuscript .github-dialog-footer > div,
+.manuscript-version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manuscript-versions {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  font-size: 12px;
+}
+
+.manuscript-versions dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.manuscript-versions dl > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.manuscript-versions dt {
+  color: var(--muted);
+}
+
+.manuscript-versions dd {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.manuscript-comparison {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.manuscript-comparison header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.manuscript-comparison h3 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+}
+
+.manuscript-comparison header > span,
+.version-diff-location,
+.version-diff-legend {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.version-diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.version-diff-hunk {
+  margin-top: 10px;
+}
+
+.version-diff-hunk pre {
+  overflow: auto;
+  margin: 5px 0 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.version-diff-hunk code {
+  display: block;
+}
+
+.version-diff-hunk [data-change="added"] {
+  background: #edf4fc;
+  color: #205c98;
+}
+
+.version-diff-hunk [data-change="removed"] {
+  background: #fbefec;
+  color: #8a3c30;
 }
 
 .github-account-bar {

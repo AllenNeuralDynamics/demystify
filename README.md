@@ -98,6 +98,24 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 9. **Save to GitHub** is maintainer-only. It snapshots accepted source to the stable branch and creates or updates the room pull request. Comments, replies, and suggestion decisions remain queued until a PR exists, then synchronize on focus and every 60 seconds while active.
 10. Closing or merging the PR archives the room. Text, comments, proposal checkpoints, and review links remain readable, but HTTP and WebSocket writes are rejected. **Start next revision** creates a fresh room and branch binding initialized from the repository's base branch.
 
+## Manuscript Versions
+
+The sidebar shows the manuscript's source branch and its separate GitHub draft
+branch. Select **Manuscript versions** beside the repository to inspect the file,
+room save status, branch names, and pull request. A bound room does not reopen the
+repository picker or attempt to change its existing file binding.
+
+**Compare with main** (or the configured source branch) reads the current GitHub
+file and displays a read-only diff against the room draft. It does not publish,
+merge, or replace the manuscript. **Save snapshot** explicitly publishes accepted
+content to the draft branch; opening an existing PR does not save implicitly.
+
+**Open another manuscript** opens the repository picker in a separate room.
+**Open source as new version** opens a separate room with the current repository
+and file preselected; choose **Open file** there to import the source version.
+The original room, review history, and local recovery remain intact. Sharing
+capabilities and recovery-session parameters are not copied into the new room.
+
 ## Citations And Visual Editing
 
 Select **Tools -> Citations** to search the manuscript's local reference library

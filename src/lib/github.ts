@@ -69,6 +69,23 @@ export const getRepositoryFileGitHubUrl = (
 ) =>
   `${getRepositoryGitHubUrl(binding)}/blob/${encodeRepositoryPath(reference)}/${encodeRepositoryPath(binding.path)}`
 
+export const getNewManuscriptRoomUrl = (
+  currentUrl: string,
+  roomName: string,
+  manuscript?: Pick<RepositoryBinding, 'fullName' | 'path'>,
+) => {
+  const url = new URL(currentUrl)
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('doc', roomName)
+  url.searchParams.set('import', 'github')
+  if (manuscript) {
+    url.searchParams.set('repository', manuscript.fullName)
+    url.searchParams.set('path', manuscript.path)
+  }
+  return url.href
+}
+
 export interface RoomReview {
   number: number
   htmlUrl: string

@@ -1,16 +1,6 @@
 import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
-import { authenticateMaintainer, createRoomName, expect, test } from './support'
-
-const sourceModifier = (source: Locator) => source.evaluate(() => {
-  const ios = /Apple Computer/.test(navigator.vendor) &&
-    (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
-  return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
-})
-
-const selectSourceDocument = async (source: Locator) => {
-  await source.press(`${await sourceModifier(source)}+a`)
-}
+import { authenticateMaintainer, createRoomName, expect, selectSourceDocument, sourceModifier, test } from './support'
 
 const paneToolbarSource = '# Pane toolbars\n\nSource target.\n\nVisual target.\n\n$$\nx^2\n$$\n\nAfter.'
 
