@@ -3347,15 +3347,11 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.document-panes.view-source.comments-open {
-  grid-template-columns: minmax(0, 1fr) 290px;
-}
-
+.document-panes.view-source.comments-open,
 .document-panes.view-preview.comments-open {
   width: 100%;
-  max-width: 1138px;
-  margin-inline: auto;
-  grid-template-columns: minmax(0, 1fr) 290px;
+  max-width: none;
+  grid-template-columns: minmax(0, 848px) minmax(290px, 1fr);
 }
 
 .document-panes.view-preview.comments-open .myst-preview {
