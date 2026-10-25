@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import * as diff from 'diff'
 import { EditorState, TextSelection } from 'prosemirror-state'
 import { joinBackward, splitBlockAs } from 'prosemirror-commands'
 import * as Y from 'yjs'
@@ -17,7 +18,27 @@ import {
   visualNodeSourceRange,
 } from './visualDocument'
 
+vi.mock('diff', { spy: true })
+
 describe('continuous visual document', () => {
+  it('reuses unchanged paragraph position diffs after editing another paragraph', () => {
+    const source = 'First paragraph.\n\nAn **unchanged** paragraph with [a link](https://example.org).'
+    const model = createVisualDocument(source)
+    const firstPosition = sourcePositionToVisual(model, source.indexOf('paragraph.'))
+    const target = source.indexOf('unchanged')
+    const position = sourcePositionToVisual(model, target)
+    expect(visualPositionToSource(model, position)).toBe(target)
+    const changed = EditorState.create({ doc: model }).tr.insertText('new ', firstPosition).doc
+    const updatedSource = serializeVisualDocument(changed)
+    expect(changed.lastChild).toBe(model.lastChild)
+    const compare = vi.mocked(diff.diffChars).mockClear()
+    try {
+      const next = sourcePositionToVisual(changed, updatedSource.indexOf('unchanged'))
+      expect(visualPositionToSource(changed, next)).toBe(updatedSource.indexOf('unchanged'))
+      expect(compare).not.toHaveBeenCalled()
+    } finally { compare.mockClear() }
+  })
+
   it('maps mounted figure and nested object ranges to their complete source', () => {
     const source = '# Draft\n\nBefore.\n\n(figure-label)=\n\n' +
       ':::{figure} /image.png\n:name: fig-mounted\n\nCaption with $x^2$.\n:::\n\n' +

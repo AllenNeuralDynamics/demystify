@@ -47,6 +47,7 @@ export interface ContinuousVisualEditorHandle {
 
 export interface ContinuousVisualOptions {
   draftKey: string
+  active?: boolean
   toolbarHost?: HTMLElement | null
   sharedText: Y.Text
   provider: WebsocketProvider
@@ -686,8 +687,16 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       }
     }
 
+    let sourceRefreshTimer: number | null = null
+    let queuedSource: string | null = null
     refreshRef.current = (source, force = false) => {
-      if (destroyed || (!force && source === sourceRef.current)) return
+      if (destroyed || propsRef.current.active === false || (!force && source === sourceRef.current)) return
+      if (!force && queuedSource === source) return
+      if (force && sourceRefreshTimer !== null) {
+        window.clearTimeout(sourceRefreshTimer)
+        sourceRefreshTimer = null
+        queuedSource = null
+      }
       const nextDocument = createVisualDocument(source, propsRef.current)
       const currentSelection = sourceSelection()
       let anchor = currentSelection?.from ?? 0
@@ -706,6 +715,22 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       sourceRef.current = source
       view.dispatch(transaction)
     }
+    const flushSourceRefresh = () => {
+      if (sourceRefreshTimer !== null) window.clearTimeout(sourceRefreshTimer)
+      sourceRefreshTimer = null
+      const source = queuedSource
+      queuedSource = null
+      if (source !== null) refreshRef.current(source)
+    }
+    const flushOnSourceExit = (event: Event) => {
+      if (queuedSource !== null && event.target instanceof Element && !event.target.closest('.cm-content')) {
+        flushSourceRefresh()
+      }
+    }
+    window.document.addEventListener('pointerdown', flushOnSourceExit, true)
+    window.document.addEventListener('focusin', flushOnSourceExit, true)
+    view.dom.addEventListener('pointerdown', flushSourceRefresh, true)
+    view.dom.addEventListener('focus', flushSourceRefresh, true)
     flushRef.current = () => {
       if (!pendingRef.current || !propsRef.current.editable) return
       if (draftModeRef.current !== propsRef.current.suggestionMode) {
@@ -740,13 +765,25 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
     const observe = (event: Y.YTextEvent) => {
       if (event.transaction.origin === origin || propsRef.current.suggestionMode || pendingRef.current) return
       const source = sharedText.toString()
-      refreshRef.current(source)
+      if (event.transaction.local && propsRef.current.active !== false &&
+        window.document.activeElement?.closest('.cm-content')) {
+        if (sourceRefreshTimer !== null) window.clearTimeout(sourceRefreshTimer)
+        queuedSource = source
+        sourceRefreshTimer = window.setTimeout(flushSourceRefresh, 150)
+      } else {
+        if (sourceRefreshTimer !== null) window.clearTimeout(sourceRefreshTimer)
+        sourceRefreshTimer = null
+        queuedSource = null
+        refreshRef.current(source)
+      }
       baseRef.current = source
     }
     sharedText.observe(observe)
     persistPending()
     if (pendingRef.current && restored !== null) saveTimerRef.current = window.setTimeout(() => flushRef.current(), 450)
-    const refreshPresence = () => view.updateState(view.state)
+    const refreshPresence = () => {
+      if (propsRef.current.active !== false) view.updateState(view.state)
+    }
     provider.awareness.on('change', refreshPresence)
     const run = (command: Command) => { command(view.state, view.dispatch, view); view.focus() }
     const insertMyst = (replacement: string, cursorOffset = replacement.length,
@@ -803,6 +840,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         insertMyst(insertion.text, insertion.cursorOffset)
       },
       getCommentSelection: () => {
+        flushSourceRefresh()
         if (!view.state.selection.empty) return sourceSelection()
         const cursor = view.state.selection.$from
         if (!cursor.parent.isTextblock) return null
@@ -810,6 +848,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
           to: visualPositionToSource(view.state.doc, cursor.end()) }
       },
       revealRange: (from, to, focus = false) => {
+        flushSourceRefresh()
         const start = sourcePositionToVisual(view.state.doc, from)
         const end = sourcePositionToVisual(view.state.doc, to, -1)
         view.dispatch(view.state.tr.setSelection(TextSelection.between(
@@ -822,6 +861,11 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       if (pendingRef.current) flushRef.current()
       destroyed = true
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+      if (sourceRefreshTimer !== null) window.clearTimeout(sourceRefreshTimer)
+      window.document.removeEventListener('pointerdown', flushOnSourceExit, true)
+      window.document.removeEventListener('focusin', flushOnSourceExit, true)
+      view.dom.removeEventListener('pointerdown', flushSourceRefresh, true)
+      view.dom.removeEventListener('focus', flushSourceRefresh, true)
       sharedText.unobserve(observe)
       provider.awareness.off('change', refreshPresence)
       undoManager.destroy()
@@ -836,10 +880,13 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
 
   useEffect(() => {
     const view = viewRef.current
-    if (!view) return
+    if (!view || props.active === false) return
     const previousOptions = renderOptionsRef.current
+    const projectFilesChanged = previousOptions.projectFiles !== props.projectFiles &&
+      (Object.keys(previousOptions.projectFiles ?? {}).length !== Object.keys(props.projectFiles ?? {}).length ||
+        Object.entries(previousOptions.projectFiles ?? {}).some(([path, content]) => props.projectFiles?.[path] !== content))
     const force = previousOptions.bibliography !== props.bibliography || previousOptions.assetBaseUrl !== props.assetBaseUrl ||
-      previousOptions.projectFiles !== props.projectFiles || previousOptions.sourcePath !== props.sourcePath
+      projectFilesChanged || previousOptions.sourcePath !== props.sourcePath
     renderOptionsRef.current = { bibliography: props.bibliography, assetBaseUrl: props.assetBaseUrl,
       projectFiles: props.projectFiles, sourcePath: props.sourcePath }
     view.setProps({ editable: () => propsRef.current.editable && (draftModeRef.current === null ||
@@ -864,7 +911,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       base: baseRef.current, source: sourceRef.current, suggestionMode: draftModeRef.current!,
     })
     view.updateState(view.state)
-  }, [props.content, props.editable, props.suggestionMode, props.comments, props.suggestions, props.draftKey,
+  }, [props.active, props.content, props.editable, props.suggestionMode, props.comments, props.suggestions, props.draftKey,
     props.bibliography, props.assetBaseUrl, props.projectFiles, props.sourcePath])
 
   const run = (command: Command) => {
