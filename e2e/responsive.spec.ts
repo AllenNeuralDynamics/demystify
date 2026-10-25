@@ -121,6 +121,51 @@ test('figure captions use the figure width and Visual comments stay beside the p
   }
 })
 
+test('single-pane comments fill remaining width while Split comments stay compact', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Desktop comment rails use the remaining pane width')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const panel = page.getByRole('complementary', { name: 'Comments' })
+  const commentText = 'This comment should use the available width rather than wrapping into a narrow rail. '.repeat(12).trim()
+  let postedComment = false
+  for (const width of [1600, 2560]) {
+    await page.setViewportSize({ width, height: 960 })
+    for (const mode of ['Visual editor', 'Source only']) {
+      await page.getByTitle(mode, { exact: true }).click()
+      await page.getByTitle('Open comments', { exact: true }).click()
+      await expect(panel).toBeVisible()
+      const geometry = await panel.evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        const panes = element.closest('.document-panes')!.getBoundingClientRect()
+        return { width: bounds.width, availableWidth: panes.width - 848,
+          rightGap: panes.right - bounds.right, overflow: element.scrollWidth > element.clientWidth }
+      })
+      expect(geometry.width).toBeGreaterThan(320)
+      expect(Math.abs(geometry.width - geometry.availableWidth)).toBeLessThanOrEqual(2)
+      expect(Math.abs(geometry.rightGap)).toBeLessThanOrEqual(1)
+      expect(geometry.overflow).toBe(false)
+      await page.getByTitle('Add comment to selection', { exact: true }).click()
+      const composer = panel.getByRole('textbox', { name: 'New comment' })
+      await expect(composer).toBeFocused()
+      const composerWidth = await composer.evaluate((element) => element.getBoundingClientRect().width)
+      expect(composerWidth).toBeGreaterThan(geometry.width * 0.85)
+      if (!postedComment) {
+        await composer.fill(commentText)
+        await panel.getByRole('button', { name: 'Comment', exact: true }).click()
+        postedComment = true
+      } else await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+      const body = panel.getByText(commentText, { exact: true })
+      await expect(body).toBeVisible()
+      expect(await body.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(geometry.width * 0.85)
+      if (mode === 'Visual editor') await page.screenshot({ path: testInfo.outputPath(`wide-comments-${width}.png`) })
+      await page.getByTitle('Close comments', { exact: true }).click()
+    }
+    await page.getByTitle('Split view', { exact: true }).click()
+    await page.getByTitle('Open comments', { exact: true }).click()
+    expect(await panel.evaluate((element) => element.getBoundingClientRect().width)).toBe(320)
+    await page.getByTitle('Close comments', { exact: true }).click()
+  }
+})
+
 test('wide manuscript tables stay inside the mobile document page', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Document table geometry runs once')
   await page.setViewportSize({ width: 390, height: 844 })
