@@ -1169,6 +1169,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const editingBlocked = !props.editable || objectEdit !== null || commands.blocked
   const toolbar = props.active !== false && <EditorPaneToolbar name="Visual" disabled={editingBlocked}
     canUndo={commands.canUndo} canRedo={commands.canRedo}
+    onActivate={props.onFocus}
     onUndo={() => commandHandleRef.current?.undo()} onRedo={() => commandHandleRef.current?.redo()}
     onFormat={(marker) => commandHandleRef.current?.wrapSelection(marker)}>
         <button type="button" title="Link" disabled={editingBlocked} onClick={(event) => {

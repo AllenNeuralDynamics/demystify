@@ -59,6 +59,16 @@ for (const mode of ['Source only', 'Visual editor', 'Split view']) {
     if (mode !== 'Source only') {
       await expect(visualTools.getByTitle('Undo', { exact: true })).toBeDisabled()
       await expect(visualTools.getByTitle('Redo', { exact: true })).toBeDisabled()
+      if (mode === 'Split view') {
+        await source.focus()
+        await expect(page.locator('.source-pane')).toHaveClass(/active-editor-pane/)
+        await visualTools.getByTitle('Link', { exact: true }).click()
+        await expect(page.getByRole('dialog', { name: 'Edit link', exact: true })).toBeVisible()
+        await expect(page.locator('.preview-pane')).toHaveClass(/active-editor-pane/)
+        await page.getByTitle('Cancel link edit', { exact: true }).click()
+        await sourceTools.getByTitle('Bold', { exact: true }).focus()
+        await expect(page.locator('.source-pane')).toHaveClass(/active-editor-pane/)
+      }
       const paragraph = formatted.locator('p').filter({ hasText: /^Visual target\.$/ })
       await paragraph.click({ position: { x: 2, y: 8 } })
       await page.keyboard.press('Shift+ArrowRight')

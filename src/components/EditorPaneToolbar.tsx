@@ -16,13 +16,14 @@ interface EditorPaneToolbarProps {
   onUndo: () => void
   onRedo: () => void
   onFormat: (marker: '**' | '*' | '`') => void
+  onActivate?: () => void
   children?: ReactNode
 }
 
 export const EditorPaneToolbar = ({ name, disabled, canUndo, canRedo, formatting = true,
-  onUndo, onRedo, onFormat, children }: EditorPaneToolbarProps) => (
+  onUndo, onRedo, onFormat, onActivate, children }: EditorPaneToolbarProps) => (
   <div className="visual-inline-toolbar editor-pane-toolbar" role="toolbar" aria-label={`${name} editing tools`}
-    onMouseDown={(event) => event.preventDefault()}>
+    onFocusCapture={onActivate} onMouseDown={(event) => { onActivate?.(); event.preventDefault() }}>
     <button type="button" title="Undo" aria-label={`Undo in ${name}`} disabled={disabled || !canUndo} onClick={onUndo}><Undo2 size={15} /></button>
     <button type="button" title="Redo" aria-label={`Redo in ${name}`} disabled={disabled || !canRedo} onClick={onRedo}><Redo2 size={15} /></button>
     <span className="toolbar-divider" />

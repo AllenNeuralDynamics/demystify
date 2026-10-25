@@ -16,6 +16,35 @@ const reactTestGlobal = globalThis as typeof globalThis & {
 reactTestGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
 describe('CollaborativeEditor', () => {
+  it('keeps non-Markdown formatting disabled without preventing ordinary source edits', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 1, 1)
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, 'title: Example')
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const editorRef = createRef<CollaborativeEditorHandle>()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<CollaborativeEditor ref={editorRef} sharedText={sharedText}
+        provider={provider} formatting={false} />))
+      await act(async () => { editorRef.current!.revealRange(7, 14); editorRef.current!.wrapSelection('**') })
+      expect(sharedText.toString()).toBe('title: Example')
+      await act(async () => { editorRef.current!.insertText('Changed') })
+      expect(sharedText.toString()).toBe('title: Changed')
+      await act(async () => { editorRef.current!.undo() })
+      expect(sharedText.toString()).toBe('title: Example')
+    } finally {
+      await act(async () => root.unmount())
+      awareness.destroy()
+      yDocument.destroy()
+      container.remove()
+    }
+  })
+
   it.each(['**', '*', '`'])('toggles %s and reports history only when availability changes', async (marker) => {
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList
     Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 1, 1)

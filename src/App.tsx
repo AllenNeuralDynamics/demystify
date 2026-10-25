@@ -2364,6 +2364,7 @@ function App() {
                 <span>{isActiveMystSource ? 'Source' : 'YAML'}</span>
                 <EditorPaneToolbar name="Source" disabled={isSourceReadOnly || sourceCommands.blocked}
                   formatting={isActiveMystSource} canUndo={sourceCommands.canUndo} canRedo={sourceCommands.canRedo}
+                  onActivate={() => setActiveEditorPane('source')}
                   onUndo={() => editorRef.current?.undo()} onRedo={() => editorRef.current?.redo()}
                   onFormat={(marker) => editorRef.current?.wrapSelection(marker)} />
               </div>}
@@ -2383,6 +2384,7 @@ function App() {
                   )}
                   onCommandStateChange={setSourceCommands}
                   readOnly={isSourceReadOnly}
+                  formatting={isActiveMystSource}
                   suggestionBaseContent={suggestionBaseContent}
                   suggestionMode={isAtomicSuggestionMode && isActiveMystSource && isPrimaryFile}
                   suggestionHighlights={isPrimaryFile ? sourceSuggestions : []}

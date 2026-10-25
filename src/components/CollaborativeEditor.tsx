@@ -63,6 +63,7 @@ interface CollaborativeEditorProps {
   onSourceDraftChange?: (draft: string | null) => void
   onCommandStateChange?: (state: EditorCommandState) => void
   readOnly?: boolean
+  formatting?: boolean
   suggestionBaseContent?: string
   suggestionMode?: boolean
   suggestionHighlights?: SourceSuggestionHighlight[]
@@ -567,6 +568,7 @@ export const CollaborativeEditor = forwardRef<
   onSourceDraftChange,
   onCommandStateChange,
   readOnly = false,
+  formatting = true,
   suggestionBaseContent,
   suggestionMode = false,
   suggestionHighlights = [],
@@ -590,6 +592,7 @@ export const CollaborativeEditor = forwardRef<
   const expectedScrollProgressRef = useRef<number | null>(null)
   const onSourceDraftChangeRef = useRef(onSourceDraftChange)
   const readOnlyRef = useRef(readOnly)
+  const formattingRef = useRef(formatting)
   const readOnlyCompartmentRef = useRef(new Compartment())
   const [draftDirty, setDraftDirty] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
@@ -627,6 +630,8 @@ export const CollaborativeEditor = forwardRef<
     onCommandStateChangeRef.current = onCommandStateChange
   }, [onCommandStateChange])
 
+  useEffect(() => { formattingRef.current = formatting }, [formatting])
+
   useEffect(() => {
     if (!containerRef.current) return
 
@@ -636,9 +641,9 @@ export const CollaborativeEditor = forwardRef<
       doc: suggestionMode ? suggestionBaseContentRef.current : sharedText.toString(),
       extensions: [
         keymap.of([
-          { key: 'Mod-b', run: (view) => formatSourceSelection(view, '**', '**', undoManager) },
-          { key: 'Mod-i', run: (view) => formatSourceSelection(view, '*', '*', undoManager) },
-          { key: 'Mod-`', run: (view) => formatSourceSelection(view, '`', '`', undoManager) },
+          { key: 'Mod-b', run: (view) => formattingRef.current && formatSourceSelection(view, '**', '**', undoManager) },
+          { key: 'Mod-i', run: (view) => formattingRef.current && formatSourceSelection(view, '*', '*', undoManager) },
+          { key: 'Mod-`', run: (view) => formattingRef.current && formatSourceSelection(view, '`', '`', undoManager) },
         ]),
         basicSetup,
         markdown(),
@@ -855,7 +860,7 @@ export const CollaborativeEditor = forwardRef<
     },
     wrapSelection: (before, after = before) => {
       const view = viewRef.current
-      if (!view || readOnlyRef.current) return
+      if (!view || readOnlyRef.current || !formattingRef.current) return
       formatSourceSelection(view, before, after, undoManagerRef.current)
     },
     insertSnippet: (template, selectedTextPlaceholder) => {
