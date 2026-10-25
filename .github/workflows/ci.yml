@@ -82,16 +82,6 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Capture Linux toolbar baselines for review
-        run: npm run test:e2e -- e2e/visual.spec.ts --project=chromium --grep 'maintainer workspace' --update-snapshots
-
-      - name: Upload reviewed-platform capture
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: linux-pane-toolbar-baselines
-          path: e2e/visual.spec.ts-snapshots/linux-maintainer-*.png
-          retention-days: 3
-
       - name: Run local browser matrix
         run: npm run test:e2e
 
