@@ -3,7 +3,7 @@ import { act, createRef, forwardRef, useImperativeHandle } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WebsocketProvider } from 'y-websocket'
-import type * as Y from 'yjs'
+import * as Y from 'yjs'
 import { useCollaboration } from './useCollaboration'
 
 const reactTestGlobal = globalThis as typeof globalThis & {
@@ -74,17 +74,22 @@ const profile = {
 const CollaborationHarness = forwardRef<ReturnType<typeof useCollaboration>, {
   active?: boolean
   actorId?: string
+  readOnly?: boolean
+  loadLocalRecovery?: boolean
 }>(function CollaborationHarness({
   active = true,
   actorId = profile.id,
+  readOnly = false,
+  loadLocalRecovery = true,
 }, ref) {
   const collaboration = useCollaboration(
     'visibility-test-room',
     { ...profile, id: actorId },
     '# Draft',
     true,
-    false,
+    readOnly,
     active,
+    loadLocalRecovery,
   )
   useImperativeHandle(ref, () => collaboration, [collaboration])
   return null
@@ -102,6 +107,78 @@ describe('useCollaboration connection lifecycle', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('loads a read-only server copy without hydrating or changing local recovery state', async () => {
+    const root = createRoot(document.createElement('div'))
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} readOnly loadLocalRecovery={false} />))
+    expect(collaborationRef.current!.localBackupStatus).toBe('disabled')
+    expect(providerInstances[0].connect).toHaveBeenCalledOnce()
+    const local = collaborationRef.current!.sharedText!.doc!
+    const server = new Y.Doc()
+    server.getText('content').insert(0, 'Latest accepted source.')
+    server.getText('workingContent').insert(0, 'Latest pending source.')
+    server.getMap('metadata').set('workingContentInitialized', true)
+    const localWrites = vi.fn()
+    local.on('update', (_update, _origin, _document, transaction) => {
+      if (transaction.local) localWrites()
+    })
+    await act(async () => {
+      Y.applyUpdate(local, Y.encodeStateAsUpdate(server), providerInstances[0])
+      providerInstances[0].emit('sync', true)
+    })
+    expect(collaborationRef.current!.content).toBe('Latest accepted source.')
+    expect(collaborationRef.current!.workingContent).toBe('Latest pending source.')
+    expect(localWrites).not.toHaveBeenCalled()
+    expect(collaborationRef.current!.hasLoadedDocument).toBe(true)
+    server.destroy()
+    await act(async () => root.unmount())
+  })
+
+  it('does not echo a remote accepted update into the server-owned working text', async () => {
+    const root = createRoot(document.createElement('div'))
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    const local = collaborationRef.current!.sharedText!.doc!
+    await act(async () => local.transact(() => {
+      local.getText('content').insert(0, 'Original.')
+      local.getText('workingContent').insert(0, 'Original.')
+      local.getMap('metadata').set('workingContentInitialized', true)
+    }))
+    const server = new Y.Doc()
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(local))
+    server.getText('content').delete(0, 'Original.'.length)
+    server.getText('content').insert(0, 'Accepted revision.')
+    const workingChanges = vi.fn()
+    local.getText('workingContent').observe(workingChanges)
+    await act(async () => Y.applyUpdate(local, Y.encodeStateAsUpdate(server), providerInstances[0]))
+    expect(collaborationRef.current!.content).toBe('Accepted revision.')
+    expect(local.getText('workingContent').toString()).toBe('Original.')
+    expect(workingChanges).not.toHaveBeenCalled()
+    server.getText('workingContent').delete(0, 'Original.'.length)
+    server.getText('workingContent').insert(0, 'A concurrent pending proposal.')
+    await act(async () => Y.applyUpdate(local, Y.encodeStateAsUpdate(server), providerInstances[0]))
+    expect(collaborationRef.current!.workingContent).toBe('A concurrent pending proposal.')
+    server.destroy()
+    await act(async () => root.unmount())
+  })
+
+  it('keeps local direct accepted edits paired without inventing a pending proposal', async () => {
+    const root = createRoot(document.createElement('div'))
+    const collaborationRef = createRef<ReturnType<typeof useCollaboration>>()
+    await act(async () => root.render(<CollaborationHarness ref={collaborationRef} />))
+    const local = collaborationRef.current!.sharedText!.doc!
+    await act(async () => local.transact(() => {
+      local.getText('content').insert(0, 'Original.')
+      local.getText('workingContent').insert(0, 'Original.')
+      local.getMap('metadata').set('workingContentInitialized', true)
+    }))
+    await act(async () => local.getText('content').insert('Original.'.length, ' Local edit.'))
+    expect(collaborationRef.current!.content).toBe('Original. Local edit.')
+    expect(collaborationRef.current!.workingContent).toBe('Original. Local edit.')
+    expect(collaborationRef.current!.hasPendingWorkingChanges).toBe(false)
+    await act(async () => root.unmount())
   })
 
   it('does not initialize or report synchronization for sync(false)', async () => {

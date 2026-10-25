@@ -114,6 +114,140 @@ const replaceFirstVisualParagraph = async (
   await expect(page.locator('.visual-draft-status')).toHaveCount(0)
 }
 
+test('a rejected update retains recovery and opens an isolated read-only server copy', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Recovery comparison uses two desktop tabs')
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+  const accepted = '# Recovery comparison\n\nAccepted source.'
+  const pending = `${accepted}\n\nPending server edit.`
+  await source.focus()
+  await source.press('ControlOrMeta+a')
+  await page.keyboard.insertText(accepted)
+  const change = async (operation: 'pending' | 'reject') => page.evaluate((action) => {
+    let element: Element | null = document.querySelector('.cm-content')
+    while (element) {
+      const property = Object.keys(element).find((key) => key.startsWith('__reactFiber$'))
+      let fiber = property ? (element as unknown as Record<string, unknown>)[property] as {
+        memoizedProps?: { sharedText?: { doc?: Y.Doc } }; return?: unknown
+      } : null
+      for (let depth = 0; fiber && depth < 40; depth++, fiber = fiber.return as typeof fiber) {
+        const document = fiber.memoizedProps?.sharedText?.doc
+        if (!document) continue
+        document.transact(() => {
+          if (action === 'pending') {
+            const working = document.getText('workingContent')
+            if (document.getMap('metadata').get('workingContentInitialized') !== true) {
+              working.delete(0, working.length)
+              working.insert(0, document.getText('content').toString())
+              document.getMap('metadata').set('workingContentInitialized', true)
+            }
+            working.insert(working.length, '\n\nPending server edit.')
+          }
+          else {
+            document.getText('content').delete(0, 1)
+            document.getText('workingContent').delete(0, 1)
+          }
+        })
+        return
+      }
+      element = element.parentElement
+    }
+    throw new Error('Local test document was not found')
+  }, operation)
+  await change('pending')
+  await expect(source).toContainText('Pending server edit.')
+  await expect(page.getByRole('status', { name: 'Server save status' }))
+    .toHaveAttribute('data-save-state', 'saved')
+  await change('reject')
+  await expect(page.locator('.connection-warning')).toContainText('Sync blocked')
+  await expect(source).toHaveAttribute('contenteditable', 'false')
+  await expect(page.getByTitle('Reconnect collaboration', { exact: true })).toHaveCount(0)
+  const [download] = await Promise.all([
+    page.waitForEvent('download'), page.getByTitle('Download recovery file', { exact: true }).click(),
+  ])
+  const backup = JSON.parse(await readFile((await download.path())!, 'utf8'))
+  expect(backup.roomName).toBe(roomName)
+  expect(backup.document.content).toBe(accepted.slice(1))
+  expect(backup.document.workingContent).toBe(pending.slice(1))
+  expect(backup.connectionAtExport).toMatchObject({
+    connected: false, providerSynced: false, accessError: expect.any(String),
+  })
+  expect(backup.connectionAtExport.serverSaveStatus).not.toBe('saved')
+  const [saved] = await Promise.all([
+    page.context().waitForEvent('page'), page.getByTitle('Open saved server copy', { exact: true }).click(),
+  ])
+  try {
+    await expect(saved).toHaveURL(new RegExp(`doc=${roomName}.*serverCopy=1`))
+    await expect(saved.getByText('Saved server copy', { exact: true })).toBeVisible()
+    await expect(saved.locator('.sync-status')).toHaveText('Viewing')
+    const savedSource = saved.getByRole('textbox', { name: 'MyST source', exact: true })
+    await expect(savedSource).toHaveAttribute('contenteditable', 'false')
+    await expect(savedSource).toContainText('# Recovery comparison')
+    await expect(savedSource).toContainText('Pending server edit.')
+    await expect(saved.locator('.connection-warning')).toHaveCount(0)
+    await expect(saved.locator('.toolbar-save')).toBeDisabled()
+    if (!await saved.getByRole('complementary', { name: 'Comments', exact: true }).isVisible()) {
+      await saved.getByTitle('Open comments', { exact: true }).click()
+    }
+    await expect(saved.getByRole('button', { name: 'Accept all', exact: true })).toBeDisabled()
+    await expect(saved.getByRole('button', { name: 'Discard all', exact: true })).toBeDisabled()
+    saved.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('confirm')
+      await dialog.accept()
+    })
+    await saved.getByRole('button', { name: 'Continue from saved version', exact: true }).click()
+    await expect(saved).toHaveURL(/recoverySession=[a-f0-9-]+/)
+    expect(new URL(saved.url()).searchParams.has('serverCopy')).toBe(false)
+    await expect(savedSource).toHaveAttribute('contenteditable', 'true')
+    const freshSession = new URL(saved.url()).searchParams.get('recoverySession')!
+    await expect(saved.locator('.continuous-visual-document')).toHaveAttribute('data-visual-draft-key', new RegExp(freshSession))
+    await expect(savedSource).toContainText('# Recovery comparison')
+    await expect(savedSource).toContainText('Pending server edit.')
+    await savedSource.focus()
+    await savedSource.press('ControlOrMeta+End')
+    await saved.keyboard.insertText(' Fresh session edit.')
+    await expect(saved.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
+    await expect(savedSource).toContainText('Fresh session edit.')
+    await expect(saved.locator('.connection-warning')).toHaveCount(0)
+    await saved.reload({ waitUntil: 'domcontentloaded' })
+    await expect(savedSource).toHaveAttribute('contenteditable', 'true')
+    await expect(savedSource).toContainText('Fresh session edit.')
+    await expect(savedSource).not.toContainText('Rejected accepted text.')
+    await expect(saved.locator('.connection-warning')).toHaveCount(0)
+    await expect(page.locator('.connection-warning')).toContainText('Sync blocked')
+    await expect(source).not.toContainText('# Recovery comparison')
+    const [secondDownload] = await Promise.all([
+      page.waitForEvent('download'), page.getByTitle('Download recovery file', { exact: true }).click(),
+    ])
+    const retained = JSON.parse(await readFile((await secondDownload.path())!, 'utf8'))
+    expect(retained.document.content).toBe(backup.document.content)
+    expect(retained.document.workingContent).toBe(backup.document.workingContent)
+  } finally { await saved.close() }
+})
+
+test('a saved server comparison never offers fresh editing to viewers', async ({ page, browser }, testInfo) => {
+  const room = createRoomName(testInfo)
+  await authenticateMaintainer(page, room, testInfo)
+  const viewerToken = await createShareToken(page, room, 'viewer')
+  const viewerUrl = new URL(page.url())
+  viewerUrl.searchParams.set('serverCopy', '1')
+  viewerUrl.hash = `view=${viewerToken}`
+  const viewerContext = await browser.newContext()
+  try {
+    const viewer = await viewerContext.newPage()
+    await viewer.goto(viewerUrl.href)
+    await expect(viewer.getByText('Saved server copy', { exact: true })).toBeVisible()
+    await expect(viewer.getByRole('button', { name: 'Continue from saved version', exact: true })).toHaveCount(0)
+    await expect(viewer.locator('.cm-content')).toHaveAttribute('contenteditable', 'false')
+    await expect(viewer.locator('.sync-status')).toHaveText('Viewing')
+    await expect(viewer.locator('.toolbar-save')).toBeDisabled()
+  } finally {
+    await viewerContext.close()
+  }
+})
+
 test('viewer receives live changes but cannot edit', async ({ browser, page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile'), 'Covered by desktop browser engines')
   const roomName = createRoomName(testInfo)

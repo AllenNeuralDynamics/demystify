@@ -260,6 +260,11 @@ const composingCommentId = 'local-comment-draft'
 
 function App() {
   const [roomName] = useState(getRoomName)
+  const [savedServerCopy] = useState(() => new URLSearchParams(window.location.search).get('serverCopy') === '1')
+  const [recoverySession] = useState(() => {
+    const value = new URLSearchParams(window.location.search).get('recoverySession')
+    return value && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value) ? value : undefined
+  })
   const [profile, setProfile] = useState(loadProfile)
   const [view, setView] = useState<WorkspaceView>('split')
   const [linkedPaneScrolling, setLinkedPaneScrolling] = useState(true)
@@ -381,8 +386,8 @@ function App() {
     : 'editing'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isContributor)
-  const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
+  const canEditRoom = roomAccess.isReady && !isArchived && !savedServerCopy && (isMaintainer || isContributor)
+  const canManageRepository = roomAccess.isReady && !isArchived && !savedServerCopy && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
   const roomReviewNumber = roomAccess.review?.number
@@ -403,6 +408,7 @@ function App() {
     () => roomAccess.room?.ownedActorIds ?? [collaborationProfile.id],
     [collaborationProfile.id, roomAccess.room?.ownedActorIds],
   )
+  const visualDraftActor = recoverySession ? `${collaborationProfile.id}:session:${recoverySession}` : collaborationProfile.id
   const collaboration = useCollaboration(
     roomName,
     collaborationProfile,
@@ -410,6 +416,8 @@ function App() {
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
     pageActive,
+    !savedServerCopy,
+    recoverySession,
   )
   const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError) || !collaboration.hasLoadedDocument
   const isSuggestionMode = primaryEditMode === 'suggesting' ||
@@ -1329,6 +1337,8 @@ function App() {
         connected: provider.wsconnected,
         providerSynced: provider.synced,
         sourceFilePath: activeFilePath,
+        serverSaveStatus: collaboration.serverSaveStatus,
+        accessError: collaboration.accessError,
       })
       showNotice(`Recovery download started: ${result.comments + result.suggestions} review items.`)
     }).catch((error: unknown) => {
@@ -1353,7 +1363,7 @@ function App() {
     return () => window.removeEventListener('beforeunload', protectSourceDraft)
   }, [activeSourceDraftPreview, hasPendingReviewDraft])
 
-  const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && (
+  const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && !savedServerCopy && (
     !collaboration.isSynced || collaboration.status !== 'connected' ||
     collaboration.serverSaveStatus === 'error' ||
     collaboration.localBackupStatus === 'unavailable'
@@ -1469,7 +1479,7 @@ function App() {
   }
 
   const decideCurrentProposal = async (status: 'accepted' | 'rejected') => {
-    if (!isMaintainer || isDecidingProposal || !collaboration.isSynced) return
+    if (effectiveReadOnly || !isMaintainer || isDecidingProposal || !collaboration.isSynced) return
     setIsDecidingProposal(true)
     try {
       await decideLiveProposal(roomName, status)
@@ -1484,7 +1494,7 @@ function App() {
   }
 
   const decideSuggestion = (comment: SharedComment, decision: 'accept' | 'reject') => {
-    if (!isMaintainer || !comment.suggestion) return
+    if (effectiveReadOnly || !isMaintainer || !comment.suggestion) return
     if (inactiveSuggestionIds.has(comment.id)) {
       showNotice('A newer revision replaced this version. Review the current proposal instead.')
       return
@@ -1750,7 +1760,7 @@ function App() {
           <div className="document-chrome">
             <div className="document-heading">
               <span className="document-title">{title}</span>
-              <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole ? 'viewer' : collaboration.status}`}>
+              <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole || savedServerCopy ? 'viewer' : collaboration.status}`}>
                 <span className="status-dot" />
                 {isArchived
                   ? 'Archived'
@@ -1760,13 +1770,13 @@ function App() {
                       ? collaboration.status
                       : !collaboration.isSynced
                         ? 'Synchronizing'
-                      : isViewer
+                      : isViewer || savedServerCopy
                         ? 'Viewing'
                         : isSuggestionMode
                           ? 'Suggesting'
                           : 'Live'}
               </span>
-              {!isViewer && collaboration.hasLoadedDocument && (
+              {!isViewer && !savedServerCopy && collaboration.hasLoadedDocument && (
                 <span
                   className={`server-save-status ${displayedSaveStatus}`}
                   role="status"
@@ -1902,7 +1912,7 @@ function App() {
                   {
                     label: 'Review suggested edits',
                     icon: MessageSquare,
-                    disabled: !isMaintainer || !collaboration.hasPendingWorkingChanges,
+                    disabled: effectiveReadOnly || !isMaintainer || !collaboration.hasPendingWorkingChanges,
                     onSelect: reviewChangesOrEnterEditing,
                   },
                   {
@@ -2175,7 +2185,7 @@ function App() {
           </div>
         </aside>
 
-        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${sharedAccessRole && !isArchived ? 'access-mode' : ''} ${recoveryWarningVisible ? 'has-recovery-warning' : ''}`}>
+        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${(sharedAccessRole || savedServerCopy) && !isArchived ? 'access-mode' : ''} ${recoveryWarningVisible ? 'has-recovery-warning' : ''}`}>
           {isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />
@@ -2186,7 +2196,7 @@ function App() {
               <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
                 PR #{roomAccess.review.number}
               </a>
-              {isMaintainer && (
+              {isMaintainer && !savedServerCopy && (
                 <button
                   className="button primary-button"
                   type="button"
@@ -2199,6 +2209,19 @@ function App() {
                   Start next revision
                 </button>
               )}
+            </div>
+          ) : savedServerCopy && !collaboration.accessError ? (
+            <div className="archive-banner viewer-banner" role="status">
+              <Eye size={18} />
+              <div><strong>Saved server copy</strong><span>Read-only. Local recovery data was not loaded.</span></div>
+              {(isMaintainer || isContributor) && <button className="button secondary-button" type="button"
+                onClick={() => {
+                  if (!window.confirm('Start editing from the saved server version? Rejected edits stay in the original tab and recovery file and will not be imported automatically.')) return
+                  const url = new URL(window.location.href)
+                  url.searchParams.delete('serverCopy')
+                  url.searchParams.set('recoverySession', crypto.randomUUID())
+                  window.location.assign(url.href)
+                }}>Continue from saved version</button>}
             </div>
           ) : sharedAccessRole ? (
             <div className="archive-banner viewer-banner" role="status">
@@ -2232,7 +2255,7 @@ function App() {
                 <strong>{localChangesRejected ? 'Sync blocked' : 'Server save not confirmed'}</strong>
                 <span>
                   {localChangesRejected
-                    ? 'Server rejected changes. Download recovery.'
+                    ? 'Local changes were rejected. Keep this tab open and download recovery before comparing with the saved copy.'
                     : collaboration.serverSaveStatus === 'error'
                       ? 'No server save receipt. Keep a recovery copy.'
                     : collaboration.localBackupStatus === 'ready'
@@ -2247,6 +2270,11 @@ function App() {
                   <RefreshCw size={16} />
                 </button>
               )}
+              {localChangesRejected && <button className="icon-button" type="button" title="Open saved server copy" onClick={() => {
+                const url = new URL(window.location.href)
+                url.searchParams.set('serverCopy', '1')
+                window.open(url.href, '_blank', 'noopener,noreferrer')
+              }}><ExternalLink size={16} /></button>}
               <button className="icon-button" type="button" title="Download recovery file" onClick={downloadRecoveryFile}>
                 <Download size={16} />
               </button>
@@ -2311,7 +2339,7 @@ function App() {
                 )}
               </button>
 
-              {isMaintainer && isPrimaryFile && !isArchived ? (
+              {isMaintainer && isPrimaryFile && !isArchived && !savedServerCopy ? (
                 <DocumentMenu
                   align="right"
                   className={`mode-menu ${collaboration.hasPendingWorkingChanges ? 'needs-review' : ''}`}
@@ -2346,11 +2374,11 @@ function App() {
                 <button
                   className="mode-status"
                   type="button"
-                  aria-label={isViewer || isArchived ? 'Viewing' : 'Suggesting'}
+                  aria-label={isViewer || isArchived || savedServerCopy ? 'Viewing' : 'Suggesting'}
                   disabled
                 >
-                  {isViewer || isArchived ? <Eye size={15} /> : <MessageSquare size={15} />}
-                  <span>{isViewer || isArchived ? 'Viewing' : 'Suggesting'}</span>
+                  {isViewer || isArchived || savedServerCopy ? <Eye size={15} /> : <MessageSquare size={15} />}
+                  <span>{isViewer || isArchived || savedServerCopy ? 'Viewing' : 'Suggesting'}</span>
                 </button>
               )}
             </div>
@@ -2433,9 +2461,9 @@ function App() {
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
-                  continuous={activeSharedText && collaboration.provider && !isViewer &&
+                  continuous={activeSharedText && collaboration.provider && !isViewer && !savedServerCopy &&
                     collaboration.hasLoadedDocument && isActiveMystSource ? {
-                    draftKey: JSON.stringify([roomName, collaborationProfile.id, activeFilePath]),
+                    draftKey: JSON.stringify([roomName, visualDraftActor, activeFilePath]),
                     active: view !== 'source',
                     toolbarHost: visualToolbarHost,
                     sharedText: activeSharedText,
@@ -2765,6 +2793,7 @@ function App() {
                           <button
                             type="button"
                             disabled={
+                              effectiveReadOnly ||
                               isDecidingProposal ||
                               !collaboration.isSynced ||
                               collaboration.proposalContributors.length === 0
@@ -2777,6 +2806,7 @@ function App() {
                             className="accept"
                             type="button"
                             disabled={
+                              effectiveReadOnly ||
                               isDecidingProposal ||
                               !collaboration.isSynced ||
                               collaboration.proposalContributors.length === 0
@@ -3079,10 +3109,10 @@ function App() {
                             comment.suggestion.status === 'conflicted'
                           ) && !isEarlierRevision ? (
                             <div className="suggestion-actions">
-                              <button type="button" onClick={() => decideSuggestion(comment, 'reject')}>
+                              <button type="button" disabled={effectiveReadOnly} onClick={() => decideSuggestion(comment, 'reject')}>
                                 <X size={13} /> Reject
                               </button>
-                              <button className="accept" type="button" onClick={() => decideSuggestion(comment, 'accept')}>
+                              <button className="accept" type="button" disabled={effectiveReadOnly} onClick={() => decideSuggestion(comment, 'accept')}>
                                 <Check size={13} />
                                 {comment.suggestion.status === 'conflicted' ? 'Retry accept' : 'Accept'}
                               </button>

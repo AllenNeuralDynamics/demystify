@@ -5,9 +5,40 @@ import * as Y from 'yjs'
 import type { SharedComment } from '../hooks/useCollaboration'
 import { createCommentAnchor, resolveCommentAnchor } from './commentAnchors'
 import { createCollaborationRecovery, getVisualDraftsForRecovery,
-  readVisualRecoveryDraft, writeVisualRecoveryDraft } from './collaborationRecovery'
+  collaborationRecoveryKey, readVisualRecoveryDraft, writeVisualRecoveryDraft } from './collaborationRecovery'
 
 describe('collaboration recovery', () => {
+  it('keeps a fresh editing cache separate without deleting rejected browser recovery', async () => {
+    const room = crypto.randomUUID()
+    const originalKey = collaborationRecoveryKey(room, 'actor')
+    const freshKey = collaborationRecoveryKey(room, 'actor', 'fresh-session')
+    expect(originalKey).not.toBe(freshKey)
+    expect(collaborationRecoveryKey(room, 'actor', 'fresh-session')).toBe(freshKey)
+    const original = new Y.Doc()
+    const originalStore = new IndexeddbPersistence(originalKey, original)
+    await originalStore.whenSynced
+    original.getText('content').insert(0, 'Rejected local source.')
+    original.getMap('comments').set('local', { body: 'Unsent review' })
+    await originalStore.get('flush')
+    await originalStore.destroy()
+    original.destroy()
+    const fresh = new Y.Doc()
+    const freshStore = new IndexeddbPersistence(freshKey, fresh)
+    await freshStore.whenSynced
+    expect(fresh.getText('content').toString()).toBe('')
+    fresh.getText('content').insert(0, 'Saved server source.')
+    await freshStore.get('flush')
+    const retained = new Y.Doc()
+    const retainedStore = new IndexeddbPersistence(originalKey, retained)
+    await retainedStore.whenSynced
+    expect(retained.getText('content').toString()).toBe('Rejected local source.')
+    expect(retained.getMap('comments').get('local')).toEqual({ body: 'Unsent review' })
+    await retainedStore.clearData()
+    await freshStore.clearData()
+    retained.destroy()
+    fresh.destroy()
+  })
+
   it('scopes unsubmitted Visual drafts by room, actor, file and browser tab storage', () => {
     const stored = new Map<string, string>()
     vi.stubGlobal('sessionStorage', {
@@ -22,19 +53,25 @@ describe('collaboration recovery', () => {
       const key = JSON.stringify([room, 'actor-a', 'paper.md'])
       const otherFile = JSON.stringify([room, 'actor-a', 'methods.md'])
       const otherActor = JSON.stringify([room, 'actor-b', 'paper.md'])
+      const freshSession = JSON.stringify([room, 'actor-a:session:fresh-session', 'paper.md'])
       const draft = { base: 'Original.', source: 'Unsubmitted edit.', suggestionMode: true }
       expect(writeVisualRecoveryDraft(key, draft)).toBe(true)
       writeVisualRecoveryDraft(otherFile, draft)
       writeVisualRecoveryDraft(otherActor, { ...draft, source: 'Private to another actor.' })
+      writeVisualRecoveryDraft(freshSession, { ...draft, source: 'Fresh-session draft.' })
       expect(readVisualRecoveryDraft(key)).toEqual(draft)
       expect(getVisualDraftsForRecovery(key)).toEqual([
         { filePath: 'paper.md', ...draft }, { filePath: 'methods.md', ...draft },
+      ])
+      expect(getVisualDraftsForRecovery(freshSession)).toEqual([
+        { filePath: 'paper.md', ...draft, source: 'Fresh-session draft.' },
       ])
       writeVisualRecoveryDraft(key, null)
       expect(readVisualRecoveryDraft(key)).toBeNull()
       expect(getVisualDraftsForRecovery(key)).toHaveLength(1)
       writeVisualRecoveryDraft(otherFile, null)
       writeVisualRecoveryDraft(otherActor, null)
+      writeVisualRecoveryDraft(freshSession, null)
     } finally { vi.unstubAllGlobals() }
   })
 

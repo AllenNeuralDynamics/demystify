@@ -19,6 +19,10 @@ export const visualObjectDraftKey = (key: string) => {
   return `${key}:object`
 }
 
+export const collaborationRecoveryKey = (room: string, actor: string, session?: string) =>
+  `demystify-recovery-v1:${encodeURIComponent(room)}:${encodeURIComponent(actor)}` +
+  (session ? `:session:${encodeURIComponent(session)}` : '')
+
 const visualDraftPrefix = 'demystify.visual-draft:'
 const visualDrafts = new Map<string, VisualRecoveryDraft>()
 

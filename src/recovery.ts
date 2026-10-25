@@ -2,6 +2,7 @@ import { EditorView } from '@codemirror/view'
 import type { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 import { createCollaborationRecovery, getVisualDraftsForRecovery } from './lib/collaborationRecovery'
+import type { ServerSaveStatus } from './lib/collaborationDurability'
 
 interface RecoveryContext {
   document: Y.Doc
@@ -9,6 +10,8 @@ interface RecoveryContext {
   connected: boolean
   providerSynced: boolean
   sourceFilePath?: string | null
+  serverSaveStatus?: ServerSaveStatus
+  accessError?: string | null
 }
 
 interface EditorFiber {
@@ -28,6 +31,8 @@ export const downloadRoomRecovery = (context: RecoveryContext) => {
     connectionAtExport: {
       connected: context.connected,
       providerSynced: context.providerSynced,
+      serverSaveStatus: context.serverSaveStatus ?? null,
+      accessError: context.accessError ?? null,
     },
     localDrafts: {
       sourceFilePath: context.sourceFilePath ?? null,
