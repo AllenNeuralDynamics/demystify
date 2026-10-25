@@ -27,6 +27,7 @@ import type { CommentHighlight } from './CollaborativeEditor'
 import { ContinuousVisualEditor, type ContinuousVisualOptions } from './ContinuousVisualEditor'
 import {
   VisualInlineEditor,
+  type VisualCitationDraft,
   type VisualCitationInserter,
 } from './VisualInlineEditor'
 
@@ -49,7 +50,8 @@ interface MystPreviewProps {
   ) => CollaborativeTextEditResult
   onEditError?: (message: string) => void
   onLayoutChange?: () => void
-  onRequestCitation?: (insert: VisualCitationInserter) => void
+  onRequestCitation?: (insert: VisualCitationInserter, initial?: VisualCitationDraft) => void
+  onEditReference?: (key: string) => void
   onSuggestionClick?: (suggestionId: string) => void
   suggestions?: MystPreviewSuggestion[]
 }
@@ -165,6 +167,7 @@ export const MystPreview = memo(({
   onEditError,
   onLayoutChange,
   onRequestCitation,
+  onEditReference,
   onSuggestionClick,
   suggestions = [],
 }: MystPreviewProps) => {
@@ -721,6 +724,7 @@ export const MystPreview = memo(({
     onEditError={onEditError}
     onLayoutChange={onLayoutChange}
     onRequestCitation={onRequestCitation}
+    onEditReference={onEditReference}
   />
 
   if (preview.error && !activeEdit) {

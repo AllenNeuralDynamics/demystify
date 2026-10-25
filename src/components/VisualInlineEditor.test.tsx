@@ -9,6 +9,8 @@ import type { MystEditableBlock } from '../lib/myst'
 import { readVisualRecoveryDraft, visualObjectDraftKey, writeVisualRecoveryDraft } from '../lib/collaborationRecovery'
 import * as visualModel from '../lib/visualDocument'
 import { ContinuousVisualEditor, type ContinuousVisualEditorHandle } from './ContinuousVisualEditor'
+import { CitationPicker } from './CitationPicker'
+import { ReferenceManager } from './ReferenceManager'
 import { VisualInlineEditor } from './VisualInlineEditor'
 
 const reactTestGlobal = globalThis as typeof globalThis & {
@@ -99,6 +101,311 @@ describe('VisualInlineEditor', () => {
 })
 
 describe('continuous Visual draft recovery', () => {
+  it('keeps link, citation, reference and footnote editing unavailable in read-only mode', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    const original = 'Read [site](https://example.org) and {cite:p}`smith2024`.\n\nNote[^note].\n\n[^note]: Body.'
+    text.insert(0, original)
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const onRequestCitation = vi.fn()
+    const onEditReference = vi.fn()
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} bibliography={bibliography} editable={false}
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onRequestCitation={onRequestCitation} onEditReference={onEditReference}
+        onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { container.querySelector<HTMLElement>('[data-visual-citation]')!.click() })
+      expect(container.querySelector<HTMLButtonElement>('[title="Link"]')?.disabled).toBe(true)
+      expect(container.querySelector<HTMLButtonElement>('[title="Edit object source"]')?.disabled).toBe(true)
+      expect(container.querySelector('[data-reference-key]')?.getAttribute('role')).not.toBe('button')
+      expect(container.querySelector('[data-footnote-edit-key]')).toBeNull()
+      expect(onRequestCitation).not.toHaveBeenCalled()
+      expect(onEditReference).not.toHaveBeenCalled()
+      expect(window.document.querySelector('.visual-link-popover')).toBeNull()
+      expect(container.querySelector('.visual-object-editor')).toBeNull()
+      expect(text.toString()).toBe(original)
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('rejects unsafe URLs and retains a link draft when concurrent edits invalidate its range', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    const original = 'Read [site](https://example.org/prior).'
+    text.insert(0, original)
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { container.querySelector('a')!.click() })
+      const input = window.document.querySelector<HTMLInputElement>('[aria-label="Link URL"]')!
+      const update = async (value: string) => act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await update('javascript:alert(1)')
+      await act(async () => { window.document.querySelector<HTMLButtonElement>('[title="Apply link"]')!.click() })
+      expect(window.document.querySelector('.visual-link-popover [role="alert"]')?.textContent).toContain('not allowed')
+      expect(text.toString()).toBe(original)
+      await update('https://example.org/updated')
+      await act(async () => { text.insert(0, 'Concurrent ') })
+      await act(async () => { window.document.querySelector<HTMLButtonElement>('[title="Apply link"]')!.click() })
+      expect(window.document.querySelector('.visual-link-popover [role="alert"]')?.textContent).toContain('document changed')
+      expect(input.value).toBe('https://example.org/updated')
+      expect(text.toString()).toBe(`Concurrent ${original}`)
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('edits rendered footnote definitions through the same protected object editor', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'A note[^note].\n\n[^note]: Footnote body.\n\nClosing paragraph.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { container.querySelector<HTMLElement>('[data-footnote-edit-key="note"]')!.click() })
+      expect(container.querySelector<HTMLTextAreaElement>('[aria-label="MyST object source"]')?.value).toBe('[^note]: Footnote body.')
+      await changeObject(container, '[^note]: Updated footnote body.')
+      await act(async () => { container.querySelector<HTMLButtonElement>('[title="Apply MyST object"]')!.click() })
+      expect(text.toString()).toBe('A note[^note].\n\n[^note]: Updated footnote body.\n\nClosing paragraph.')
+      expect(container.querySelector('[data-footnote-edit-key="note"]')?.textContent).toContain('Updated footnote body.')
+      expect(container.textContent).toContain('Closing paragraph.')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('edits non-figure directive settings through the selected object action', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, ':::{admonition} Original title\n\nOriginal body.\n:::')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    let handle: ContinuousVisualEditorHandle | null = null
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={(next) => { handle = next }} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { handle!.revealRange(text.toString().indexOf('Original body'), text.toString().indexOf('Original body')) })
+      const action = container.querySelector<HTMLButtonElement>('[title="Edit object source"]')!
+      expect(action.disabled).toBe(false)
+      await act(async () => { action.click() })
+      expect(container.querySelector<HTMLTextAreaElement>('[aria-label="MyST object source"]')?.value).toBe(text.toString())
+      await changeObject(container, text.toString().replace('Original title', 'Updated title'))
+      await act(async () => { container.querySelector<HTMLButtonElement>('[title="Apply MyST object"]')!.click() })
+      expect(text.toString()).toContain(':::{admonition} Updated title')
+      expect(container.querySelector('.admonition-title')?.textContent).toBe('Updated title')
+      expect(container.textContent).toContain('Original body.')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('opens generated bibliography entries in the reference manager', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Prior {cite:p}`smith2024`.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const onEditReference = vi.fn()
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} bibliography={bibliography} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onEditReference={onEditReference}
+        onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => {
+        container.querySelector<HTMLElement>('.visual-readonly-appendix [data-reference-key="smith2024"]')!.click()
+      })
+      expect(onEditReference).toHaveBeenCalledWith('smith2024')
+      expect(text.toString()).toBe('Prior {cite:p}`smith2024`.')
+      await act(async () => root.render(<ReferenceManager bibliography={bibliography}
+        manuscript={text.toString()} readOnly={false} initialKey="smith2024"
+        onClose={() => {}} onApply={() => 'applied'} />))
+      expect(container.querySelector<HTMLTextAreaElement>('textarea')?.value).toContain('@article{smith2024')
+      expect(container.querySelector<HTMLTextAreaElement>('textarea')?.value).toContain('Smith, Ada')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('opens cross-references in protected passages instead of navigating away', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, '(target)=\n\n# Target\n\nSee [target](#target) for $x$ details.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+      await act(async () => { container.querySelector('.visual-protected-block a')!.dispatchEvent(event) })
+      expect(event.defaultPrevented).toBe(true)
+      expect(container.querySelector<HTMLTextAreaElement>('[aria-label="MyST object source"]')?.value)
+        .toBe('See [target](#target) for $x$ details.')
+      expect(text.toString()).toContain('See [target](#target) for $x$ details.')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('reopens and replaces an existing citation rather than inserting a duplicate', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Prior {cite:p}`smith2024`.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const onRequestCitation = vi.fn()
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} bibliography={bibliography} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onRequestCitation={onRequestCitation}
+        onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => {
+        container.querySelector('[data-visual-citation]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+      expect(onRequestCitation).toHaveBeenCalledOnce()
+      expect(onRequestCitation.mock.calls[0][1]).toEqual({
+        keys: ['smith2024'], style: 'parenthetical', prefix: '', suffix: '',
+      })
+      await act(async () => { onRequestCitation.mock.calls[0][0](['smith2024'], 'narrative') })
+      expect(text.toString()).toBe('Prior {cite:t}`smith2024`.')
+      expect(container.querySelectorAll('[data-visual-citation]')).toHaveLength(1)
+      expect(container.querySelector('[data-visual-citation]')?.textContent).toBe('Smith (2024)')
+      await act(async () => { container.querySelector<HTMLElement>('[data-visual-citation]')!.click() })
+      await act(async () => { text.insert(0, 'Concurrent ') })
+      expect(() => onRequestCitation.mock.calls[1][0](['smith2024'], 'parenthetical')).toThrow('document changed')
+      expect(text.toString()).toBe('Concurrent Prior {cite:t}`smith2024`.')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('refreshes the reference list when replacing a citation with another existing paper', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Prior {cite:p}`smith2024`.')
+    const library = `${bibliography}\n@article{lee2025, title={Another paper}, author={Lee, Ada}, year={2025}}`
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const onRequestCitation = vi.fn()
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} bibliography={library} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onRequestCitation={onRequestCitation}
+        onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { container.querySelector<HTMLElement>('[data-visual-citation]')!.click() })
+      await act(async () => { onRequestCitation.mock.calls[0][0](['lee2025'], 'parenthetical') })
+      expect(text.toString()).toBe('Prior {cite:p}`lee2025`.')
+      expect(container.querySelector('.visual-readonly-appendix')?.textContent).toContain('Another paper')
+      expect(container.querySelector('.visual-readonly-appendix')?.textContent).not.toContain('A paper')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('prefills the citation picker with existing keys, style and locators', async () => {
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    const onInsert = vi.fn()
+    try {
+      await act(async () => root.render(<CitationPicker roomName="local-citation-test"
+        bibliography={bibliography} allowNewReferences={false}
+        initial={{ keys: ['smith2024', 'unresolved'], style: 'narrative', prefix: 'see', suffix: 'p. 4' }}
+        onClose={() => {}} onInsert={onInsert} />))
+      expect(container.querySelector('h2')?.textContent).toBe('Edit citation')
+      expect(container.querySelectorAll('.citation-result.selected')).toHaveLength(2)
+      expect(container.querySelector<HTMLInputElement>('[aria-label="Citation prefix"]')?.value).toBe('see')
+      expect(container.querySelector<HTMLInputElement>('[aria-label="Citation locator or suffix"]')?.value).toBe('p. 4')
+      await act(async () => { container.querySelector<HTMLButtonElement>('.citation-picker-footer button')!.click() })
+      expect(onInsert).toHaveBeenCalledWith([
+        { kind: 'existing', key: 'smith2024' }, { kind: 'existing', key: 'unresolved' },
+      ], 'narrative', { prefix: 'see', suffix: 'p. 4' })
+    } finally { await act(async () => root.unmount()) }
+  })
+
+  it('opens an existing link destination for editing without changing its label', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Read the [project website](https://example.org/prior "Project home") for details.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={() => {}} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => {
+        container.querySelector('a')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+      const input = window.document.querySelector<HTMLInputElement>('[aria-label="Link URL"]')
+      expect(input?.value).toBe('https://example.org/prior')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'https://example.org/updated')
+        input!.dispatchEvent(new Event('input', { bubbles: true }))
+        input!.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await act(async () => {
+        window.document.querySelector('.visual-link-popover')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      })
+      expect(text.toString()).toBe('Read the [project website](https://example.org/updated "Project home") for details.')
+      expect(container.querySelector('a')?.textContent).toBe('project website')
+      await act(async () => { container.querySelector('a')!.click() })
+      await act(async () => { window.document.querySelector<HTMLButtonElement>('[title="Cancel link edit"]')!.click() })
+      expect(text.toString()).toContain('https://example.org/updated')
+      await act(async () => { container.querySelector('a')!.click() })
+      await act(async () => { window.document.querySelector<HTMLButtonElement>('[title="Remove link"]')!.click() })
+      expect(text.toString()).toBe('Read the project website for details.')
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
   it('coalesces Source typing without delaying shared edits or remote updates', async () => {
     const document = new Y.Doc()
     const text = document.getText('content')

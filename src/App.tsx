@@ -64,7 +64,7 @@ import type { MystPreviewSuggestion } from './components/MystPreview'
 import { ParticipantsMenu } from './components/ParticipantsMenu'
 import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
-import type { VisualCitationInserter } from './components/VisualInlineEditor'
+import type { VisualCitationDraft, VisualCitationInserter } from './components/VisualInlineEditor'
 import type { ContinuousVisualEditorHandle } from './components/ContinuousVisualEditor'
 import {
   useCollaboration,
@@ -308,6 +308,8 @@ function App() {
     body: string
   } | null>(null)
   const [visualCitationInserter, setVisualCitationInserter] = useState<VisualCitationInserter | null>(null)
+  const [visualCitationDraft, setVisualCitationDraft] = useState<VisualCitationDraft | null>(null)
+  const [activeReferenceKey, setActiveReferenceKey] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDecidingProposal, setIsDecidingProposal] = useState(false)
   const [isStartingRevision, setIsStartingRevision] = useState(false)
@@ -1652,7 +1654,8 @@ function App() {
       ))
       setCitationPickerOpen(false)
       setVisualCitationInserter(null)
-      showNotice(`${keys.length} ${keys.length === 1 ? 'citation' : 'citations'} inserted`)
+      showNotice(visualCitationDraft ? 'Citation updated' : `${keys.length} ${keys.length === 1 ? 'citation' : 'citations'} inserted`)
+      setVisualCitationDraft(null)
     } catch (error) {
       showNotice(error instanceof Error ? error.message : 'Could not insert the citation')
     }
@@ -1661,6 +1664,7 @@ function App() {
   const closeCitationPicker = () => {
     setCitationPickerOpen(false)
     setVisualCitationInserter(null)
+    setVisualCitationDraft(null)
   }
 
   useEffect(() => {
@@ -2564,9 +2568,14 @@ function App() {
                     })
                   }}
                   onSuggestionClick={openLiveProposalChange}
-                  onRequestCitation={(insert) => {
+                  onRequestCitation={(insert, initial) => {
                     setVisualCitationInserter(() => insert)
+                    setVisualCitationDraft(initial ?? null)
                     setCitationPickerOpen(true)
+                  }}
+                  onEditReference={(key) => {
+                    setActiveReferenceKey(key)
+                    setReferenceManagerOpen(true)
                   }}
                   suggestions={isPrimaryFile ? visualSuggestions : []}
                 />
@@ -3168,6 +3177,7 @@ function App() {
 
       {citationPickerOpen && (
         <CitationPicker
+          initial={visualCitationDraft}
           allowNewReferences={canAddCitationReferences}
           bibliography={collaboration.bibliography}
           key={canAddCitationReferences ? 'full' : 'library-only'}
@@ -3179,11 +3189,12 @@ function App() {
 
       {referenceManagerOpen && (
         <ReferenceManager
+          initialKey={activeReferenceKey}
           bibliography={collaboration.bibliography}
           manuscript={projectManuscriptContent}
           readOnly={isStructuredEditorReadOnly}
           onApply={collaboration.commitBibliographyEdit}
-          onClose={() => setReferenceManagerOpen(false)}
+          onClose={() => { setReferenceManagerOpen(false); setActiveReferenceKey(null) }}
         />
       )}
 

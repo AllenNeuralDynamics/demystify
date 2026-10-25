@@ -81,6 +81,7 @@ export const visualDocumentSchema = new Schema({
         before: { default: '' },
         source: { default: '' },
         html: { default: '' },
+        footnoteKey: { default: null },
       },
       toDOM: () => ['div', { class: 'visual-protected-block', contenteditable: 'false' }],
     }),
@@ -89,6 +90,8 @@ export const visualDocumentSchema = new Schema({
 
 interface SourceNode {
   type?: string
+  identifier?: string
+  label?: string
   depth?: number
   ordered?: boolean
   start?: number
@@ -123,6 +126,13 @@ export const createVisualDocument = (source: string, options: VisualDocumentOpti
   htmlTemplate.innerHTML = rendered.html
   const htmlRoots = Array.from(htmlTemplate.content.children)
   const rootIndexes = new Map(htmlRoots.map((element, index) => [element, index]))
+  const positionedRoots = new Map<number, Element>()
+  for (const element of Array.from(htmlTemplate.content.querySelectorAll<HTMLElement>('[data-myst-node-from]'))) {
+    let root: Element = element
+    while (root.parentElement) root = root.parentElement
+    positionedRoots.set(Number(element.dataset.mystNodeFrom), root)
+  }
+  const positionedEntries = Array.from(positionedRoots)
   const renderedElements = new Map(Array.from(htmlTemplate.content.querySelectorAll<HTMLElement>(
     '[data-myst-edit-id]',
   )).map((element) => [element.dataset.mystEditId, element]))
@@ -135,7 +145,7 @@ export const createVisualDocument = (source: string, options: VisualDocumentOpti
     if (source[index] === '\n') lineStarts.push(index + 1)
   }
   const getLines = (child: SourceNode): { first: number; last: number } | null => {
-    if (child.position?.start?.line && child.position?.end?.line) {
+    if (child.type !== 'footnoteDefinition' && child.position?.start?.line && child.position?.end?.line) {
       return { first: child.position.start.line, last: child.position.end.line }
     }
     const children = (child.children ?? []).map(getLines)
@@ -145,18 +155,30 @@ export const createVisualDocument = (source: string, options: VisualDocumentOpti
   const getRange = (child: SourceNode) => {
     const lines = getLines(child)
     if (!lines) return null
-    const { first: firstLine, last: lastLine } = lines
+    let firstLine = lines.first
+    const lastLine = lines.last
+    if (child.type === 'footnoteDefinition') {
+      const marker = `[^${child.label ?? child.identifier}]:`
+      for (let line = firstLine; line > 0; line -= 1) {
+        const text = source.slice(lineStarts[line - 1], lineStarts[line] ?? source.length)
+        if (text.replace(/^ {0,3}/, '').startsWith(marker)) { firstLine = line; break }
+        if (line < firstLine && text.trim() && !/^\s/.test(text)) return null
+      }
+    }
     const from = lineStarts[firstLine - 1]
     const lineEnd = lineStarts[lastLine] ?? source.length
     if (from === undefined) return null
     const raw = source.slice(from, lineEnd).replace(/\r?\n$/, '')
     return { from, to: from + raw.length, raw }
   }
+  const sourceChildren = [...(tree.children ?? [])].sort((left, right) =>
+    (getRange(left)?.from ?? source.length) - (getRange(right)?.from ?? source.length))
   const editable = new Map(rendered.editableBlocks.map((block) => {
     const lineStart = source.lastIndexOf('\n', block.from - 1) + 1
     return [`${block.kind}:${lineStart}`, block]
   }))
   const htmlFor = (child: SourceNode, from: number, to: number) => {
+    if (child.type === 'footnoteDefinition') return ''
     if (isTargetLabel(source.slice(from, to))) return ''
     const cached = globalHtml.get(child)
     if (cached !== undefined) return cached
@@ -173,12 +195,14 @@ export const createVisualDocument = (source: string, options: VisualDocumentOpti
     const shell = first ? element?.closest(first.tagName.toLowerCase()) : null
     return shell?.outerHTML ?? first?.outerHTML ?? ''
   }
-  for (const child of tree.children ?? []) {
+  for (const child of sourceChildren) {
     const range = getRange(child)
     if (!range || isTargetLabel(range.raw)) continue
     const firstEditable = rendered.editableBlocks.find((block) =>
       block.from >= range.from && block.to <= range.to)
-    let root = firstEditable ? renderedElements.get(firstEditable.id) : undefined
+    let root: Element | undefined = positionedRoots.get(range.from) ??
+      positionedEntries.find(([position]) => position >= range.from && position < range.to)?.[1] ??
+      (firstEditable ? renderedElements.get(firstEditable.id) : undefined)
     while (root?.parentElement) root = root.parentElement
     let index = root ? rootIndexes.get(root) : undefined
     if (index === undefined) {
@@ -243,11 +267,12 @@ export const createVisualDocument = (source: string, options: VisualDocumentOpti
       }
     }
     return visualDocumentSchema.nodes.protected_block.create({ before, source: raw,
+      footnoteKey: child.type === 'footnoteDefinition' ? child.identifier : null,
       html: htmlFor(child, from, to) })
   }
   const nodes: ProseMirrorNode[] = []
   let cursor = 0
-  for (const child of tree.children ?? []) {
+  for (const child of sourceChildren) {
     const range = getRange(child)
     if (!range || range.from < cursor) continue
     const node = build(child, source.slice(cursor, range.from))

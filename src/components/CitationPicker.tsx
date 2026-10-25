@@ -14,12 +14,14 @@ import {
   type PaperReference,
   type PaperSearchResult,
 } from '../lib/references'
+import type { VisualCitationDraft } from './VisualInlineEditor'
 
 export type CitationSelection =
   | { kind: 'existing'; key: string }
   | { kind: 'paper'; paper: PaperSearchResult }
 
 interface CitationPickerProps {
+  initial?: VisualCitationDraft | null
   allowNewReferences?: boolean
   bibliography: string
   roomName: string
@@ -85,6 +87,7 @@ const remoteCandidate = (paper: PaperSearchResult): CitationCandidate => ({
 })
 
 export const CitationPicker = ({
+  initial,
   allowNewReferences = true,
   bibliography,
   roomName,
@@ -92,11 +95,21 @@ export const CitationPicker = ({
   onInsert,
 }: CitationPickerProps) => {
   const [query, setQuery] = useState('')
-  const [style, setStyle] = useState<CitationStyle>('parenthetical')
-  const [prefix, setPrefix] = useState('')
-  const [suffix, setSuffix] = useState('')
+  const [style, setStyle] = useState<CitationStyle>(initial?.style ?? 'parenthetical')
+  const [prefix, setPrefix] = useState(initial?.prefix ?? '')
+  const [suffix, setSuffix] = useState(initial?.suffix ?? '')
   const [remoteResults, setRemoteResults] = useState<PaperSearchResult[]>([])
-  const [selected, setSelected] = useState<Map<string, CitationCandidate>>(new Map())
+  const [selected, setSelected] = useState<Map<string, CitationCandidate>>(() => {
+    const references = tryParseBibliography(bibliography).references
+    return new Map((initial?.keys ?? []).map((key) => {
+      const reference = references.find((item) => item.key.toLowerCase() === key.toLowerCase())
+      const candidate: CitationCandidate = reference ? localCandidate(reference) : {
+        id: `library:${key}`, selection: { kind: 'existing', key }, title: key, authors: [],
+        year: null, containerTitle: null, doi: null, key, source: 'library',
+      }
+      return [candidate.id, candidate]
+    }))
+  })
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const searchRevision = useRef(0)
@@ -111,11 +124,13 @@ export const CitationPicker = ({
     [parsed.references],
   )
   const candidates = useMemo(() => [
+    ...Array.from(selected.values()).filter((candidate) => candidate.source === 'library' &&
+      !localResults.some((result) => result.id === candidate.id)),
     ...localResults,
     ...(allowNewReferences ? remoteResults : [])
       .filter((paper) => !paper.doi || !localDois.has(paper.doi))
       .map(remoteCandidate),
-  ], [allowNewReferences, localDois, localResults, remoteResults])
+  ], [allowNewReferences, localDois, localResults, remoteResults, selected])
   const selectedCandidates = useMemo(
     () => Array.from(selected.values()).filter(
       (candidate) => allowNewReferences || candidate.source === 'library',
@@ -187,7 +202,7 @@ export const CitationPicker = ({
       <section className="citation-picker" role="dialog" aria-modal="true" aria-labelledby="citation-picker-title">
         <header className="citation-picker-header">
           <div>
-            <h2 id="citation-picker-title">Cite a paper</h2>
+            <h2 id="citation-picker-title">{initial ? 'Edit citation' : 'Cite a paper'}</h2>
             <span>{parsed.references.length} in this manuscript</span>
           </div>
           <button className="icon-button" type="button" title="Close citation picker" onClick={onClose}>
@@ -308,7 +323,7 @@ export const CitationPicker = ({
             {selectedCandidates.length ? `${selectedCandidates.length} selected` : 'Select references'}
           </span>
           <button className="button primary-button" type="button" disabled={!selectedCandidates.length} onClick={insertSelection}>
-            Insert citation
+            {initial ? 'Apply citation' : 'Insert citation'}
           </button>
         </footer>
       </section>

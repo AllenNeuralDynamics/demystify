@@ -34,6 +34,11 @@ export type VisualCitationInserter = (
   syntax?: CitationSyntax,
 ) => void
 
+export interface VisualCitationDraft extends CitationDetails {
+  keys: string[]
+  style: CitationStyle
+}
+
 interface VisualInlineEditorProps {
   bibliography: string
   block: MystEditableBlock
@@ -41,7 +46,7 @@ interface VisualInlineEditorProps {
   error?: string | null
   onCancel: () => void
   onChange?: (source: string) => void
-  onRequestCitation: (insert: VisualCitationInserter) => void
+  onRequestCitation: (insert: VisualCitationInserter, initial?: VisualCitationDraft) => void
   onSave: (source: string) => void
 }
 
