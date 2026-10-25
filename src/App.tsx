@@ -11,6 +11,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FileCode2,
   FilePlus2,
   FileText,
   GitFork,
@@ -66,6 +67,7 @@ import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationDraft, VisualCitationInserter } from './components/VisualInlineEditor'
 import type { ContinuousVisualEditorHandle } from './components/ContinuousVisualEditor'
+import { EditorPaneToolbar, type EditorCommandState } from './components/EditorPaneToolbar'
 import {
   useCollaboration,
   type CommentDraftAnchor,
@@ -323,9 +325,12 @@ function App() {
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const visualEditorRef = useRef<ContinuousVisualEditorHandle | null>(null)
-  const lastFocusedEditorRef = useRef<'source' | 'visual'>('source')
-  const getActiveTextEditor = () => view === 'preview' ||
-    (view === 'split' && lastFocusedEditorRef.current === 'visual')
+  const [activeEditorPane, setActiveEditorPane] = useState<'source' | 'visual'>('source')
+  const [sourceCommands, setSourceCommands] = useState<EditorCommandState>({ canUndo: false, canRedo: false, blocked: true })
+  const [visualCommands, setVisualCommands] = useState<EditorCommandState>({ canUndo: false, canRedo: false, blocked: true })
+  const activePaneIsVisual = view === 'preview' || (view === 'split' && activeEditorPane === 'visual')
+  const activeCommands = activePaneIsVisual ? visualCommands : sourceCommands
+  const getActiveTextEditor = () => activePaneIsVisual
     ? visualEditorRef.current : editorRef.current
   const previewPaneRef = useRef<HTMLElement>(null)
   const visualScrollPointsRef = useRef<LinkedScrollPoint[]>([])
@@ -427,7 +432,8 @@ function App() {
   const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
   const isSourceReadOnly = effectiveReadOnly || (isSuggestionMode && !isPrimaryFile)
-  const canInsertCitation = !isSourceReadOnly && isActiveMystSource
+  const activeCommandsBlocked = isSourceReadOnly || activeCommands.blocked
+  const canInsertCitation = !activeCommandsBlocked && isActiveMystSource
   const canAddCitationReferences = !isStructuredEditorReadOnly
   const citationDisabledReason = canInsertCitation
     ? undefined
@@ -435,6 +441,8 @@ function App() {
       ? 'Archived documents are read-only'
       : !isActiveMystSource
       ? 'Available in .md and .myst files'
+      : activeCommands.blocked && !isSourceReadOnly
+        ? 'Finish or cancel the current Visual edit first'
       : isSuggestionMode && !isPrimaryFile
         ? 'Suggestion mode can edit only the primary manuscript'
         : collaboration.accessError
@@ -1811,14 +1819,14 @@ function App() {
                     label: 'Undo',
                     icon: Undo2,
                     shortcut: '⌘Z',
-                    disabled: isSourceReadOnly,
+                    disabled: activeCommandsBlocked || !activeCommands.canUndo,
                     onSelect: () => getActiveTextEditor()?.undo(),
                   },
                   {
                     label: 'Redo',
                     icon: Redo2,
                     shortcut: '⌘⇧Z',
-                    disabled: isSourceReadOnly,
+                    disabled: activeCommandsBlocked || !activeCommands.canRedo,
                     onSelect: () => getActiveTextEditor()?.redo(),
                   },
                 ]}
@@ -1828,7 +1836,7 @@ function App() {
                 items={[
                   {
                     label: 'Source',
-                    icon: Code2,
+                    icon: FileCode2,
                     checked: view === 'source',
                     onSelect: () => setView('source'),
                   },
@@ -1856,7 +1864,7 @@ function App() {
               />
               <MystInsertMenu
                 variant="menu"
-                disabled={isSourceReadOnly || !isActiveMystSource}
+                disabled={activeCommandsBlocked || !isActiveMystSource}
                 onAddComment={openCommentComposer}
                 onInsert={(pattern) => getActiveTextEditor()?.insertSnippet(
                   pattern.template,
@@ -1870,20 +1878,20 @@ function App() {
                     label: 'Bold',
                     icon: Bold,
                     shortcut: '⌘B',
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('**'),
                   },
                   {
                     label: 'Italic',
                     icon: Italic,
                     shortcut: '⌘I',
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('*'),
                   },
                   {
                     label: 'Inline code',
                     icon: Code2,
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('`'),
                   },
                 ]}
@@ -2246,7 +2254,7 @@ function App() {
           )}
           <div className="editor-toolbar">
             <div className="toolbar-left">
-              <div className="formatting-tools" aria-label="Authoring tools">
+              <div className="formatting-tools" aria-label="Document actions">
                 <button
                   className="icon-button toolbar-save"
                   type="button"
@@ -2263,66 +2271,12 @@ function App() {
                 >
                   {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.undo()}>
-                  <Undo2 size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.redo()}>
-                  <Redo2 size={17} />
-                </button>
-                <span className="toolbar-divider collapsible-authoring-tool" />
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('**')}>
-                  <Bold size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('*')}>
-                  <Italic size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('`')}>
-                  <Code2 size={17} />
-                </button>
               </div>
-
-              <details className="authoring-more">
-                <summary className="icon-button" title="More authoring tools" aria-label="More authoring tools">
-                  <MoreHorizontal size={17} />
-                </summary>
-                <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
-                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.undo()
-                }}>
-                  <Undo2 size={15} /> Undo
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.redo()
-                }}>
-                  <Redo2 size={15} /> Redo
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('**')
-                }}>
-                  <Bold size={15} /> Bold
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('*')
-                }}>
-                  <Italic size={15} /> Italic
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('`')
-                }}>
-                  <Code2 size={15} /> Inline code
-                </button>
-                </div>
-              </details>
             </div>
 
             <div className="view-switcher" aria-label="Workspace view">
               <button className={view === 'source' ? 'active' : ''} type="button" title="Source only" onClick={() => setView('source')}>
-                <Code2 size={15} /><span>Source</span>
+                <FileCode2 size={15} /><span>Source</span>
               </button>
               <button className={view === 'split' ? 'active' : ''} type="button" title="Split view" disabled={!isActiveMystSource} onClick={() => setView('split')}>
                 <SplitSquareHorizontal size={15} /><span>Split</span>
@@ -2403,8 +2357,16 @@ function App() {
           </div>
 
           <div className={`document-panes view-${view} ${commentsOpen ? 'comments-open' : ''}`}>
-            <section className="source-pane" aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}
-              onFocusCapture={() => { lastFocusedEditorRef.current = 'source' }}>
+            <section className={`source-pane${view === 'split' && activeEditorPane === 'source' ? ' active-editor-pane' : ''}`}
+              aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}
+              onFocusCapture={() => setActiveEditorPane('source')}>
+              {view !== 'preview' && <div className="source-pane-header">
+                <span>{isActiveMystSource ? 'Source' : 'YAML'}</span>
+                <EditorPaneToolbar name="Source" disabled={isSourceReadOnly || sourceCommands.blocked}
+                  formatting={isActiveMystSource} canUndo={sourceCommands.canUndo} canRedo={sourceCommands.canRedo}
+                  onUndo={() => editorRef.current?.undo()} onRedo={() => editorRef.current?.redo()}
+                  onFormat={(marker) => editorRef.current?.wrapSelection(marker)} />
+              </div>}
               {activeSharedText && collaboration.provider ? (
                 <CollaborativeEditor
                   key={activeFilePath}
@@ -2419,6 +2381,7 @@ function App() {
                   onSourceDraftChange={(draft) => setSourceDraftPreview(
                     draft === null ? null : { filePath: activeFilePath, content: draft },
                   )}
+                  onCommandStateChange={setSourceCommands}
                   readOnly={isSourceReadOnly}
                   suggestionBaseContent={suggestionBaseContent}
                   suggestionMode={isAtomicSuggestionMode && isActiveMystSource && isPrimaryFile}
@@ -2457,7 +2420,7 @@ function App() {
 
             <section
               ref={previewPaneRef}
-              className="preview-pane"
+              className={`preview-pane${view === 'split' && activeEditorPane === 'visual' ? ' active-editor-pane' : ''}`}
               aria-label={effectiveReadOnly ? 'Browser preview' : 'Visual document editor'}
               onScroll={(event) => synchronizeSourceScroll(event.currentTarget)}
             >
@@ -2479,7 +2442,8 @@ function App() {
                     onProposeSourceEdit: proposeSourceDraft,
                     onDraftChange: (draft) => setVisualDraftPending(draft !== null),
                     onReady: (handle) => { visualEditorRef.current = handle },
-                    onFocus: () => { lastFocusedEditorRef.current = 'visual' },
+                    onFocus: () => setActiveEditorPane('visual'),
+                    onCommandStateChange: setVisualCommands,
                   } : undefined}
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}

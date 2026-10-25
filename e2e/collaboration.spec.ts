@@ -127,6 +127,18 @@ test('viewer receives live changes but cannot edit', async ({ browser, page }, t
     await expect(viewerPage.getByText('Viewer access', { exact: true })).toBeVisible()
     await expect(viewerPage.getByTitle('Insert MyST content')).toBeDisabled()
     await expect(viewerPage.locator('.sync-status')).toHaveText('Viewing')
+    for (const mode of ['Source only', 'Visual editor', 'Split view']) {
+      await viewerPage.getByTitle(mode, { exact: true }).click()
+      const sourceTools = viewerPage.getByRole('toolbar', { name: 'Source editing tools', exact: true })
+      if (mode === 'Visual editor') await expect(sourceTools).toHaveCount(0)
+      else {
+        await expect(sourceTools).toBeVisible()
+        for (const title of ['Undo', 'Redo', 'Bold', 'Italic', 'Inline code']) {
+          await expect(sourceTools.getByTitle(title, { exact: true })).toBeDisabled()
+        }
+      }
+      await expect(viewerPage.getByRole('toolbar', { name: 'Visual editing tools', exact: true })).toHaveCount(0)
+    }
     await expect(viewerPage.getByTitle('Edit object source', { exact: true })).toHaveCount(0)
     await expect(viewerPage.getByRole('button', { name: 'Edit citation', exact: true })).toHaveCount(0)
     await expect(viewerPage.locator('.visual-link-popover, .visual-object-editor')).toHaveCount(0)

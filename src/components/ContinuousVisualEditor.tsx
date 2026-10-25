@@ -1,7 +1,7 @@
-import { AtSign, Check, Code2, ExternalLink, Link2, MessageSquarePlus, Unlink, X } from 'lucide-react'
+import { AtSign, Check, ExternalLink, Link2, MessageSquarePlus, PencilLine, Unlink, X } from 'lucide-react'
 import { baseKeymap, chainCommands, createParagraphNear, liftEmptyBlock, newlineInCode,
   splitBlockAs, toggleMark } from 'prosemirror-commands'
-import { history, redo, undo } from 'prosemirror-history'
+import { history, redo, redoDepth, undo, undoDepth } from 'prosemirror-history'
 import { keymap } from 'prosemirror-keymap'
 import { splitListItem } from 'prosemirror-schema-list'
 import { EditorState, NodeSelection, Plugin, TextSelection, type Command } from 'prosemirror-state'
@@ -32,6 +32,7 @@ import { readVisualRecoveryDraft, visualObjectDraftKey, writeVisualRecoveryDraft
 import type { CommentHighlight } from './CollaborativeEditor'
 import type { MystPreviewSuggestion } from './MystPreview'
 import type { VisualCitationDraft, VisualCitationInserter } from './VisualInlineEditor'
+import { EditorPaneToolbar, type EditorCommandState } from './EditorPaneToolbar'
 
 export interface ContinuousVisualEditorHandle {
   undo: () => void
@@ -56,6 +57,7 @@ export interface ContinuousVisualOptions {
   onDraftChange: (draft: string | null) => void
   onReady: (handle: ContinuousVisualEditorHandle | null) => void
   onFocus?: () => void
+  onCommandStateChange?: (state: EditorCommandState) => void
 }
 
 interface ContinuousVisualEditorProps extends VisualDocumentOptions, ContinuousVisualOptions {
@@ -126,6 +128,7 @@ const visualLinkAt = (view: EditorView, index: number) => {
 export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const commandHandleRef = useRef<ContinuousVisualEditorHandle | null>(null)
   const propsRef = useRef(props)
   const latestPropsRef = useRef(props)
   const effectKeyRef = useRef(props.draftKey)
@@ -137,6 +140,9 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   const saveTimerRef = useRef<number | null>(null)
   const refreshRef = useRef<(source: string, force?: boolean) => void>(() => {})
   const flushRef = useRef<() => void>(() => {})
+  const refreshCommandsRef = useRef<() => void>(() => {})
+  const commandStateRef = useRef<EditorCommandState | null>(null)
+  const [commands, setCommands] = useState<EditorCommandState>({ canUndo: false, canRedo: false, blocked: false })
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [backupUnavailable, setBackupUnavailable] = useState(false)
@@ -210,6 +216,8 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       const target = event.target
       if (!edit || !(target instanceof Node) || objectPanelRef.current?.contains(target) ||
         edit.host?.parentElement?.contains(target)) return
+      const control = target instanceof Element ? target : target.parentElement
+      if (control?.closest('.editor-pane-toolbar, .document-menu')) return
       if (event instanceof MouseEvent && event.button !== 0) return
       finishObjectRef.current(true, false)
     }
@@ -551,12 +559,16 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
     }
 
     const undoCommand: Command = (state, dispatch) => {
+      if (!propsRef.current.editable || objectEditRef.current) return false
       if (propsRef.current.suggestionMode) return undo(state, dispatch)
+      if (!undoManager.undoStack.length) return false
       undoManager.undo()
       return true
     }
     const redoCommand: Command = (state, dispatch) => {
+      if (!propsRef.current.editable || objectEditRef.current) return false
       if (propsRef.current.suggestionMode) return redo(state, dispatch)
+      if (!undoManager.redoStack.length) return false
       undoManager.redo()
       return true
     }
@@ -835,10 +847,30 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         }
         view.updateState(next)
         rememberSelection()
+        refreshCommandsRef.current()
         propsRef.current.onLayoutChange?.()
       },
     })
     viewRef.current = view
+    const refreshCommands = () => {
+      const next: EditorCommandState = {
+        canUndo: propsRef.current.suggestionMode ? undoDepth(view.state) > 0 : undoManager.undoStack.length > 0,
+        canRedo: propsRef.current.suggestionMode ? redoDepth(view.state) > 0 : undoManager.redoStack.length > 0,
+        blocked: !propsRef.current.editable || objectEditRef.current !== null ||
+          (draftModeRef.current !== null && draftModeRef.current !== propsRef.current.suggestionMode),
+      }
+      const previous = commandStateRef.current
+      if (previous && previous.canUndo === next.canUndo && previous.canRedo === next.canRedo && previous.blocked === next.blocked) return
+      commandStateRef.current = next
+      setCommands(next)
+      propsRef.current.onCommandStateChange?.(next)
+    }
+    refreshCommandsRef.current = refreshCommands
+    undoManager.on('stack-item-added', refreshCommands)
+    undoManager.on('stack-item-updated', refreshCommands)
+    undoManager.on('stack-item-popped', refreshCommands)
+    undoManager.on('stack-cleared', refreshCommands)
+    refreshCommands()
     if (cachedObject?.object) {
       const candidates = Array.from(objectOpeners).filter((entry) => entry.source() === cachedObject.base)
       const candidate = candidates.length === 1 ? candidates[0]
@@ -897,6 +929,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       }
     }
     window.document.addEventListener('pointerdown', flushOnSourceExit, true)
+    window.document.addEventListener('pointerover', flushOnSourceExit, true)
     window.document.addEventListener('focusin', flushOnSourceExit, true)
     view.dom.addEventListener('pointerdown', flushSourceRefresh, true)
     view.dom.addEventListener('focus', flushSourceRefresh, true)
@@ -954,9 +987,14 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       if (propsRef.current.active !== false) view.updateState(view.state)
     }
     provider.awareness.on('change', refreshPresence)
-    const run = (command: Command) => { command(view.state, view.dispatch, view); view.focus() }
+    const run = (command: Command) => {
+      if (!propsRef.current.editable || objectEditRef.current) return
+      command(view.state, view.dispatch, view)
+      view.focus()
+    }
     const insertMyst = (replacement: string, cursorOffset = replacement.length,
       target?: { from: number; to: number }) => {
+      if (!propsRef.current.editable || objectEditRef.current) return
       const range = target ?? sourceSelection()
       if (!range) return
       const source = sourceRef.current
@@ -972,16 +1010,22 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
       undoManager.stopCapturing()
       view.focus()
     }
-    propsRef.current.onReady({
+    const handle: ContinuousVisualEditorHandle = {
       undo: () => run(undoCommand), redo: () => run(redoCommand),
       wrapSelection: (marker) => {
+        if (!propsRef.current.editable || objectEditRef.current) return
         undoManager.stopCapturing()
         run(toggleMark(visualDocumentSchema.marks[
           marker === '**' ? 'strong' : marker === '*' ? 'emphasis' : 'code']))
         undoManager.stopCapturing()
       },
-      insertText: (text) => { view.dispatch(view.state.tr.insertText(text).scrollIntoView()); view.focus() },
+      insertText: (text) => {
+        if (!propsRef.current.editable || objectEditRef.current) return
+        view.dispatch(view.state.tr.insertText(text).scrollIntoView())
+        view.focus()
+      },
       insertSnippet: (template, placeholder) => {
+        if (!propsRef.current.editable || objectEditRef.current) return
         const range = sourceSelection()
         if (!range) return
         const selected = sourceRef.current.slice(range.from, range.to)
@@ -1025,22 +1069,32 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
         if (focus) view.focus()
       },
       focus: () => view.focus(),
-    })
+    }
+    commandHandleRef.current = handle
+    propsRef.current.onReady(handle)
     return () => {
       if (pendingRef.current) flushRef.current()
       destroyed = true
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
       if (sourceRefreshTimer !== null) window.clearTimeout(sourceRefreshTimer)
       window.document.removeEventListener('pointerdown', flushOnSourceExit, true)
+      window.document.removeEventListener('pointerover', flushOnSourceExit, true)
       window.document.removeEventListener('focusin', flushOnSourceExit, true)
       view.dom.removeEventListener('pointerdown', flushSourceRefresh, true)
       view.dom.removeEventListener('focus', flushSourceRefresh, true)
       sharedText.unobserve(observe)
       provider.awareness.off('change', refreshPresence)
+      undoManager.off('stack-item-added', refreshCommands)
+      undoManager.off('stack-item-updated', refreshCommands)
+      undoManager.off('stack-item-popped', refreshCommands)
+      undoManager.off('stack-cleared', refreshCommands)
+      refreshCommandsRef.current = () => {}
+      commandStateRef.current = null
       undoManager.destroy()
       view.destroy()
       window.document.removeEventListener('click', finishOutsideObject, true)
       viewRef.current = null
+      commandHandleRef.current = null
       objectEditRef.current = null
       setObjectEdit(null)
       propsRef.current.onReady(null)
@@ -1085,7 +1139,7 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
 
   const requestCitation = () => {
     const view = viewRef.current
-    if (!view) return
+    if (!view || !props.editable || objectEdit !== null) return
     const bookmark = view.state.selection.getBookmark()
     const originalSource = sourceRef.current
     const citation = view.state.selection instanceof NodeSelection &&
@@ -1111,18 +1165,23 @@ export const ContinuousVisualEditor = (props: ContinuousVisualEditorProps) => {
   }
   useLayoutEffect(() => { requestCitationRef.current = requestCitation })
 
-  const toolbar = <div className="visual-inline-toolbar continuous-visual-toolbar" onMouseDown={(event) => event.preventDefault()}>
-        <button type="button" title="Link" disabled={!props.editable} onClick={(event) => {
+  useEffect(() => { refreshCommandsRef.current() }, [objectEdit, props.editable, props.suggestionMode])
+  const editingBlocked = !props.editable || objectEdit !== null || commands.blocked
+  const toolbar = props.active !== false && <EditorPaneToolbar name="Visual" disabled={editingBlocked}
+    canUndo={commands.canUndo} canRedo={commands.canRedo}
+    onUndo={() => commandHandleRef.current?.undo()} onRedo={() => commandHandleRef.current?.redo()}
+    onFormat={(marker) => commandHandleRef.current?.wrapSelection(marker)}>
+        <button type="button" title="Link" disabled={editingBlocked} onClick={(event) => {
           const view = viewRef.current
           if (!view) return
           const link = visualLinkAt(view, view.state.selection.from)
           if (link) openLinkEditor(event.currentTarget, link.from, link.to, link.href, link.title, true)
           else openLinkEditor(event.currentTarget, view.state.selection.from, view.state.selection.to)
         }}><Link2 size={15} /></button>
-        <button type="button" title="Cite a paper" disabled={!props.editable} onClick={requestCitation}><AtSign size={15} /></button>
-        <button type="button" title="Edit object source" disabled={!props.editable || !hasSelectedObject}
-          onClick={() => editSelectedObjectRef.current()}><Code2 size={15} /></button>
-      </div>
+        <button type="button" title="Cite a paper" disabled={editingBlocked} onClick={requestCitation}><AtSign size={15} /></button>
+        <button type="button" title="Edit object source" disabled={editingBlocked || !hasSelectedObject}
+          onClick={() => editSelectedObjectRef.current()}><PencilLine size={15} /></button>
+      </EditorPaneToolbar>
   const finishObject = (commit: boolean, focus = true) => {
     const edit = objectEditRef.current
     if (!edit) return true

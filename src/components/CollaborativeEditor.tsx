@@ -1,4 +1,4 @@
-import { redo, undo } from '@codemirror/commands'
+import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 import { snippet } from '@codemirror/autocomplete'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
@@ -6,6 +6,7 @@ import {
   Decoration,
   EditorView,
   WidgetType,
+  keymap,
   showTooltip,
   type DecorationSet,
   type Tooltip,
@@ -26,6 +27,7 @@ import {
   type CollaborativeTextEditResult,
 } from '../lib/collaborativeTextEdit'
 import type { LinkedScrollAnchor } from '../lib/linkedScroll'
+import type { EditorCommandState } from './EditorPaneToolbar'
 
 export interface CommentHighlight {
   id: string
@@ -59,6 +61,7 @@ interface CollaborativeEditorProps {
   }
   onScrollAnchor?: (anchor: LinkedScrollAnchor) => void
   onSourceDraftChange?: (draft: string | null) => void
+  onCommandStateChange?: (state: EditorCommandState) => void
   readOnly?: boolean
   suggestionBaseContent?: string
   suggestionMode?: boolean
@@ -88,6 +91,46 @@ interface ReviewDecorations {
 const setReviewDecorations = StateEffect.define<ReviewDecorations>()
 const suggestionSaveDelayMs = 450
 const linkedScrollTolerance = 0.002
+
+const formatSourceSelection = (view: EditorView, before: string, after: string,
+  undoManager: Y.UndoManager | null) => {
+  if (view.state.readOnly) return false
+  const { from, to } = view.state.selection.main
+  const selectedText = view.state.sliceDoc(from, to)
+  let start = from
+  let end = to
+  let insert = `${before}${selectedText}${after}`
+  let selectionStart = from + before.length
+  let selectionEnd = to + before.length
+  if (before === after && ['**', '*', '`'].includes(before)) {
+    const selectedStars = selectedText.match(/^\*+/)?.[0].length ?? 0
+    const trailingStars = selectedText.match(/\*+$/)?.[0].length ?? 0
+    const wrapsSelection = selectedText.length >= before.length * 2 &&
+      selectedText.startsWith(before) && selectedText.endsWith(before) &&
+      (before !== '*' || (selectedStars % 2 === 1 && trailingStars % 2 === 1))
+    const left = view.state.sliceDoc(view.state.doc.lineAt(from).from, from)
+    const right = view.state.sliceDoc(to, view.state.doc.lineAt(to).to)
+    const surroundsSelection = left.endsWith(before) && right.startsWith(before) &&
+      (before !== '*' || ((left.match(/\*+$/)?.[0].length ?? 0) % 2 === 1 &&
+        (right.match(/^\*+/)?.[0].length ?? 0) % 2 === 1))
+    if (wrapsSelection) {
+      insert = selectedText.slice(before.length, -before.length)
+      selectionStart = from
+      selectionEnd = from + insert.length
+    } else if (surroundsSelection) {
+      start -= before.length
+      end += before.length
+      insert = selectedText
+      selectionStart = start
+      selectionEnd = start + insert.length
+    }
+  }
+  undoManager?.stopCapturing()
+  view.dispatch({ changes: { from: start, to: end, insert }, selection: { anchor: selectionStart, head: selectionEnd } })
+  undoManager?.stopCapturing()
+  view.focus()
+  return true
+}
 
 const getSelectionCommentTooltips = (
   state: EditorState,
@@ -522,6 +565,7 @@ export const CollaborativeEditor = forwardRef<
   onProposeSourceEdit,
   onScrollAnchor,
   onSourceDraftChange,
+  onCommandStateChange,
   readOnly = false,
   suggestionBaseContent,
   suggestionMode = false,
@@ -529,6 +573,10 @@ export const CollaborativeEditor = forwardRef<
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const undoManagerRef = useRef<Y.UndoManager | null>(null)
+  const refreshCommandsRef = useRef<() => void>(() => {})
+  const commandStateRef = useRef<EditorCommandState | null>(null)
+  const onCommandStateChangeRef = useRef(onCommandStateChange)
   const draftBaseRef = useRef(suggestionBaseContent ?? sharedText.toString())
   const suggestionBaseContentRef = useRef(suggestionBaseContent ?? sharedText.toString())
   const draftDirtyRef = useRef(false)
@@ -576,12 +624,22 @@ export const CollaborativeEditor = forwardRef<
   }, [onSourceDraftChange])
 
   useEffect(() => {
+    onCommandStateChangeRef.current = onCommandStateChange
+  }, [onCommandStateChange])
+
+  useEffect(() => {
     if (!containerRef.current) return
 
-    const undoManager = new Y.UndoManager(sharedText)
+    const undoManager = new Y.UndoManager(sharedText, { trackedOrigins: new Set() })
+    undoManagerRef.current = undoManager
     const state = EditorState.create({
       doc: suggestionMode ? suggestionBaseContentRef.current : sharedText.toString(),
       extensions: [
+        keymap.of([
+          { key: 'Mod-b', run: (view) => formatSourceSelection(view, '**', '**', undoManager) },
+          { key: 'Mod-i', run: (view) => formatSourceSelection(view, '*', '*', undoManager) },
+          { key: 'Mod-`', run: (view) => formatSourceSelection(view, '`', '`', undoManager) },
+        ]),
         basicSetup,
         markdown(),
         markdownLanguage.data.of({ autocomplete: mystAuthoringCompletionSource }),
@@ -596,6 +654,7 @@ export const CollaborativeEditor = forwardRef<
           EditorView.editable.of(!readOnlyRef.current),
         ]),
         commentHighlightField,
+        EditorView.updateListener.of(() => refreshCommandsRef.current()),
         selectionCommentCompartmentRef.current.of(
           canCommentOnSelectionRef.current
             ? selectionCommentTooltip(() => onCommentSelectionRef.current?.())
@@ -652,6 +711,23 @@ export const CollaborativeEditor = forwardRef<
     }
     view.dom.addEventListener('keydown', activateReviewFromKeyboard, true)
     viewRef.current = view
+    const refreshCommands = () => {
+      const next: EditorCommandState = {
+        canUndo: suggestionMode ? undoDepth(view.state) > 0 : undoManager.undoStack.length > 0,
+        canRedo: suggestionMode ? redoDepth(view.state) > 0 : undoManager.redoStack.length > 0,
+        blocked: readOnlyRef.current,
+      }
+      const previous = commandStateRef.current
+      if (previous && previous.canUndo === next.canUndo && previous.canRedo === next.canRedo && previous.blocked === next.blocked) return
+      commandStateRef.current = next
+      onCommandStateChangeRef.current?.(next)
+    }
+    refreshCommandsRef.current = refreshCommands
+    undoManager.on('stack-item-added', refreshCommands)
+    undoManager.on('stack-item-updated', refreshCommands)
+    undoManager.on('stack-item-popped', refreshCommands)
+    undoManager.on('stack-cleared', refreshCommands)
+    refreshCommands()
     draftBaseRef.current = suggestionMode
       ? suggestionBaseContentRef.current
       : sharedText.toString()
@@ -663,8 +739,15 @@ export const CollaborativeEditor = forwardRef<
     return () => {
       view.scrollDOM.removeEventListener('scroll', reportScrollAnchor)
       view.dom.removeEventListener('keydown', activateReviewFromKeyboard, true)
+      undoManager.off('stack-item-added', refreshCommands)
+      undoManager.off('stack-item-updated', refreshCommands)
+      undoManager.off('stack-item-popped', refreshCommands)
+      undoManager.off('stack-cleared', refreshCommands)
+      refreshCommandsRef.current = () => {}
+      commandStateRef.current = null
       view.destroy()
       undoManager.destroy()
+      undoManagerRef.current = null
       viewRef.current = null
     }
   }, [provider, sharedText, suggestionMode])
@@ -757,21 +840,23 @@ export const CollaborativeEditor = forwardRef<
 
   useImperativeHandle(ref, () => ({
     undo: () => {
-      if (viewRef.current && !readOnlyRef.current) undo(viewRef.current)
+      const view = viewRef.current
+      if (!view || readOnlyRef.current) return
+      if (suggestionMode) undo(view)
+      else undoManagerRef.current?.undo()
+      view.focus()
     },
     redo: () => {
-      if (viewRef.current && !readOnlyRef.current) redo(viewRef.current)
+      const view = viewRef.current
+      if (!view || readOnlyRef.current) return
+      if (suggestionMode) redo(view)
+      else undoManagerRef.current?.redo()
+      view.focus()
     },
     wrapSelection: (before, after = before) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current) return
-      const { from, to } = view.state.selection.main
-      const selectedText = view.state.sliceDoc(from, to)
-      view.dispatch({
-        changes: { from, to, insert: `${before}${selectedText}${after}` },
-        selection: { anchor: from + before.length, head: to + before.length },
-      })
-      view.focus()
+      formatSourceSelection(view, before, after, undoManagerRef.current)
     },
     insertSnippet: (template, selectedTextPlaceholder) => {
       const view = viewRef.current
@@ -783,17 +868,21 @@ export const CollaborativeEditor = forwardRef<
         selectedTextPlaceholder,
         selectedText,
       )
+      undoManagerRef.current?.stopCapturing()
       snippet(resolvedTemplate)(view, null, from, to)
+      undoManagerRef.current?.stopCapturing()
       view.focus()
     },
     insertText: (text) => {
       const view = viewRef.current
       if (!view || readOnlyRef.current || !text) return
       const { from, to } = view.state.selection.main
+      undoManagerRef.current?.stopCapturing()
       view.dispatch({
         changes: { from, to, insert: text },
         selection: { anchor: from + text.length },
       })
+      undoManagerRef.current?.stopCapturing()
       view.focus()
     },
     insertCitation: (citation) => {
@@ -806,10 +895,12 @@ export const CollaborativeEditor = forwardRef<
         to,
         citation,
       )
+      undoManagerRef.current?.stopCapturing()
       view.dispatch({
         changes: { from, to, insert: insertion.text },
         selection: { anchor: from + insertion.cursorOffset },
       })
+      undoManagerRef.current?.stopCapturing()
       view.focus()
     },
     getCommentSelection: () => {
