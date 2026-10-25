@@ -16,6 +16,106 @@ const reactTestGlobal = globalThis as typeof globalThis & {
 reactTestGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
 describe('CollaborativeEditor', () => {
+  it('keeps non-Markdown formatting disabled without preventing ordinary source edits', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 1, 1)
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, 'title: Example')
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const editorRef = createRef<CollaborativeEditorHandle>()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<CollaborativeEditor ref={editorRef} sharedText={sharedText}
+        provider={provider} formatting={false} />))
+      await act(async () => { editorRef.current!.revealRange(7, 14); editorRef.current!.wrapSelection('**') })
+      expect(sharedText.toString()).toBe('title: Example')
+      await act(async () => { editorRef.current!.insertText('Changed') })
+      expect(sharedText.toString()).toBe('title: Changed')
+      await act(async () => { editorRef.current!.undo() })
+      expect(sharedText.toString()).toBe('title: Example')
+    } finally {
+      await act(async () => root.unmount())
+      awareness.destroy()
+      yDocument.destroy()
+      container.remove()
+    }
+  })
+
+  it.each(['**', '*', '`'])('toggles %s and reports history only when availability changes', async (marker) => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 1, 1)
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, 'Alpha beta.')
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const editorRef = createRef<CollaborativeEditorHandle>()
+    const onCommandStateChange = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<CollaborativeEditor ref={editorRef} sharedText={sharedText}
+        provider={provider} onCommandStateChange={onCommandStateChange} />))
+      await act(async () => { editorRef.current!.revealRange(0, 5); editorRef.current!.wrapSelection(marker) })
+      expect(sharedText.toString()).toBe(`${marker}Alpha${marker} beta.`)
+      const notifications = onCommandStateChange.mock.calls.length
+      await act(async () => { editorRef.current!.wrapSelection(marker) })
+      expect(sharedText.toString()).toBe('Alpha beta.')
+      expect(onCommandStateChange).toHaveBeenCalledTimes(notifications)
+      await act(async () => { editorRef.current!.undo() })
+      expect(sharedText.toString()).toBe(`${marker}Alpha${marker} beta.`)
+      await act(async () => { editorRef.current!.redo() })
+      expect(sharedText.toString()).toBe('Alpha beta.')
+    } finally {
+      await act(async () => root.unmount())
+      awareness.destroy()
+      yDocument.destroy()
+      container.remove()
+    }
+  })
+
+  it('reports actual local history and preserves foreign edits when toolbar commands undo and redo', async () => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 1, 1)
+    const yDocument = new Y.Doc()
+    const sharedText = yDocument.getText('content')
+    sharedText.insert(0, 'Alpha beta.')
+    const awareness = new Awareness(yDocument)
+    const provider = { awareness } as unknown as WebsocketProvider
+    const editorRef = createRef<CollaborativeEditorHandle>()
+    const onCommandStateChange = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => root.render(<CollaborativeEditor ref={editorRef} sharedText={sharedText}
+        provider={provider} onCommandStateChange={onCommandStateChange} />))
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: false, canRedo: false, blocked: false })
+      const initialNotifications = onCommandStateChange.mock.calls.length
+      await act(async () => { yDocument.transact(() => sharedText.insert(sharedText.length, ' Foreign.')) })
+      expect(onCommandStateChange).toHaveBeenCalledTimes(initialNotifications)
+      await act(async () => { editorRef.current!.revealRange(0, 5); editorRef.current!.wrapSelection('**') })
+      expect(sharedText.toString()).toBe('**Alpha** beta. Foreign.')
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false, blocked: false })
+      await act(async () => { editorRef.current!.undo() })
+      expect(sharedText.toString()).toBe('Alpha beta. Foreign.')
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: false, canRedo: true, blocked: false })
+      await act(async () => { editorRef.current!.redo() })
+      expect(sharedText.toString()).toBe('**Alpha** beta. Foreign.')
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false, blocked: false })
+    } finally {
+      await act(async () => root.unmount())
+      awareness.destroy()
+      yDocument.destroy()
+      container.remove()
+    }
+  })
+
   it('shows an attributed proposal without changing canonical source', async () => {
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList
     Range.prototype.getBoundingClientRect = () => ({
@@ -113,6 +213,7 @@ describe('CollaborativeEditor', () => {
     const awareness = new Awareness(yDocument)
     const provider = { awareness } as unknown as WebsocketProvider
     const editorRef = createRef<CollaborativeEditorHandle>()
+    const onCommandStateChange = vi.fn()
     const onProposeSourceEdit = vi.fn(() => ({
       result: 'applied' as const,
       suggestionId: 'source-suggestion',
@@ -130,6 +231,7 @@ describe('CollaborativeEditor', () => {
           suggestionMode
           suggestionBaseContent={currentProposal}
           onProposeSourceEdit={onProposeSourceEdit}
+          onCommandStateChange={onCommandStateChange}
         />,
       )
     })
@@ -140,6 +242,15 @@ describe('CollaborativeEditor', () => {
     await act(async () => editorRef.current?.insertText('Live '))
     expect(sharedText.toString()).toBe(currentProposal)
     expect(acceptedText.toString()).toBe(source)
+    expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false, blocked: false })
+    await act(async () => editorRef.current?.undo())
+    expect(container.querySelector('.cm-content')?.textContent).not.toContain('Live ')
+    expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: false, canRedo: true, blocked: false })
+    await act(async () => editorRef.current?.redo())
+    expect(container.querySelector('.cm-content')?.textContent).toContain('Live ')
+    expect(sharedText.toString()).toBe(currentProposal)
+    expect(acceptedText.toString()).toBe(source)
+    expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false, blocked: false })
     expect(container.textContent).toContain('Saving suggestion...')
     await act(async () => vi.advanceTimersByTime(450))
     expect(onProposeSourceEdit).toHaveBeenCalledWith(`Live ${currentProposal}`)

@@ -21,6 +21,20 @@ DeMystify is a real-time collaborative editor for MyST Markdown manuscripts. It 
 - Revocable view-only links with configurable expiration that do not require a GitHub account
 - Responsive source, split, and preview modes
 
+## Sync Recovery
+
+**Saved to server** requires a durable server receipt, not just a connected
+WebSocket. If **Sync blocked** appears, keep that tab open and use **Download
+recovery file** before closing or refreshing it. Rejected changes are retained
+locally; automatic retries stop rather than repeatedly resubmitting them.
+
+**Open saved server copy** opens a separate read-only comparison without loading
+the rejected document or Visual drafts from browser recovery. Authorized editors
+can choose **Continue from saved version** to start a fresh, persistent editing
+session. The original tab, recovery cache, and downloaded backup remain intact.
+Rejected edits are not automatically imported or merged; compare and recover
+them deliberately before discarding the original copy.
+
 ## Local Development
 
 Node.js 20.19 or newer is recommended.

@@ -2,14 +2,160 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+const sourceModifier = (source: Locator) => source.evaluate(() => {
+  const ios = /Apple Computer/.test(navigator.vendor) &&
+    (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+  return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+})
+
 const selectSourceDocument = async (source: Locator) => {
-  const modifier = await source.evaluate(() => {
-    const ios = /Apple Computer/.test(navigator.vendor) &&
-      (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
-    return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
-  })
-  await source.press(`${modifier}+a`)
+  await source.press(`${await sourceModifier(source)}+a`)
 }
+
+const paneToolbarSource = '# Pane toolbars\n\nSource target.\n\nVisual target.\n\n$$\nx^2\n$$\n\nAfter.'
+
+for (const mode of ['Source only', 'Visual editor', 'Split view']) {
+  test(`pane editing controls stay scoped in ${mode}`, async ({ page }, testInfo) => {
+    test.skip(mode === 'Split view' && testInfo.project.name.startsWith('mobile'), 'Two visible panes require desktop space')
+    await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+    const source = page.getByRole('textbox', { name: 'MyST source', exact: true, includeHidden: true })
+    await source.focus()
+    await selectSourceDocument(source)
+    await page.keyboard.insertText(paneToolbarSource)
+    await expect(page.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
+    await page.getByTitle(mode, { exact: true }).click()
+    const sourceTools = page.getByRole('toolbar', { name: 'Source editing tools', exact: true })
+    const visualTools = page.getByRole('toolbar', { name: 'Visual editing tools', exact: true })
+    const formatted = page.getByRole('textbox', { name: 'Formatted manuscript', exact: true })
+    await expect(sourceTools).toHaveCount(mode === 'Visual editor' ? 0 : 1)
+    await expect(visualTools).toHaveCount(mode === 'Source only' ? 0 : 1)
+    for (const title of ['Undo', 'Redo', 'Bold', 'Italic', 'Inline code']) {
+      await expect(page.locator('.editor-toolbar').getByTitle(title, { exact: true })).toHaveCount(0)
+    }
+    const visibleTools = mode === 'Visual editor' ? visualTools : sourceTools
+    expect(await visibleTools.getByTitle('Inline code', { exact: true }).locator('svg').getAttribute('class'))
+      .not.toBe(await page.getByTitle('Source only', { exact: true }).locator('svg').getAttribute('class'))
+
+    if (mode !== 'Visual editor') {
+      await expect(sourceTools.getByTitle('Redo', { exact: true })).toBeDisabled()
+      await source.locator('.cm-line').filter({ hasText: /^Source target\.$/ }).click({ position: { x: 2, y: 8 } })
+      await source.press('Home')
+      await source.press('Shift+End')
+      await sourceTools.getByTitle('Bold', { exact: true }).click()
+      await expect(source).toContainText('**Source target.**')
+      await sourceTools.getByTitle('Bold', { exact: true }).click()
+      await expect(source).not.toContainText('**Source target.**')
+      await sourceTools.getByTitle('Undo', { exact: true }).click()
+      await expect(source).toContainText('**Source target.**')
+      await sourceTools.getByTitle('Redo', { exact: true }).click()
+      await expect(source).not.toContainText('**Source target.**')
+      await expect(sourceTools.getByTitle('Redo', { exact: true })).toBeDisabled()
+      const modifier = await sourceModifier(source)
+      await source.press(`${modifier}+b`)
+      await expect(source).toContainText('**Source target.**')
+      await source.press(`${modifier}+b`)
+      await expect(source).not.toContainText('**Source target.**')
+    }
+
+    if (mode !== 'Source only') {
+      await expect(visualTools.getByTitle('Undo', { exact: true })).toBeDisabled()
+      await expect(visualTools.getByTitle('Redo', { exact: true })).toBeDisabled()
+      if (mode === 'Split view') {
+        await source.focus()
+        await expect(page.locator('.source-pane')).toHaveClass(/active-editor-pane/)
+        await visualTools.getByTitle('Link', { exact: true }).click()
+        await expect(page.getByRole('dialog', { name: 'Edit link', exact: true })).toBeVisible()
+        await expect(page.locator('.preview-pane')).toHaveClass(/active-editor-pane/)
+        await page.getByTitle('Cancel link edit', { exact: true }).click()
+        await sourceTools.getByTitle('Bold', { exact: true }).focus()
+        await expect(page.locator('.source-pane')).toHaveClass(/active-editor-pane/)
+      }
+      const paragraph = formatted.locator('p').filter({ hasText: /^Visual target\.$/ })
+      await expect(async () => {
+        await paragraph.click()
+        await paragraph.evaluate((element) => {
+          const range = document.createRange()
+          range.setStart(element.firstChild!, 0)
+          range.setEnd(element.firstChild!, 1)
+          window.getSelection()!.removeAllRanges()
+          window.getSelection()!.addRange(range)
+          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+          return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        })
+        expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('V')
+      }).toPass({ timeout: 5_000 })
+      await visualTools.getByTitle('Bold', { exact: true }).click()
+      await expect(paragraph.locator('strong')).toHaveText('V')
+      await visualTools.getByTitle('Bold', { exact: true }).click()
+      await expect(paragraph.locator('strong')).toHaveCount(0)
+      await visualTools.getByTitle('Undo', { exact: true }).click()
+      await expect(paragraph.locator('strong')).toHaveText('V')
+      await visualTools.getByTitle('Redo', { exact: true }).click()
+      await expect(paragraph.locator('strong')).toHaveCount(0)
+      await expect(visualTools.getByTitle('Redo', { exact: true })).toBeDisabled()
+    }
+
+    if (mode === 'Split view') {
+      await sourceTools.getByTitle('Undo', { exact: true }).click()
+      await expect(source).toContainText('**Source target.**')
+      await visualTools.getByTitle('Undo', { exact: true }).click()
+      await expect(source).toContainText('**V**isual target.')
+      await expect(source).toContainText('**Source target.**')
+      await sourceTools.getByTitle('Redo', { exact: true }).click()
+      await expect(source).not.toContainText('**Source target.**')
+      await expect(source).toContainText('**V**isual target.')
+      await visualTools.getByTitle('Redo', { exact: true }).click()
+      await expect(source).not.toContainText('**V**isual target.')
+    }
+    await page.screenshot({ path: testInfo.outputPath('pane-editing-tools.png') })
+  })
+}
+
+test('pane tools and document menus preserve an open object-source draft', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Independent pane histories are tested with both panes visible')
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText(paneToolbarSource)
+  const sourceTools = page.getByRole('toolbar', { name: 'Source editing tools', exact: true })
+  const visualTools = page.getByRole('toolbar', { name: 'Visual editing tools', exact: true })
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript', exact: true })
+  await source.locator('.cm-line').filter({ hasText: /^Source target\.$/ }).click({ position: { x: 2, y: 8 } })
+  await source.press('Home')
+  await source.press('Shift+End')
+  await formatted.getByRole('button', { name: 'Edit equation', exact: true }).click()
+  const draft = page.getByRole('textbox', { name: 'LaTeX equation', exact: true })
+  await draft.fill('x^3')
+  for (const title of ['Undo', 'Redo', 'Bold', 'Italic', 'Inline code', 'Link', 'Cite a paper']) {
+    await expect(visualTools.getByTitle(title, { exact: true })).toBeDisabled()
+  }
+  for (const [menu, item] of [['Edit', 'Undo'], ['Edit', 'Redo'], ['Format', 'Bold']]) {
+    await page.getByRole('button', { name: menu, exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: item, exact: true })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await expect(draft).toHaveValue('x^3')
+    await expect(source).toContainText('x^2')
+    await expect(source).not.toContainText('x^3')
+  }
+  await sourceTools.getByTitle('Bold', { exact: true }).click()
+  await expect(source).toContainText('**Source target.**')
+  await expect(draft).toHaveValue('x^3')
+  await page.getByTitle('Cancel object edit', { exact: true }).click()
+  await expect(draft).toHaveCount(0)
+  await expect(source).toContainText('**Source target.**')
+  await expect(source).toContainText('x^2')
+  await formatted.getByRole('button', { name: 'Edit equation', exact: true }).click()
+  await draft.fill('x^4')
+  await page.getByTitle('Apply equation', { exact: true }).click()
+  await expect(draft).toHaveCount(0)
+  await expect(source).toContainText('x^4')
+  await expect(source).toContainText('**Source target.**')
+  await visualTools.getByTitle('Undo', { exact: true }).click()
+  await expect(source).toContainText('x^2')
+  await expect(source).toContainText('**Source target.**')
+})
 
 test('edits existing Visual links, citations and bibliography entries', async ({ page }, testInfo) => {
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)

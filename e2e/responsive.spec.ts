@@ -284,20 +284,22 @@ test('document menus and compact toolbar follow Google Docs ownership', async ({
     toggleAtSidebarEdge: true,
   })
 
-  const more = page.getByTitle('More authoring tools')
-  await expect(more).toBeHidden()
+  await expect(page.getByTitle('More authoring tools')).toHaveCount(0)
 
   await page.setViewportSize({ width: 667, height: 700 })
-  await expect(more).toBeVisible()
-  await more.focus()
-  await more.press('Enter')
-  const menu = page.getByRole('menu', { name: 'More authoring tools' })
-  await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Bold' })).toBeEnabled()
-  await page.keyboard.press('Escape')
+  await page.getByTitle('Source only', { exact: true }).click()
+  const sourceTools = page.getByRole('toolbar', { name: 'Source editing tools', exact: true })
+  await expect(sourceTools).toBeVisible()
+  await expect(sourceTools.getByTitle('Bold', { exact: true })).toBeEnabled()
+  await expect(sourceTools.getByTitle('Inline code', { exact: true })).toBeInViewport()
+  await expect(page.getByRole('toolbar', { name: 'Visual editing tools', exact: true })).toHaveCount(0)
 
   await page.setViewportSize({ width: 1600, height: 700 })
-  await expect(more).toBeHidden()
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  await expect(sourceTools).toHaveCount(0)
+  const visualTools = page.getByRole('toolbar', { name: 'Visual editing tools', exact: true })
+  await expect(visualTools.getByTitle('Bold', { exact: true })).toBeEnabled()
+  await expect(page.locator('.editor-toolbar').getByTitle('Bold', { exact: true })).toHaveCount(0)
 })
 
 test('GitHub primary action remains usable in a short landscape viewport', async ({ page }, testInfo) => {

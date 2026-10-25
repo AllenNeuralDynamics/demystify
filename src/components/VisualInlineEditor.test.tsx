@@ -101,6 +101,68 @@ describe('VisualInlineEditor', () => {
 })
 
 describe('continuous Visual draft recovery', () => {
+  it('only publishes Visual command state when availability changes during typing', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    text.insert(0, 'Original paragraph.')
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    let handle: ContinuousVisualEditorHandle | null = null
+    const onCommandStateChange = vi.fn()
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={(next) => { handle = next }} onCommandStateChange={onCommandStateChange}
+        onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: false, canRedo: false, blocked: false })
+      await act(async () => { handle!.insertText('First ') })
+      expect(onCommandStateChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false, blocked: false })
+      const count = onCommandStateChange.mock.calls.length
+      await act(async () => { handle!.insertText('Second ') })
+      await act(async () => { handle!.insertText('Third ') })
+      expect(onCommandStateChange).toHaveBeenCalledTimes(count)
+      expect(container.querySelector<HTMLButtonElement>('[title="Redo"]')?.disabled).toBe(true)
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
+  it('keeps an open object draft isolated from pane formatting and document history', async () => {
+    const document = new Y.Doc()
+    const text = document.getText('content')
+    const original = 'Before.\n\n$$\nx^2\n$$\n\nAfter.'
+    text.insert(0, original)
+    const provider = { awareness: new Awareness(document) } as WebsocketProvider
+    const container = window.document.createElement('div')
+    const root = createRoot(container)
+    let handle: ContinuousVisualEditorHandle | null = null
+    try {
+      await act(async () => root.render(<ContinuousVisualEditor
+        draftKey={JSON.stringify([crypto.randomUUID(), 'actor', 'paper.md'])}
+        content={text.toString()} sharedText={text} provider={provider} editable
+        suggestionMode={false} comments={[]} suggestions={[]} onDraftChange={() => {}}
+        onReady={(next) => { handle = next }} onProposeSourceEdit={() => ({ result: 'applied' })} />))
+      await act(async () => { container.querySelector<HTMLElement>('[aria-label="Edit equation"]')!.click() })
+      await changeObject(container, 'x^3')
+      for (const title of ['Undo', 'Redo', 'Bold', 'Italic', 'Inline code', 'Link', 'Cite a paper']) {
+        const button = container.querySelector<HTMLButtonElement>(`[title="${title}"]`)
+        expect(button?.disabled, `${title} must not target the document while object source is open`).toBe(true)
+        await act(async () => { button!.click() })
+      }
+      await act(async () => { handle!.undo(); handle!.redo(); handle!.wrapSelection('**') })
+      expect(text.toString()).toBe(original)
+      expect(container.querySelector<HTMLTextAreaElement>('[aria-label="LaTeX equation"]')?.value).toBe('x^3')
+      expect(container.querySelector('.visual-object-editor')).not.toBeNull()
+    } finally {
+      await act(async () => root.unmount())
+      document.destroy()
+    }
+  })
+
   it('keeps link, citation, reference and footnote editing unavailable in read-only mode', async () => {
     const document = new Y.Doc()
     const text = document.getText('content')
@@ -460,7 +522,7 @@ describe('continuous Visual draft recovery', () => {
       try {
         await act(async () => { text.insert(text.length, ' Before changing views.') })
         expect(render).toHaveBeenCalledTimes(3)
-        await act(async () => { modeButton.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+        await act(async () => { modeButton.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
         expect(container.textContent).toContain(text.toString())
         expect(render).toHaveBeenCalledTimes(4)
       } finally { modeButton.remove() }

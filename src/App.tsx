@@ -11,6 +11,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FileCode2,
   FilePlus2,
   FileText,
   GitFork,
@@ -66,6 +67,7 @@ import { ReferenceManager } from './components/ReferenceManager'
 import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationDraft, VisualCitationInserter } from './components/VisualInlineEditor'
 import type { ContinuousVisualEditorHandle } from './components/ContinuousVisualEditor'
+import { EditorPaneToolbar, type EditorCommandState } from './components/EditorPaneToolbar'
 import {
   useCollaboration,
   type CommentDraftAnchor,
@@ -258,6 +260,11 @@ const composingCommentId = 'local-comment-draft'
 
 function App() {
   const [roomName] = useState(getRoomName)
+  const [savedServerCopy] = useState(() => new URLSearchParams(window.location.search).get('serverCopy') === '1')
+  const [recoverySession] = useState(() => {
+    const value = new URLSearchParams(window.location.search).get('recoverySession')
+    return value && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value) ? value : undefined
+  })
   const [profile, setProfile] = useState(loadProfile)
   const [view, setView] = useState<WorkspaceView>('split')
   const [linkedPaneScrolling, setLinkedPaneScrolling] = useState(true)
@@ -323,9 +330,12 @@ function App() {
   const [commentSyncRevision, setCommentSyncRevision] = useState(0)
   const editorRef = useRef<CollaborativeEditorHandle>(null)
   const visualEditorRef = useRef<ContinuousVisualEditorHandle | null>(null)
-  const lastFocusedEditorRef = useRef<'source' | 'visual'>('source')
-  const getActiveTextEditor = () => view === 'preview' ||
-    (view === 'split' && lastFocusedEditorRef.current === 'visual')
+  const [activeEditorPane, setActiveEditorPane] = useState<'source' | 'visual'>('source')
+  const [sourceCommands, setSourceCommands] = useState<EditorCommandState>({ canUndo: false, canRedo: false, blocked: true })
+  const [visualCommands, setVisualCommands] = useState<EditorCommandState>({ canUndo: false, canRedo: false, blocked: true })
+  const activePaneIsVisual = view === 'preview' || (view === 'split' && activeEditorPane === 'visual')
+  const activeCommands = activePaneIsVisual ? visualCommands : sourceCommands
+  const getActiveTextEditor = () => activePaneIsVisual
     ? visualEditorRef.current : editorRef.current
   const previewPaneRef = useRef<HTMLElement>(null)
   const visualScrollPointsRef = useRef<LinkedScrollPoint[]>([])
@@ -376,8 +386,8 @@ function App() {
     : 'editing'
   const isArchived =
     roomAccess.review?.state === 'closed' || roomAccess.review?.state === 'merged'
-  const canEditRoom = roomAccess.isReady && !isArchived && (isMaintainer || isContributor)
-  const canManageRepository = roomAccess.isReady && !isArchived && isMaintainer
+  const canEditRoom = roomAccess.isReady && !isArchived && !savedServerCopy && (isMaintainer || isContributor)
+  const canManageRepository = roomAccess.isReady && !isArchived && !savedServerCopy && isMaintainer
   const canMirrorGitHub = canManageRepository
   const isReadOnly = !canEditRoom
   const roomReviewNumber = roomAccess.review?.number
@@ -398,6 +408,7 @@ function App() {
     () => roomAccess.room?.ownedActorIds ?? [collaborationProfile.id],
     [collaborationProfile.id, roomAccess.room?.ownedActorIds],
   )
+  const visualDraftActor = recoverySession ? `${collaborationProfile.id}:session:${recoverySession}` : collaborationProfile.id
   const collaboration = useCollaboration(
     roomName,
     collaborationProfile,
@@ -405,6 +416,8 @@ function App() {
     roomAccess.isReady && revisionInitialContent !== null,
     isReadOnly,
     pageActive,
+    !savedServerCopy,
+    recoverySession,
   )
   const effectiveReadOnly = isReadOnly || Boolean(collaboration.accessError) || !collaboration.hasLoadedDocument
   const isSuggestionMode = primaryEditMode === 'suggesting' ||
@@ -427,7 +440,8 @@ function App() {
   const isActiveMystSource = isMystSourcePath(activeFilePath)
   const isPrimaryFile = activeFilePath === primaryFilePath
   const isSourceReadOnly = effectiveReadOnly || (isSuggestionMode && !isPrimaryFile)
-  const canInsertCitation = !isSourceReadOnly && isActiveMystSource
+  const activeCommandsBlocked = isSourceReadOnly || activeCommands.blocked
+  const canInsertCitation = !activeCommandsBlocked && isActiveMystSource
   const canAddCitationReferences = !isStructuredEditorReadOnly
   const citationDisabledReason = canInsertCitation
     ? undefined
@@ -435,6 +449,8 @@ function App() {
       ? 'Archived documents are read-only'
       : !isActiveMystSource
       ? 'Available in .md and .myst files'
+      : activeCommands.blocked && !isSourceReadOnly
+        ? 'Finish or cancel the current Visual edit first'
       : isSuggestionMode && !isPrimaryFile
         ? 'Suggestion mode can edit only the primary manuscript'
         : collaboration.accessError
@@ -1321,6 +1337,8 @@ function App() {
         connected: provider.wsconnected,
         providerSynced: provider.synced,
         sourceFilePath: activeFilePath,
+        serverSaveStatus: collaboration.serverSaveStatus,
+        accessError: collaboration.accessError,
       })
       showNotice(`Recovery download started: ${result.comments + result.suggestions} review items.`)
     }).catch((error: unknown) => {
@@ -1345,7 +1363,7 @@ function App() {
     return () => window.removeEventListener('beforeunload', protectSourceDraft)
   }, [activeSourceDraftPreview, hasPendingReviewDraft])
 
-  const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && (
+  const recoveryWarningVisible = collaboration.hasLoadedDocument && !isViewer && !savedServerCopy && (
     !collaboration.isSynced || collaboration.status !== 'connected' ||
     collaboration.serverSaveStatus === 'error' ||
     collaboration.localBackupStatus === 'unavailable'
@@ -1461,7 +1479,7 @@ function App() {
   }
 
   const decideCurrentProposal = async (status: 'accepted' | 'rejected') => {
-    if (!isMaintainer || isDecidingProposal || !collaboration.isSynced) return
+    if (effectiveReadOnly || !isMaintainer || isDecidingProposal || !collaboration.isSynced) return
     setIsDecidingProposal(true)
     try {
       await decideLiveProposal(roomName, status)
@@ -1476,7 +1494,7 @@ function App() {
   }
 
   const decideSuggestion = (comment: SharedComment, decision: 'accept' | 'reject') => {
-    if (!isMaintainer || !comment.suggestion) return
+    if (effectiveReadOnly || !isMaintainer || !comment.suggestion) return
     if (inactiveSuggestionIds.has(comment.id)) {
       showNotice('A newer revision replaced this version. Review the current proposal instead.')
       return
@@ -1742,7 +1760,7 @@ function App() {
           <div className="document-chrome">
             <div className="document-heading">
               <span className="document-title">{title}</span>
-              <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole ? 'viewer' : collaboration.status}`}>
+              <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole || savedServerCopy ? 'viewer' : collaboration.status}`}>
                 <span className="status-dot" />
                 {isArchived
                   ? 'Archived'
@@ -1752,13 +1770,13 @@ function App() {
                       ? collaboration.status
                       : !collaboration.isSynced
                         ? 'Synchronizing'
-                      : isViewer
+                      : isViewer || savedServerCopy
                         ? 'Viewing'
                         : isSuggestionMode
                           ? 'Suggesting'
                           : 'Live'}
               </span>
-              {!isViewer && collaboration.hasLoadedDocument && (
+              {!isViewer && !savedServerCopy && collaboration.hasLoadedDocument && (
                 <span
                   className={`server-save-status ${displayedSaveStatus}`}
                   role="status"
@@ -1811,14 +1829,14 @@ function App() {
                     label: 'Undo',
                     icon: Undo2,
                     shortcut: '⌘Z',
-                    disabled: isSourceReadOnly,
+                    disabled: activeCommandsBlocked || !activeCommands.canUndo,
                     onSelect: () => getActiveTextEditor()?.undo(),
                   },
                   {
                     label: 'Redo',
                     icon: Redo2,
                     shortcut: '⌘⇧Z',
-                    disabled: isSourceReadOnly,
+                    disabled: activeCommandsBlocked || !activeCommands.canRedo,
                     onSelect: () => getActiveTextEditor()?.redo(),
                   },
                 ]}
@@ -1828,7 +1846,7 @@ function App() {
                 items={[
                   {
                     label: 'Source',
-                    icon: Code2,
+                    icon: FileCode2,
                     checked: view === 'source',
                     onSelect: () => setView('source'),
                   },
@@ -1856,7 +1874,7 @@ function App() {
               />
               <MystInsertMenu
                 variant="menu"
-                disabled={isSourceReadOnly || !isActiveMystSource}
+                disabled={activeCommandsBlocked || !isActiveMystSource}
                 onAddComment={openCommentComposer}
                 onInsert={(pattern) => getActiveTextEditor()?.insertSnippet(
                   pattern.template,
@@ -1870,20 +1888,20 @@ function App() {
                     label: 'Bold',
                     icon: Bold,
                     shortcut: '⌘B',
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('**'),
                   },
                   {
                     label: 'Italic',
                     icon: Italic,
                     shortcut: '⌘I',
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('*'),
                   },
                   {
                     label: 'Inline code',
                     icon: Code2,
-                    disabled: isSourceReadOnly || !isActiveMystSource,
+                    disabled: activeCommandsBlocked || !isActiveMystSource,
                     onSelect: () => getActiveTextEditor()?.wrapSelection('`'),
                   },
                 ]}
@@ -1894,7 +1912,7 @@ function App() {
                   {
                     label: 'Review suggested edits',
                     icon: MessageSquare,
-                    disabled: !isMaintainer || !collaboration.hasPendingWorkingChanges,
+                    disabled: effectiveReadOnly || !isMaintainer || !collaboration.hasPendingWorkingChanges,
                     onSelect: reviewChangesOrEnterEditing,
                   },
                   {
@@ -2167,7 +2185,7 @@ function App() {
           </div>
         </aside>
 
-        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${sharedAccessRole && !isArchived ? 'access-mode' : ''} ${recoveryWarningVisible ? 'has-recovery-warning' : ''}`}>
+        <section className={`manuscript-workspace ${isArchived ? 'archived' : ''} ${(sharedAccessRole || savedServerCopy) && !isArchived ? 'access-mode' : ''} ${recoveryWarningVisible ? 'has-recovery-warning' : ''}`}>
           {isArchived && roomAccess.review ? (
             <div className="archive-banner" role="status">
               <Archive size={18} />
@@ -2178,7 +2196,7 @@ function App() {
               <a href={roomAccess.review.htmlUrl} target="_blank" rel="noreferrer">
                 PR #{roomAccess.review.number}
               </a>
-              {isMaintainer && (
+              {isMaintainer && !savedServerCopy && (
                 <button
                   className="button primary-button"
                   type="button"
@@ -2191,6 +2209,19 @@ function App() {
                   Start next revision
                 </button>
               )}
+            </div>
+          ) : savedServerCopy && !collaboration.accessError ? (
+            <div className="archive-banner viewer-banner" role="status">
+              <Eye size={18} />
+              <div><strong>Saved server copy</strong><span>Read-only. Local recovery data was not loaded.</span></div>
+              {(isMaintainer || isContributor) && <button className="button secondary-button" type="button"
+                onClick={() => {
+                  if (!window.confirm('Start editing from the saved server version? Rejected edits stay in the original tab and recovery file and will not be imported automatically.')) return
+                  const url = new URL(window.location.href)
+                  url.searchParams.delete('serverCopy')
+                  url.searchParams.set('recoverySession', crypto.randomUUID())
+                  window.location.assign(url.href)
+                }}>Continue from saved version</button>}
             </div>
           ) : sharedAccessRole ? (
             <div className="archive-banner viewer-banner" role="status">
@@ -2224,7 +2255,7 @@ function App() {
                 <strong>{localChangesRejected ? 'Sync blocked' : 'Server save not confirmed'}</strong>
                 <span>
                   {localChangesRejected
-                    ? 'Server rejected changes. Download recovery.'
+                    ? 'Local changes were rejected. Keep this tab open and download recovery before comparing with the saved copy.'
                     : collaboration.serverSaveStatus === 'error'
                       ? 'No server save receipt. Keep a recovery copy.'
                     : collaboration.localBackupStatus === 'ready'
@@ -2239,6 +2270,11 @@ function App() {
                   <RefreshCw size={16} />
                 </button>
               )}
+              {localChangesRejected && <button className="icon-button" type="button" title="Open saved server copy" onClick={() => {
+                const url = new URL(window.location.href)
+                url.searchParams.set('serverCopy', '1')
+                window.open(url.href, '_blank', 'noopener,noreferrer')
+              }}><ExternalLink size={16} /></button>}
               <button className="icon-button" type="button" title="Download recovery file" onClick={downloadRecoveryFile}>
                 <Download size={16} />
               </button>
@@ -2246,7 +2282,7 @@ function App() {
           )}
           <div className="editor-toolbar">
             <div className="toolbar-left">
-              <div className="formatting-tools" aria-label="Authoring tools">
+              <div className="formatting-tools" aria-label="Document actions">
                 <button
                   className="icon-button toolbar-save"
                   type="button"
@@ -2263,66 +2299,12 @@ function App() {
                 >
                   {isSaving ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
                 </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Undo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.undo()}>
-                  <Undo2 size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Redo" disabled={isSourceReadOnly} onClick={() => getActiveTextEditor()?.redo()}>
-                  <Redo2 size={17} />
-                </button>
-                <span className="toolbar-divider collapsible-authoring-tool" />
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Bold" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('**')}>
-                  <Bold size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Italic" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('*')}>
-                  <Italic size={17} />
-                </button>
-                <button className="icon-button collapsible-authoring-tool" type="button" title="Inline code" disabled={isSourceReadOnly || !isActiveMystSource} onClick={() => getActiveTextEditor()?.wrapSelection('`')}>
-                  <Code2 size={17} />
-                </button>
               </div>
-
-              <details className="authoring-more">
-                <summary className="icon-button" title="More authoring tools" aria-label="More authoring tools">
-                  <MoreHorizontal size={17} />
-                </summary>
-                <div className="authoring-more-menu" role="menu" aria-label="More authoring tools">
-                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.undo()
-                }}>
-                  <Undo2 size={15} /> Undo
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.redo()
-                }}>
-                  <Redo2 size={15} /> Redo
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('**')
-                }}>
-                  <Bold size={15} /> Bold
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('*')
-                }}>
-                  <Italic size={15} /> Italic
-                </button>
-                <button type="button" role="menuitem" disabled={isSourceReadOnly || !isActiveMystSource} onClick={(event) => {
-                  event.currentTarget.closest('details')?.removeAttribute('open')
-                  getActiveTextEditor()?.wrapSelection('`')
-                }}>
-                  <Code2 size={15} /> Inline code
-                </button>
-                </div>
-              </details>
             </div>
 
             <div className="view-switcher" aria-label="Workspace view">
               <button className={view === 'source' ? 'active' : ''} type="button" title="Source only" onClick={() => setView('source')}>
-                <Code2 size={15} /><span>Source</span>
+                <FileCode2 size={15} /><span>Source</span>
               </button>
               <button className={view === 'split' ? 'active' : ''} type="button" title="Split view" disabled={!isActiveMystSource} onClick={() => setView('split')}>
                 <SplitSquareHorizontal size={15} /><span>Split</span>
@@ -2357,7 +2339,7 @@ function App() {
                 )}
               </button>
 
-              {isMaintainer && isPrimaryFile && !isArchived ? (
+              {isMaintainer && isPrimaryFile && !isArchived && !savedServerCopy ? (
                 <DocumentMenu
                   align="right"
                   className={`mode-menu ${collaboration.hasPendingWorkingChanges ? 'needs-review' : ''}`}
@@ -2392,19 +2374,28 @@ function App() {
                 <button
                   className="mode-status"
                   type="button"
-                  aria-label={isViewer || isArchived ? 'Viewing' : 'Suggesting'}
+                  aria-label={isViewer || isArchived || savedServerCopy ? 'Viewing' : 'Suggesting'}
                   disabled
                 >
-                  {isViewer || isArchived ? <Eye size={15} /> : <MessageSquare size={15} />}
-                  <span>{isViewer || isArchived ? 'Viewing' : 'Suggesting'}</span>
+                  {isViewer || isArchived || savedServerCopy ? <Eye size={15} /> : <MessageSquare size={15} />}
+                  <span>{isViewer || isArchived || savedServerCopy ? 'Viewing' : 'Suggesting'}</span>
                 </button>
               )}
             </div>
           </div>
 
           <div className={`document-panes view-${view} ${commentsOpen ? 'comments-open' : ''}`}>
-            <section className="source-pane" aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}
-              onFocusCapture={() => { lastFocusedEditorRef.current = 'source' }}>
+            <section className={`source-pane${view === 'split' && activeEditorPane === 'source' ? ' active-editor-pane' : ''}`}
+              aria-label={isActiveMystSource ? 'MyST source editor' : 'YAML source editor'}
+              onFocusCapture={() => setActiveEditorPane('source')}>
+              {view !== 'preview' && <div className="source-pane-header">
+                <span>{isActiveMystSource ? 'Source' : 'YAML'}</span>
+                <EditorPaneToolbar name="Source" disabled={isSourceReadOnly || sourceCommands.blocked}
+                  formatting={isActiveMystSource} canUndo={sourceCommands.canUndo} canRedo={sourceCommands.canRedo}
+                  onActivate={() => setActiveEditorPane('source')}
+                  onUndo={() => editorRef.current?.undo()} onRedo={() => editorRef.current?.redo()}
+                  onFormat={(marker) => editorRef.current?.wrapSelection(marker)} />
+              </div>}
               {activeSharedText && collaboration.provider ? (
                 <CollaborativeEditor
                   key={activeFilePath}
@@ -2419,7 +2410,9 @@ function App() {
                   onSourceDraftChange={(draft) => setSourceDraftPreview(
                     draft === null ? null : { filePath: activeFilePath, content: draft },
                   )}
+                  onCommandStateChange={setSourceCommands}
                   readOnly={isSourceReadOnly}
+                  formatting={isActiveMystSource}
                   suggestionBaseContent={suggestionBaseContent}
                   suggestionMode={isAtomicSuggestionMode && isActiveMystSource && isPrimaryFile}
                   suggestionHighlights={isPrimaryFile ? sourceSuggestions : []}
@@ -2457,7 +2450,7 @@ function App() {
 
             <section
               ref={previewPaneRef}
-              className="preview-pane"
+              className={`preview-pane${view === 'split' && activeEditorPane === 'visual' ? ' active-editor-pane' : ''}`}
               aria-label={effectiveReadOnly ? 'Browser preview' : 'Visual document editor'}
               onScroll={(event) => synchronizeSourceScroll(event.currentTarget)}
             >
@@ -2468,9 +2461,9 @@ function App() {
               </div>
               <Suspense fallback={<div className="pane-loading">Rendering MyST...</div>}>
                 <MystPreview
-                  continuous={activeSharedText && collaboration.provider && !isViewer &&
+                  continuous={activeSharedText && collaboration.provider && !isViewer && !savedServerCopy &&
                     collaboration.hasLoadedDocument && isActiveMystSource ? {
-                    draftKey: JSON.stringify([roomName, collaborationProfile.id, activeFilePath]),
+                    draftKey: JSON.stringify([roomName, visualDraftActor, activeFilePath]),
                     active: view !== 'source',
                     toolbarHost: visualToolbarHost,
                     sharedText: activeSharedText,
@@ -2479,7 +2472,8 @@ function App() {
                     onProposeSourceEdit: proposeSourceDraft,
                     onDraftChange: (draft) => setVisualDraftPending(draft !== null),
                     onReady: (handle) => { visualEditorRef.current = handle },
-                    onFocus: () => { lastFocusedEditorRef.current = 'visual' },
+                    onFocus: () => setActiveEditorPane('visual'),
+                    onCommandStateChange: setVisualCommands,
                   } : undefined}
                   assetBaseUrl={activeAssetBaseUrl}
                   bibliography={collaboration.bibliography}
@@ -2799,6 +2793,7 @@ function App() {
                           <button
                             type="button"
                             disabled={
+                              effectiveReadOnly ||
                               isDecidingProposal ||
                               !collaboration.isSynced ||
                               collaboration.proposalContributors.length === 0
@@ -2811,6 +2806,7 @@ function App() {
                             className="accept"
                             type="button"
                             disabled={
+                              effectiveReadOnly ||
                               isDecidingProposal ||
                               !collaboration.isSynced ||
                               collaboration.proposalContributors.length === 0
@@ -3113,10 +3109,10 @@ function App() {
                             comment.suggestion.status === 'conflicted'
                           ) && !isEarlierRevision ? (
                             <div className="suggestion-actions">
-                              <button type="button" onClick={() => decideSuggestion(comment, 'reject')}>
+                              <button type="button" disabled={effectiveReadOnly} onClick={() => decideSuggestion(comment, 'reject')}>
                                 <X size={13} /> Reject
                               </button>
-                              <button className="accept" type="button" onClick={() => decideSuggestion(comment, 'accept')}>
+                              <button className="accept" type="button" disabled={effectiveReadOnly} onClick={() => decideSuggestion(comment, 'accept')}>
                                 <Check size={13} />
                                 {comment.suggestion.status === 'conflicted' ? 'Retry accept' : 'Accept'}
                               </button>

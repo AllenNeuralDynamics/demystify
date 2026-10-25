@@ -15,6 +15,7 @@ import {
 import type { CollaboratorProfile } from '../lib/profile'
 import { trackServerDurability, type ServerSaveStatus } from '../lib/collaborationDurability'
 import { resolveCollaboratorCursor } from '../lib/collaboratorPresence'
+import { collaborationRecoveryKey } from '../lib/collaborationRecovery'
 import {
   normalizeSourceText,
   serializeSourceText,
@@ -163,6 +164,8 @@ export const useCollaboration = (
   enabled = true,
   readOnly = false,
   shouldConnect = true,
+  loadLocalRecovery = true,
+  recoverySession?: string,
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
@@ -186,7 +189,7 @@ export const useCollaboration = (
   const [hasLoadedDocument, setHasLoadedDocument] = useState(false)
   const [hasLocalChanges, setHasLocalChanges] = useState(false)
   const [serverSaveStatus, setServerSaveStatus] = useState<ServerSaveStatus>('unconfirmed')
-  const [localBackupStatus, setLocalBackupStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [localBackupStatus, setLocalBackupStatus] = useState<'loading' | 'ready' | 'unavailable' | 'disabled'>('loading')
   const [isWorkingContentInitialized, setIsWorkingContentInitialized] = useState(false)
   const [accessError, setAccessError] = useState<string | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
@@ -236,12 +239,13 @@ export const useCollaboration = (
     let persistence: IndexeddbPersistence | null = null
     let previousAcceptedContent = text.toString()
 
-    const updateContent = () => {
+    const updateContent = (event?: Y.YTextEvent) => {
       const nextContent = text.toString()
       const previousContent = previousAcceptedContent
       previousAcceptedContent = nextContent
       setContent(nextContent)
       if (
+        !readOnly && event?.transaction.local === true &&
         metadata.get('workingContentInitialized') === true &&
         workingText.toString() === previousContent &&
         workingText.toString() !== nextContent
@@ -355,7 +359,7 @@ export const useCollaboration = (
         provider.shouldConnect = false
         setIsSynced(false)
         setStatus('disconnected')
-        setAccessError('The server rejected local changes. Download a recovery file before closing or refreshing this tab.')
+        setAccessError('The server rejected local changes. Syncing is paused to retain this local copy. Download a recovery file before closing or refreshing this tab.')
         return
       }
       if (event?.code !== 1008 || !/access (?:was revoked|expired)/i.test(event.reason)) return
@@ -390,10 +394,14 @@ export const useCollaboration = (
       setServerSaveStatus(saveStatus)
       setHasLocalChanges(unconfirmed)
     })
-    try {
+    if (!loadLocalRecovery) {
+      localRecoveryReadyRef.current = Promise.resolve().then(() => {
+        if (!disposed) setLocalBackupStatus('disabled')
+      })
+    } else try {
       if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable')
       persistence = new IndexeddbPersistence(
-        `demystify-recovery-v1:${encodeURIComponent(roomName)}:${encodeURIComponent(profile.id)}`,
+        collaborationRecoveryKey(roomName, profile.id, recoverySession),
         document,
       )
       const markUnavailable = () => {
@@ -468,7 +476,7 @@ export const useCollaboration = (
       setProposalContributors([])
       setProposalHistory([])
     }
-  }, [enabled, initialContent, profile.id, readOnly, roomName])
+  }, [enabled, initialContent, loadLocalRecovery, profile.id, readOnly, recoverySession, roomName])
 
   useEffect(() => {
     const provider = providerRef.current
@@ -482,7 +490,7 @@ export const useCollaboration = (
     }
     else provider.disconnect()
     return () => { cancelled = true }
-  }, [accessError, enabled, initialContent, profile.id, readOnly, roomName, shouldConnect])
+  }, [accessError, enabled, initialContent, loadLocalRecovery, profile.id, readOnly, recoverySession, roomName, shouldConnect])
 
   useEffect(() => {
     if (!hasLocalChanges || (serverSaveStatus === 'saved' && localBackupStatus === 'ready')) return
