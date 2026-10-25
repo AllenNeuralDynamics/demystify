@@ -3350,8 +3350,9 @@
 .document-panes.view-source.comments-open,
 .document-panes.view-preview.comments-open {
   width: 100%;
-  max-width: none;
-  grid-template-columns: minmax(0, 848px) minmax(290px, 1fr);
+  max-width: 1248px;
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 848px) minmax(320px, 400px);
 }
 
 .document-panes.view-preview.comments-open .myst-preview {
