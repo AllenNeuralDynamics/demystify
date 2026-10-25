@@ -590,6 +590,7 @@ export const isEditorWebSocketMessageAllowed = (
       if (acceptedChanged && !directAcceptedEdit && !acceptedProposal) return false
       if (
         directAcceptedEdit &&
+        document.getMap('metadata').get('workingContentInitialized') !== true &&
         document.getMap('proposalContributors').size > 0
       ) return false
       const historyAllowed = proposalHistoryTransitionIsAllowed(document, candidate, actor)
