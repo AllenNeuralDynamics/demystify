@@ -2,13 +2,14 @@ import type { Locator } from '@playwright/test'
 import { sampleManuscript } from '../src/lib/sampleManuscript'
 import { authenticateMaintainer, createRoomName, expect, test } from './support'
 
+const sourceModifier = (source: Locator) => source.evaluate(() => {
+  const ios = /Apple Computer/.test(navigator.vendor) &&
+    (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+  return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+})
+
 const selectSourceDocument = async (source: Locator) => {
-  const modifier = await source.evaluate(() => {
-    const ios = /Apple Computer/.test(navigator.vendor) &&
-      (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
-    return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
-  })
-  await source.press(`${modifier}+a`)
+  await source.press(`${await sourceModifier(source)}+a`)
 }
 
 const paneToolbarSource = '# Pane toolbars\n\nSource target.\n\nVisual target.\n\n$$\nx^2\n$$\n\nAfter.'
@@ -48,7 +49,7 @@ for (const mode of ['Source only', 'Visual editor', 'Split view']) {
       await sourceTools.getByTitle('Redo', { exact: true }).click()
       await expect(source).not.toContainText('**Source target.**')
       await expect(sourceTools.getByTitle('Redo', { exact: true })).toBeDisabled()
-      const modifier = await source.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? 'Meta' : 'Control')
+      const modifier = await sourceModifier(source)
       await source.press(`${modifier}+b`)
       await expect(source).toContainText('**Source target.**')
       await source.press(`${modifier}+b`)
