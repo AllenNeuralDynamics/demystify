@@ -1,6 +1,16 @@
-import { expect, test as base, type Page, type TestInfo } from '@playwright/test'
+import { expect, test as base, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 export { expect }
+
+export const sourceModifier = (source: Locator) => source.evaluate(() => {
+  const ios = /Apple Computer/.test(navigator.vendor) &&
+    (/Mobile\/\w+/.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+  return ios || /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+})
+
+export const selectSourceDocument = async (source: Locator) => {
+  await source.press(`${await sourceModifier(source)}+a`)
+}
 
 export const test = base.extend<{ pageDiagnostics: void }>({
   pageDiagnostics: [async ({ page }, use) => {

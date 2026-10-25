@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createSnapshot,
+  getNewManuscriptRoomUrl,
   getRepositoryFileGitHubUrl,
   getRepositoryGitHubUrl,
   loadRepositoryBibliography,
@@ -23,6 +24,24 @@ const binding: RepositoryBinding = {
 }
 
 describe('GitHub repository links', () => {
+  it('opens another manuscript in a new room without transferring sharing or recovery state', () => {
+    const url = new URL(getNewManuscriptRoomUrl(
+      'https://editor.example/?doc=original&serverCopy=1&recoverySession=private#collaborate=private-token',
+      'new-room',
+    ))
+    expect(url.searchParams.get('doc')).toBe('new-room')
+    expect(url.searchParams.get('import')).toBe('github')
+    expect(Array.from(url.searchParams.keys())).toEqual(['doc', 'import'])
+    expect(url.hash).toBe('')
+  })
+
+  it('prefills a new manuscript version without rebinding the existing room', () => {
+    const url = new URL(getNewManuscriptRoomUrl('https://editor.example/?doc=old-room', 'new-room', binding))
+    expect(url.searchParams.get('repository')).toBe(binding.fullName)
+    expect(url.searchParams.get('path')).toBe(binding.path)
+    expect(url.searchParams.get('doc')).toBe('new-room')
+  })
+
   it('links to the bound repository', () => {
     expect(getRepositoryGitHubUrl(binding)).toBe(
       'https://github.com/AllenNeuralDynamics/openscope_p3_data_release_paper',
