@@ -132,6 +132,42 @@ const createRangeSuggestion = (
   }
 }
 
+describe('direct editing after a proposal', () => {
+  it.each([false, true])('allows direct edits with stale attribution and mirrored working text: %s', (mirrorWorking) => {
+    const document = new Y.Doc()
+    const accepted = 'Accepted paragraph.'
+    document.getText('content').insert(0, accepted)
+    document.getText('workingContent').insert(0, accepted)
+    document.getMap('metadata').set('workingContentInitialized', true)
+    const contributor = {
+      actorId: 'previous-reviewer', name: 'Previous Reviewer', color: '#27628d',
+      firstEditedAt: '2026-10-25T18:00:00.000Z',
+      lastEditedAt: '2026-10-25T18:01:00.000Z',
+    }
+    document.getMap('proposalContributors').set(contributor.actorId, contributor)
+    const update = updateMessage(document, (candidate) => {
+      candidate.transact(() => {
+        candidate.getText('content').insert(accepted.length, ' Edited.')
+        if (mirrorWorking) candidate.getText('workingContent').insert(accepted.length, ' Edited.')
+      })
+    })
+
+    expect(collaboratorMessageAllowed(update, document)).toBe(false)
+    const pending = new Y.Doc()
+    Y.applyUpdate(pending, Y.encodeStateAsUpdate(document))
+    pending.getText('workingContent').insert(0, 'Proposed ')
+    const bypass = updateMessage(pending, (candidate) => {
+      candidate.getText('content').insert(0, 'Unexpected ')
+    })
+    expect(editorMessageAllowed(bypass, pending)).toBe(false)
+    pending.destroy()
+    expect(editorMessageAllowed(update, document)).toBe(true)
+    expect(document.getMap('proposalContributors').get(contributor.actorId)).toEqual(contributor)
+    expect(document.getMap('proposalHistory').size).toBe(0)
+    document.destroy()
+  })
+})
+
 describe('read-only Yjs messages', () => {
   it('notifies writable clients when a rejected update would otherwise be silently dropped', () => {
     const socket = Object.assign(new EventEmitter(), { close: vi.fn() })

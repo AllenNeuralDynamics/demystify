@@ -114,6 +114,66 @@ const replaceFirstVisualParagraph = async (
   await expect(page.locator('.visual-draft-status')).toHaveCount(0)
 }
 
+for (const mode of ['Source only', 'Visual editor']) {
+  test(`fresh ${mode} edits save after a working proposal returns to accepted text`, async ({ page }, testInfo) => {
+    const roomName = createRoomName(testInfo)
+    await authenticateMaintainer(page, roomName, testInfo)
+    const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+    await source.fill('# Reverted proposal\n\nAccepted source.\n')
+    const document = await source.evaluateHandle((element) => {
+      let current: Element | null = element
+      while (current) {
+        const property = Object.keys(current).find((key) => key.startsWith('__reactFiber$'))
+        let fiber = property ? (current as unknown as Record<string, unknown>)[property] as {
+          memoizedProps?: { sharedText?: { doc?: Y.Doc } }; return?: unknown
+        } : null
+        for (let depth = 0; fiber && depth < 40; depth++, fiber = fiber.return as typeof fiber) {
+          if (fiber.memoizedProps?.sharedText?.doc) return fiber.memoizedProps.sharedText.doc
+        }
+        current = current.parentElement
+      }
+      throw new Error('Shared document unavailable')
+    })
+    await document.evaluate((shared) => shared.transact(() => {
+      const working = shared.getText('workingContent')
+      working.delete(0, working.length)
+      working.insert(0, shared.getText('content').toString())
+      shared.getMap('metadata').set('workingContentInitialized', true)
+    }))
+    await expect(page.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
+    await document.evaluate((shared) => shared.getText('workingContent').insert(0, 'Proposed '))
+    await expect.poll(() => document.evaluate((shared) => shared.getMap('proposalContributors').size)).toBe(1)
+    await document.evaluate((shared) => shared.getText('workingContent').delete(0, 'Proposed '.length))
+    await expect.poll(() => document.evaluate((shared) =>
+      shared.getText('workingContent').toString() === shared.getText('content').toString() &&
+      shared.getMap('proposalContributors').size === 1,
+    )).toBe(true)
+    await expect(page.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
+    await document.dispose()
+    const url = new URL(page.url())
+    url.searchParams.set('recoverySession', crypto.randomUUID())
+    await page.goto(url.href)
+    await expect(source).toContainText('Accepted source.')
+    await page.getByTitle(mode, { exact: true }).click()
+    const editable = mode === 'Source only' ? source
+      : page.getByRole('textbox', { name: 'Formatted manuscript', exact: true }).locator('p').first()
+    await editable.click()
+    await expect(mode === 'Source only' ? source
+      : page.getByRole('textbox', { name: 'Formatted manuscript', exact: true })).toBeFocused()
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' Fresh direct edit.')
+    await expect(editable).toContainText('Fresh direct edit.')
+    await expect(page.getByRole('status', { name: 'Server save status' }))
+      .toHaveAttribute('data-save-state', 'saved')
+    await expect(page.locator('.connection-warning')).toHaveCount(0)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(source).toContainText('Fresh direct edit.')
+    await expect(page.locator('.connection-warning')).toHaveCount(0)
+  })
+}
+
 test('a rejected update retains recovery and opens an isolated read-only server copy', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('mobile'), 'Recovery comparison uses two desktop tabs')
   const roomName = createRoomName(testInfo)
