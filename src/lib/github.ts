@@ -1,4 +1,5 @@
 import { getBibliographyPath, type PaperSearchResult } from './references'
+import type { DocumentVersion, VersionPage, VersionPreview } from './documentHistory'
 
 export interface GitHubUser {
   id: number
@@ -31,6 +32,10 @@ export interface GitHubEntry {
   name: string
   path: string
   sha: string
+}
+
+export interface GitHubBranch {
+  name: string
 }
 
 export interface RepositoryProjectFile {
@@ -72,7 +77,7 @@ export const getRepositoryFileGitHubUrl = (
 export const getNewManuscriptRoomUrl = (
   currentUrl: string,
   roomName: string,
-  manuscript?: Pick<RepositoryBinding, 'fullName' | 'path'>,
+  manuscript?: Pick<RepositoryBinding, 'fullName' | 'path'> & Partial<Pick<RepositoryBinding, 'baseBranch'>>,
 ) => {
   const url = new URL(currentUrl)
   url.search = ''
@@ -82,6 +87,7 @@ export const getNewManuscriptRoomUrl = (
   if (manuscript) {
     url.searchParams.set('repository', manuscript.fullName)
     url.searchParams.set('path', manuscript.path)
+    if (manuscript.baseBranch) url.searchParams.set('branch', manuscript.baseBranch)
   }
   return url.href
 }
@@ -183,6 +189,17 @@ const apiRequest = async <Result>(path: string, init?: RequestInit): Promise<Res
 
 export const getGitHubSession = () => apiRequest<GitHubSession>('/api/auth/session')
 
+export const listDocumentVersions = (roomName: string, before?: number) =>
+  apiRequest<VersionPage>(`/api/rooms/${encodeURIComponent(roomName)}/versions${before === undefined ? '' : `?before=${before}`}`, { cache: 'no-store' })
+export const previewDocumentVersion = (roomName: string, id: string) =>
+  apiRequest<VersionPreview>(`/api/rooms/${encodeURIComponent(roomName)}/versions/${encodeURIComponent(id)}`, { cache: 'no-store' })
+export const createDocumentVersion = (roomName: string, name: string) =>
+  apiRequest<DocumentVersion>(`/api/rooms/${encodeURIComponent(roomName)}/versions`, { method: 'POST', body: JSON.stringify({ name }) })
+export const renameDocumentVersion = (roomName: string, id: string, name: string) =>
+  apiRequest<DocumentVersion>(`/api/rooms/${encodeURIComponent(roomName)}/versions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+export const restoreDocumentVersion = (roomName: string, id: string, revision: string) =>
+  apiRequest<DocumentVersion>(`/api/rooms/${encodeURIComponent(roomName)}/versions/${encodeURIComponent(id)}/restore`, { method: 'POST', body: JSON.stringify({ revision }) })
+
 export const claimCollaborationRoom = (roomName: string) =>
   apiRequest<CollaborationRoom>(`/api/rooms/${encodeURIComponent(roomName)}/claim`, {
     method: 'POST',
@@ -258,6 +275,7 @@ export const bindCollaborationRoom = (
         owner: binding.owner,
         repository: binding.repository,
         path: binding.path,
+        baseBranch: binding.baseBranch,
       }),
     },
   )
@@ -283,17 +301,24 @@ export const listRepositories = async () => {
 export const listRepositoryContents = async (
   repository: GitHubRepository,
   path: string,
+  branch = repository.defaultBranch,
 ) => {
   const query = new URLSearchParams({
     owner: repository.owner,
     repository: repository.name,
     path,
-    ref: repository.defaultBranch,
+    ref: branch,
   })
   const result = await apiRequest<{ entries: GitHubEntry[] }>(
     `/api/github/contents?${query}`,
   )
   return result.entries
+}
+
+export const listRepositoryBranches = async (repository: { owner: string; name: string }) => {
+  const query = new URLSearchParams({ owner: repository.owner, repository: repository.name })
+  const result = await apiRequest<{ branches: GitHubBranch[] }>(`/api/github/branches?${query}`)
+  return result.branches
 }
 
 export const loadRepositoryFile = async (binding: RepositoryBinding) => {

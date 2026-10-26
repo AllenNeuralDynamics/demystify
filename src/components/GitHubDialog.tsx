@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   CircleUserRound,
   ExternalLink,
   FilePlus2,
@@ -24,9 +25,11 @@ import {
   getNewManuscriptRoomUrl,
   getRepositoryFileGitHubUrl,
   listRepositories,
+  listRepositoryBranches,
   listRepositoryContents,
   loadRepositoryFile,
   type GitHubEntry,
+  type GitHubBranch,
   type GitHubRepository,
   type GitHubSession,
   type RepositoryBinding,
@@ -46,6 +49,7 @@ interface GitHubDialogProps {
   draftSaveStatus?: ServerSaveStatus
   initialRepository?: string
   initialPath?: string
+  initialBranch?: string
   onClose: () => void
   onOpenFile: (binding: RepositoryBinding, content: string) => Promise<void>
   onBindDraft: (binding: RepositoryBinding) => Promise<void>
@@ -70,6 +74,7 @@ export const GitHubDialog = ({
   draftSaveStatus = 'unconfirmed',
   initialRepository,
   initialPath,
+  initialBranch,
   onClose,
   onOpenFile,
   onBindDraft,
@@ -82,6 +87,9 @@ export const GitHubDialog = ({
   const [directory, setDirectory] = useState(() => (binding?.path ?? initialPath ?? '').split('/').slice(0, -1).join('/'))
   const [entries, setEntries] = useState<GitHubEntry[] | null>(null)
   const [filePath, setFilePath] = useState(binding?.path ?? initialPath ?? 'manuscript.md')
+  const [branchResult, setBranchResult] = useState<{ repository: string; branches: GitHubBranch[] } | null>(null)
+  const [selectedBranch, setSelectedBranch] = useState(binding?.baseBranch ?? initialBranch ?? '')
+  const [branchSelectionOpen, setBranchSelectionOpen] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [comparison, setComparison] = useState<{
@@ -99,6 +107,27 @@ export const GitHubDialog = ({
   )
   const isLoadingRepositories = repositories === null
   const isLoadingDirectory = entries === null
+  const branchOwner = binding?.owner ?? selectedRepository?.owner
+  const branchRepository = binding?.repository ?? selectedRepository?.name
+  const defaultBranch = binding?.baseBranch ?? selectedRepository?.defaultBranch
+  const branchKey = `${branchOwner}/${branchRepository}`
+  const branches = branchResult?.repository === branchKey ? branchResult.branches : null
+
+  useEffect(() => {
+    if (!open || !canManageRepository || !branchOwner || !branchRepository || (binding && !branchSelectionOpen)) return
+    let active = true
+    listRepositoryBranches({ owner: branchOwner, name: branchRepository }).then((values) => {
+      if (!active) return
+      setBranchResult({ repository: branchKey, branches: values })
+      setSelectedBranch((current) => values.some((branch) => branch.name === current) ? current
+        : initialBranch ? '' : defaultBranch ?? '')
+    }).catch((requestError: unknown) => {
+      if (!active) return
+      setBranchResult({ repository: branchKey, branches: [] })
+      setError(getErrorMessage(requestError))
+    })
+    return () => { active = false }
+  }, [binding, branchKey, branchOwner, branchRepository, branchSelectionOpen, canManageRepository, defaultBranch, initialBranch, open])
 
   useEffect(() => {
     if (!open || !session?.user || !canManageRepository || binding) return
@@ -124,9 +153,9 @@ export const GitHubDialog = ({
   }, [binding, canManageRepository, initialRepository, open, session?.user])
 
   useEffect(() => {
-    if (!open || !selectedRepository || binding) return
+    if (!open || !selectedRepository || binding || !selectedBranch) return
     let active = true
-    listRepositoryContents(selectedRepository, directory)
+    listRepositoryContents(selectedRepository, directory, selectedBranch)
       .then((nextEntries) => {
         if (active) setEntries(nextEntries)
       })
@@ -138,7 +167,7 @@ export const GitHubDialog = ({
     return () => {
       active = false
     }
-  }, [binding, directory, open, selectedRepository])
+  }, [binding, directory, open, selectedBranch, selectedRepository])
 
   useEffect(() => {
     if (!open) return
@@ -158,7 +187,7 @@ export const GitHubDialog = ({
   if (!open) return null
 
   const makeBinding = (): RepositoryBinding | null => {
-    if (!selectedRepository || !filePath.trim()) return null
+    if (!selectedRepository || !selectedBranch || !filePath.trim()) return null
     const existingBranch =
       binding?.fullName === selectedRepository.fullName ? binding.branchName : null
     return {
@@ -168,7 +197,7 @@ export const GitHubDialog = ({
       isFork: selectedRepository.isFork,
       parentFullName: selectedRepository.parentFullName,
       path: filePath.trim().replace(/^\/+/, ''),
-      baseBranch: selectedRepository.defaultBranch,
+      baseBranch: selectedBranch,
       branchName: existingBranch ?? `demystify/${roomName.slice(0, 12)}`,
     }
   }
@@ -398,10 +427,19 @@ export const GitHubDialog = ({
                 <dl>
                   <div><dt>Manuscript</dt><dd>{binding.path}</dd></div>
                   <div><dt>Room draft</dt><dd>{draftSaveStatus === 'saved' ? 'Saved to server' : draftSaveStatus === 'error' ? 'Server save failed' : 'Server save not confirmed'}</dd></div>
-                  <div><dt>Source branch</dt><dd><GitBranch size={14} /> {binding.baseBranch}</dd></div>
+                  <div><dt>Source branch</dt><dd><GitBranch size={14} /> {binding.baseBranch}
+                    <button className="icon-button" type="button" title="Choose another source branch" aria-expanded={branchSelectionOpen} onClick={() => setBranchSelectionOpen((current) => !current)}><ChevronDown size={14} /></button>
+                  </dd></div>
                   <div><dt>Draft branch</dt><dd><GitBranch size={14} /> {binding.branchName}</dd></div>
                   <div><dt>Review</dt><dd>{review ? `PR #${review.number} (${review.state})` : 'No pull request'}</dd></div>
                 </dl>
+                {branchSelectionOpen && <div className="repository-controls">
+                  <label>Source branch<select aria-label="Source branch" value={selectedBranch} disabled={!branches} onChange={(event) => setSelectedBranch(event.target.value)}>
+                    <option value="" disabled>{branches ? 'Select a branch' : 'Loading branches...'}</option>
+                    {(branches ?? []).map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
+                  </select></label>
+                  <button className="button secondary-button" type="button" disabled={!selectedBranch || !branches} onClick={() => openNewRoom({ ...binding, baseBranch: selectedBranch })}><FilePlus2 size={14} /> Open selected branch</button>
+                </div>}
                 <a className="text-link" href={getRepositoryFileGitHubUrl(binding, binding.baseBranch)} target="_blank" rel="noreferrer">
                   <ExternalLink size={14} /> View source on GitHub
                 </a>
@@ -439,6 +477,7 @@ export const GitHubDialog = ({
                     setEntries(null)
                     setError(null)
                     setSelectedFullName(event.target.value)
+                    setSelectedBranch('')
                     setDirectory('')
                   }}
                 >
@@ -448,6 +487,12 @@ export const GitHubDialog = ({
                       {repository.fullName}{repository.private ? ' (private)' : ''}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label>Source branch
+                <select aria-label="Source branch" value={selectedBranch} disabled={!branches} onChange={(event) => { setEntries(null); setSelectedBranch(event.target.value) }}>
+                  <option value="" disabled>{branches ? 'Select a branch' : 'Loading branches...'}</option>
+                  {(branches ?? []).map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
                 </select>
               </label>
               <label>
@@ -510,10 +555,10 @@ export const GitHubDialog = ({
                 )}
                 {binding && <button className="button secondary-button" type="button" onClick={() => openNewRoom()}><FilePlus2 size={15} /> Open another manuscript</button>}
                 {binding && <button className="button primary-button" type="button" disabled={isWorking} onClick={() => void saveSnapshot()}><Save size={15} /> Save snapshot</button>}
-                {!binding && <><button className="button secondary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void bindDraft()}>
+                {!binding && <><button className="button secondary-button" type="button" disabled={!selectedRepository || !selectedBranch || isWorking} onClick={() => void bindDraft()}>
                   Bind current draft
                 </button>
-                <button className="button primary-button" type="button" disabled={!selectedRepository || isWorking} onClick={() => void openFile()}>
+                <button className="button primary-button" type="button" disabled={!selectedRepository || !selectedBranch || isWorking} onClick={() => void openFile()}>
                   {isWorking ? <LoaderCircle className="spin" size={15} /> : <FileText size={15} />}
                   Open file
                 </button>

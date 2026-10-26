@@ -8,6 +8,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
 import type { Pool, PoolClient } from 'pg'
+import type { DocumentVersion, VersionAuthor, VersionPage, VersionPreview } from '../src/lib/documentHistory.js'
 import { searchCrossrefWorks } from './citations.js'
 import {
   ApiError,
@@ -18,6 +19,7 @@ import {
   getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
   requireRepositoryWriteAccess,
+  verifyRepositoryBranch,
   upsertRepositoryPullRequestComment,
   upsertRepositoryPullRequestCommentReply,
   type RepositoryPullRequest,
@@ -101,6 +103,13 @@ export interface RoomStoreLike {
 }
 
 export interface RoomLifecycleOptions {
+  history?: {
+    list: (roomName: string, before?: number) => Promise<VersionPage>
+    preview: (roomName: string, id: string) => Promise<VersionPreview>
+    create: (roomName: string, name: string, actor: VersionAuthor) => Promise<DocumentVersion | null>
+    rename: (roomName: string, id: string, name: string) => Promise<DocumentVersion>
+    restore: (roomName: string, id: string, revision: string, actor: VersionAuthor) => Promise<DocumentVersion>
+  }
   onReadOnlyChange?: (roomName: string, readOnly: boolean) => void
   hasPendingWorkingChanges?: (roomName: string) => Promise<boolean>
   decideLiveProposal?: (
@@ -995,6 +1004,55 @@ export const createRoomRouter = (
   const router = Router()
   const commentMirrorQueues = new Map<string, Promise<void>>()
 
+  const historyAccess = async (request: Request, writable = false) => {
+    const roomName = readRoomNameParameter(request)
+    const room = await authorizeRoomRequest(request, roomStore, roomName, options)
+    if (writable) requireWritableRoom(room)
+    if (!options.history) throw new ApiError(503, 'Manuscript history is unavailable.')
+    const user = requireUser(request)
+    return { roomName, history: options.history,
+      actor: { id: `github:${user.id}`, name: request.session.github?.user?.name ?? `@${user.login}` } }
+  }
+  const versionName = (value: unknown) => {
+    if (typeof value !== 'string' || !value.trim() || value.trim().length > 120) {
+      throw new ApiError(400, 'Version names must contain 1 to 120 characters.')
+    }
+    return value.trim()
+  }
+  const versionId = (request: Request) => {
+    const value = request.params.versionId
+    if (typeof value !== 'string' || !commentIdPattern.test(value)) throw new ApiError(400, 'A valid manuscript version is required.')
+    return value
+  }
+
+  router.get('/rooms/:roomName/versions', async (request, response) => {
+    const access = await historyAccess(request)
+    const before = request.query.before === undefined ? undefined : Number(request.query.before)
+    if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new ApiError(400, 'Invalid history cursor.')
+    response.set('Cache-Control', 'no-store').json(await access.history.list(access.roomName, before))
+  })
+  router.get('/rooms/:roomName/versions/:versionId', async (request, response) => {
+    const access = await historyAccess(request)
+    response.set('Cache-Control', 'no-store').json(await access.history.preview(access.roomName, versionId(request)))
+  })
+  router.post('/rooms/:roomName/versions', async (request, response) => {
+    const access = await historyAccess(request, true)
+    const version = await access.history.create(access.roomName, versionName(request.body.name), access.actor)
+    if (!version) throw new ApiError(409, 'The manuscript is not ready for a checkpoint yet.')
+    response.set('Cache-Control', 'no-store').status(201).json(version)
+  })
+  router.patch('/rooms/:roomName/versions/:versionId', async (request, response) => {
+    const access = await historyAccess(request, true)
+    response.set('Cache-Control', 'no-store').json(await access.history.rename(access.roomName, versionId(request), versionName(request.body.name)))
+  })
+  router.post('/rooms/:roomName/versions/:versionId/restore', async (request, response) => {
+    const access = await historyAccess(request, true)
+    if (typeof request.body.revision !== 'string' || !/^[a-f0-9]{64}$/.test(request.body.revision)) {
+      throw new ApiError(400, 'Refresh the version preview before restoring.')
+    }
+    response.set('Cache-Control', 'no-store').json(await access.history.restore(access.roomName, versionId(request), request.body.revision, access.actor))
+  })
+
   const activateShareSession = async (
     request: Request,
     response: import('express').Response,
@@ -1092,7 +1150,8 @@ export const createRoomRouter = (
       isFork: repositoryAccess.fork,
       parentFullName: repositoryAccess.parent?.full_name ?? null,
       path,
-      baseBranch: repositoryAccess.default_branch,
+      baseBranch: request.body.baseBranch === undefined ? repositoryAccess.default_branch
+        : await verifyRepositoryBranch(request, owner, repository, request.body.baseBranch),
       branchName,
     }
     response.json(toClientRoom({

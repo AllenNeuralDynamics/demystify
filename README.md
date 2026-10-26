@@ -116,6 +116,33 @@ and file preselected; choose **Open file** there to import the source version.
 The original room, review history, and local recovery remain intact. Sharing
 capabilities and recovery-session parameters are not copied into the new room.
 
+The repository picker includes a **Source branch** selector. Branches are read
+from GitHub, and the server verifies the selected branch before binding the new
+room. A bound manuscript can choose another source branch through its versions
+dialog, but it opens in a separate room rather than retargeting active writers.
+
+## Version History And Restore
+
+The history clock beside the document menus opens a read-only manuscript preview
+and a dated timeline. Checkpoints are saved on the server after five seconds of
+editing inactivity, or within thirty seconds of continuous editing, independently
+of GitHub publication. Maintainers can name the current version, rename an older
+version, filter named milestones, and compare a selected version with the current
+draft. Large version payloads are compressed and loaded only when selected.
+
+**Restore this version** first saves the current manuscript as a durable safety
+checkpoint. It checks that the draft still matches the preview both before and
+after that save, then restores primary/working text, bibliography, configuration,
+project files, reference records, and pending contributor attribution. Existing
+comments, replies, and proposal-decision history are not rewound or deleted.
+Restoration creates a new history entry; earlier versions remain available.
+Only verified maintainers can access history, and archived rooms cannot restore.
+Local unsaved source or object drafts must be saved or cancelled before restore.
+
+History begins when this feature is enabled for a room. It does not reconstruct
+older manuscript states that were never checkpointed. A room's initial persisted
+state is checkpointed when it is next opened; no recovery files are imported.
+
 ## Citations And Visual Editing
 
 Select **Tools -> Citations** to search the manuscript's local reference library

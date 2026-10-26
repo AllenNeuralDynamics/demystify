@@ -640,6 +640,19 @@ export const requireRepositoryWriteAccess = async (
   return details
 }
 
+export const verifyRepositoryBranch = async (
+  request: Request,
+  owner: string,
+  repository: string,
+  value: unknown,
+) => {
+  const branch = validateBranch(readString(value, 'baseBranch'), 'baseBranch')
+  const result = await githubRequest<{ name: string }>(request,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/branches/${encodeURIComponent(branch)}`)
+  if (result.name !== branch) throw new ApiError(502, 'GitHub returned a different branch.')
+  return branch
+}
+
 const findOrCreateBranch = async (
   request: Request,
   owner: string,
@@ -1548,6 +1561,20 @@ githubRouter.get('/github/repositories', async (request, response) => {
     }))
 
   response.json({ repositories })
+})
+
+githubRouter.get('/github/branches', async (request, response) => {
+  const owner = validateRepositoryPart(readQueryString(request, 'owner'), 'owner')
+  const repository = validateRepositoryPart(readQueryString(request, 'repository'), 'repository')
+  await requireRepositoryWriteAccess(request, owner, repository)
+  const branches: Array<{ name: string }> = []
+  for (let page = 1; page <= 100; page += 1) {
+    const batch = await githubRequest<Array<{ name: string }>>(request,
+      `/repos/${owner}/${repository}/branches?per_page=100&page=${page}`)
+    branches.push(...batch.map((branch) => ({ name: branch.name })))
+    if (batch.length < 100) break
+  }
+  response.json({ branches })
 })
 
 githubRouter.get('/github/file', async (request, response) => {

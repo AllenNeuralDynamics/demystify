@@ -437,6 +437,7 @@ try {
   )
 
   firstDocument.transact(() => {
+    firstDocument.getMap('metadata').set('initialized', true)
     firstText.insert(0, expectedText)
     const authors = new Y.Text()
     firstProjectFiles.set(projectPath, authors)
@@ -466,6 +467,38 @@ try {
   await Promise.all([received, receivedComment, receivedReply, receivedProjectFile])
   await waitForDurableSave(firstProvider)
   await verifyStoredReview(expectedComment)
+
+  const historyUrl = `${httpUrl}/api/rooms/${roomName}/versions`
+  const historyHeaders = { Cookie: sessionCookie, 'Content-Type': 'application/json' }
+  const namedResponse = await fetch(historyUrl, {
+    method: 'POST', headers: historyHeaders, body: JSON.stringify({ name: 'Integration checkpoint' }),
+  })
+  assert.equal(namedResponse.status, 201)
+  const namedVersion = await namedResponse.json()
+  firstText.insert(firstText.length, ' temporary history edit')
+  await waitForText(secondText, `${expectedText} temporary history edit`)
+  await waitForDurableSave(firstProvider)
+  const previewResponse = await fetch(`${historyUrl}/${namedVersion.id}`, { headers: historyHeaders })
+  assert.equal(previewResponse.status, 200)
+  const versionPreview = await previewResponse.json()
+  assert.equal(versionPreview.snapshot.content, expectedText)
+  assert.equal(versionPreview.current.content, `${expectedText} temporary history edit`)
+  const restoreResponse = await fetch(`${historyUrl}/${namedVersion.id}/restore`, {
+    method: 'POST', headers: historyHeaders, body: JSON.stringify({ revision: versionPreview.revision }),
+  })
+  assert.equal(restoreResponse.status, 200)
+  await Promise.all([waitForText(firstText, expectedText), waitForText(secondText, expectedText)])
+  await waitForDurableSave(firstProvider)
+  const versionPage = await (await fetch(historyUrl, { headers: historyHeaders })).json()
+  const safetyVersion = versionPage.versions.find((version) => version.kind === 'safety')
+  assert.ok(safetyVersion)
+  const safetyPreview = await (await fetch(`${historyUrl}/${safetyVersion.id}`, { headers: historyHeaders })).json()
+  assert.equal(safetyPreview.snapshot.content, `${expectedText} temporary history edit`)
+  for (const cookie of [viewerCookie, collaboratorCookie]) {
+    assert.equal((await fetch(historyUrl, { headers: { Cookie: cookie } })).status, 403)
+  }
+  await verifyStoredReview(expectedComment)
+  console.log('Durable named-version preview, safety restore, and history permissions verified.')
 
   assert.equal(secondText.toString(), expectedText)
   assert.deepEqual(secondComments.get(expectedComment.id), expectedComment)
