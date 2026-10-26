@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  bindCollaborationRoom,
   createSnapshot,
   getNewManuscriptRoomUrl,
   getRepositoryFileGitHubUrl,
@@ -7,6 +8,7 @@ import {
   loadRepositoryBibliography,
   loadRepositoryMystConfig,
   loadRepositoryProjectFiles,
+  listRepositoryContents,
   type RepositoryBinding,
 } from './github'
 
@@ -24,6 +26,17 @@ const binding: RepositoryBinding = {
 }
 
 describe('GitHub repository links', () => {
+  it('carries a selected branch into new rooms and binding requests', async () => {
+    const selected = { ...binding, baseBranch: 'revision/two' }
+    expect(new URL(getNewManuscriptRoomUrl('https://editor.example/', 'new-room', selected)).searchParams.get('branch')).toBe('revision/two')
+    const fetch = vi.fn().mockImplementation(async () => new Response('{"entries":[]}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetch)
+    await bindCollaborationRoom('new-room', selected)
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).baseBranch).toBe('revision/two')
+    await listRepositoryContents({ owner: 'research', name: 'paper', defaultBranch: 'main' } as Parameters<typeof listRepositoryContents>[0], '', 'revision/two')
+    expect(String(fetch.mock.calls[1][0])).toContain('ref=revision%2Ftwo')
+  })
+
   it('opens another manuscript in a new room without transferring sharing or recovery state', () => {
     const url = new URL(getNewManuscriptRoomUrl(
       'https://editor.example/?doc=original&serverCopy=1&recoverySession=private#collaborate=private-token',

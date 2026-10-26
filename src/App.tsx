@@ -17,6 +17,7 @@ import {
   GitFork,
   GitBranchPlus,
   GitPullRequest,
+  History,
   Italic,
   Link2,
   LoaderCircle,
@@ -68,6 +69,7 @@ import { ShareDialog } from './components/ShareDialog'
 import type { VisualCitationDraft, VisualCitationInserter } from './components/VisualInlineEditor'
 import type { ContinuousVisualEditorHandle } from './components/ContinuousVisualEditor'
 import { EditorPaneToolbar, type EditorCommandState } from './components/EditorPaneToolbar'
+const VersionHistory = lazy(() => import('./components/VersionHistory').then((module) => ({ default: module.VersionHistory })))
 import {
   useCollaboration,
   type CommentDraftAnchor,
@@ -298,15 +300,18 @@ function App() {
     return parameters.get('import') === 'github' ? {
       repository: parameters.get('repository') ?? undefined,
       path: parameters.get('path') ?? undefined,
+      branch: parameters.get('branch') ?? undefined,
     } : null
   })
   const [githubDialogOpen, setGitHubDialogOpen] = useState(Boolean(repositoryImport))
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
   const [referenceManagerOpen, setReferenceManagerOpen] = useState(false)
   const [publicationMetadataOpen, setPublicationMetadataOpen] = useState(false)
   const blockingDialogOpen =
+    historyOpen ||
     citationPickerOpen ||
     referenceManagerOpen ||
     publicationMetadataOpen ||
@@ -1814,6 +1819,7 @@ function App() {
                     disabled: !collaboration.provider,
                     onSelect: downloadRecoveryFile,
                   },
+                  { label: 'Version history', icon: History, disabled: !isMaintainer || !collaboration.hasLoadedDocument, onSelect: () => setHistoryOpen(true) },
                   {
                     label: repositoryBinding ? 'Save to GitHub' : 'Connect repository to save',
                     icon: Save,
@@ -1821,7 +1827,7 @@ function App() {
                     onSelect: saveOrConnectRepository,
                   },
                   {
-                    label: repositoryBinding ? 'Change repository or file' : 'Connect GitHub repository',
+                    label: repositoryBinding ? 'Manuscript versions' : 'Connect GitHub repository',
                     icon: GitFork,
                     separatorBefore: true,
                     disabled: !canManageRepository,
@@ -1962,6 +1968,7 @@ function App() {
               >
                 Help
               </button>
+              {isMaintainer && <button className="document-menu-trigger" type="button" title="Version history" aria-label="Version history" disabled={!collaboration.hasLoadedDocument} onClick={() => setHistoryOpen(true)}><History size={17} /></button>}
             </nav>
           </div>
         </div>
@@ -3255,6 +3262,11 @@ function App() {
         />
       )}
 
+      {historyOpen && isMaintainer && <Suspense fallback={<div className="pane-loading">Loading history...</div>}><VersionHistory
+        roomName={roomName} binding={repositoryBinding}
+        canRestore={!effectiveReadOnly && collaboration.isSynced && displayedSaveStatus === 'saved' && !visualDraftPending && activeSourceDraftPreview === null}
+        onClose={() => setHistoryOpen(false)} onNotice={showNotice} /></Suspense>}
+
       <GitHubDialog
         open={githubDialogOpen}
         roomName={roomName}
@@ -3268,11 +3280,12 @@ function App() {
         draftSaveStatus={displayedSaveStatus}
         initialRepository={repositoryImport?.repository}
         initialPath={repositoryImport?.path}
+        initialBranch={repositoryImport?.branch}
         onClose={() => {
           setGitHubDialogOpen(false)
           if (repositoryImport) {
             const url = new URL(window.location.href)
-            for (const key of ['import', 'repository', 'path']) url.searchParams.delete(key)
+            for (const key of ['import', 'repository', 'path', 'branch']) url.searchParams.delete(key)
             window.history.replaceState(null, '', url)
           }
         }}

@@ -63,6 +63,82 @@ const closeServer = (server: ReturnType<typeof createServer>) =>
   )
 
 describe('room publication routes', () => {
+  it('authorizes history, validates names and revisions, and forwards server-issued restore checks', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-history-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    await store.claim('history-api-room', { id: 42, login: 'researcher' })
+    const version = { id: 'saved-version', sequence: 1, name: 'Milestone', createdAt: new Date().toISOString(), kind: 'named' as const, authors: [] }
+    const history = { list: vi.fn().mockResolvedValue({ versions: [version], nextCursor: null }),
+      preview: vi.fn(), create: vi.fn().mockResolvedValue(version), rename: vi.fn(), restore: vi.fn().mockResolvedValue(version) }
+    const { server, baseUrl, session } = await startRoomServer(store, { history })
+    try {
+      const listing = await fetch(`${baseUrl}/api/rooms/history-api-room/versions`)
+      expect(listing.status).toBe(200)
+      expect(listing.headers.get('cache-control')).toBe('no-store')
+      const invalid = await fetch(`${baseUrl}/api/rooms/history-api-room/versions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: ' ' }),
+      })
+      expect(invalid.status).toBe(400)
+      expect(history.create).not.toHaveBeenCalled()
+      const restored = await fetch(`${baseUrl}/api/rooms/history-api-room/versions/saved-version/restore`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 'a'.repeat(64) }),
+      })
+      expect(restored.status).toBe(200)
+      expect(history.restore).toHaveBeenCalledWith('history-api-room', 'saved-version', 'a'.repeat(64), { id: 'github:42', name: 'Researcher' })
+      const identity = session.github!
+      session.github = { ...identity, user: { ...identity.user, id: 99, login: 'another-user' } }
+      expect((await fetch(`${baseUrl}/api/rooms/history-api-room/versions`)).status).toBe(403)
+      session.github = identity
+      await store.setReview('history-api-room', { number: 12, htmlUrl: 'https://github.com/researcher/paper/pull/12',
+        title: 'Archived manuscript', state: 'closed', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      const archivedRestore = await fetch(`${baseUrl}/api/rooms/history-api-room/versions/saved-version/restore`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 'a'.repeat(64) }),
+      })
+      expect(archivedRestore.status).toBe(409)
+      expect(history.restore).toHaveBeenCalledOnce()
+      expect((await fetch(`${baseUrl}/api/rooms/history-api-room/versions`)).status).toBe(200)
+      delete session.github
+      expect((await fetch(`${baseUrl}/api/rooms/history-api-room/versions`)).status).toBe(401)
+    } finally { await closeServer(server) }
+  })
+
+  it('binds a verified selected branch rather than silently using the default branch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-branch-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    await store.claim('selected-branch-room', { id: 42, login: 'researcher' })
+    const originalFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input, init)
+      if (url.endsWith('/repos/researcher/paper')) return jsonResponse({
+        name: 'paper', full_name: 'researcher/paper', fork: false, default_branch: 'main',
+        owner: { login: 'researcher' }, permissions: { push: true },
+      })
+      if (url.endsWith('/branches/revision%2Ftwo')) return jsonResponse({ name: 'revision/two' })
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+    const { server, baseUrl } = await startRoomServer(store)
+    try {
+      const response = await originalFetch(`${baseUrl}/api/rooms/selected-branch-room/binding`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: 'researcher', repository: 'paper', path: 'paper.md', baseBranch: 'revision/two' }),
+      })
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ binding: { baseBranch: 'revision/two' } })
+      const invalid = await originalFetch(`${baseUrl}/api/rooms/selected-branch-room/binding`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: 'researcher', repository: 'paper', path: 'paper.md', baseBranch: '../invalid' }),
+      })
+      expect(invalid.status).toBe(400)
+    } finally {
+      await closeServer(server)
+    }
+  })
+
   it('blocks snapshots while a live proposal is unresolved', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
     temporaryDirectories.push(directory)

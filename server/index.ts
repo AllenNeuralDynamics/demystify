@@ -1,4 +1,5 @@
 import { createDurabilityHandler } from './collaboration-durability.js'
+import { DocumentHistory } from './document-history.js'
 import 'dotenv/config'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
@@ -75,11 +76,9 @@ if (databasePool) {
   const postgresPersistence = new PostgresYjsPersistence(databasePool)
   await postgresPersistence.initialize()
   yjsPersistence = postgresPersistence
-  setPersistence(yjsPersistence)
   console.log('Persisting rooms, sessions, and Yjs updates in PostgreSQL')
 } else {
   yjsPersistence = new LocalYjsPersistence(localPersistencePath as string)
-  setPersistence(yjsPersistence)
   console.log(`Persisting Yjs updates in LevelDB at ${localPersistencePath}`)
 }
 
@@ -94,6 +93,32 @@ const collaboratorGuestSockets = new WeakSet<WebSocket>()
 const collaborationSocketActors = new WeakMap<WebSocket, CollaborationSocketActor>()
 const guestConnectionsByCapability = new Map<string, Set<WebSocket>>()
 const viewerExpiryTimers = new WeakMap<WebSocket, NodeJS.Timeout>()
+const documentHistory = new DocumentHistory(yjsPersistence, {
+  actor: (origin) => {
+    const actor = collaborationSocketActors.get(origin as WebSocket)
+    return actor ? { id: actor.actorId, name: actor.actorName } : undefined
+  },
+})
+const checkpointRoomHistory = async (roomName: string, document: Parameters<ReadyYjsPersistence['flush']>[1]) => {
+  try {
+    await documentHistory.checkpoint(roomName, document)
+  } catch (error) {
+    console.error('Could not save automatic manuscript history:', error)
+  }
+}
+setPersistence({
+  provider: yjsPersistence.provider,
+  bindState: (roomName: string, document: Parameters<ReadyYjsPersistence['bindState']>[1]) => {
+    yjsPersistence!.bindState(roomName, document)
+    documentHistory.track(roomName, document)
+  },
+  writeState: async (roomName: string, document: Parameters<ReadyYjsPersistence['writeState']>[1]) => {
+    await checkpointRoomHistory(roomName, document)
+    await yjsPersistence!.writeState(roomName, document)
+    try { await documentHistory.release(roomName) }
+    catch (error) { console.error('Could not close manuscript history:', error) }
+  },
+})
 
 const capabilityKey = (roomName: string, role: 'viewer' | 'collaborator') =>
   `${roomName}:${role}`
@@ -144,6 +169,13 @@ const scheduleGuestExpiry = (
 }
 
 const lifecycleOptions = {
+  history: {
+    list: (roomName: string, before?: number) => documentHistory.list(roomName, getYDoc(roomName), before),
+    preview: (roomName: string, id: string) => documentHistory.preview(roomName, getYDoc(roomName), id),
+    create: (roomName: string, name: string, actor: { id: string; name: string }) => documentHistory.checkpoint(roomName, getYDoc(roomName), 'named', actor, name),
+    rename: (roomName: string, id: string, name: string) => documentHistory.rename(roomName, id, name),
+    restore: (roomName: string, id: string, revision: string, actor: { id: string; name: string }) => documentHistory.restore(roomName, getYDoc(roomName), id, revision, actor),
+  },
   onReadOnlyChange: (roomName: string, readOnly: boolean) => {
     if (readOnly) readOnlyRooms.add(roomName)
     else readOnlyRooms.delete(roomName)
@@ -463,6 +495,7 @@ server.on('upgrade', (request, socket, head) => {
           upgradeStage = 'hydration'
           document = getYDoc(roomName)
           await yjsPersistence.waitForHydration(document)
+          await checkpointRoomHistory(roomName, document)
         }
       } catch (error) {
         if (document && docs.get(roomName) === document) {
