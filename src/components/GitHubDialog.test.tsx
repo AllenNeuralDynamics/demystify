@@ -114,6 +114,7 @@ describe('GitHubDialog bound manuscripts', () => {
     expect(container.textContent).toContain('Source branch main')
     expect(container.textContent).toContain('Draft branch demystify/current-room')
     expect(container.textContent).toContain('paper/index.md')
+    expect(container.querySelector<HTMLInputElement>('[aria-label="Room link"]')?.value).toContain('?doc=identity-test-room')
     expect(container.querySelector('.repository-controls')).toBeNull()
     expect(container.querySelector('.repo-browser')).toBeNull()
     expect(container.querySelector('img[src=""]')).toBeNull()

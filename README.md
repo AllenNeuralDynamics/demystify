@@ -129,6 +129,26 @@ from GitHub, and the server verifies the selected branch before binding the new
 room. A bound manuscript can choose another source branch through its versions
 dialog, but it opens in a separate room rather than retargeting active writers.
 
+## Room Links
+
+**Share** always shows the normal room URL, including in Suggestion mode. The
+same URL is available through **File -> Copy room link** and **Manuscript
+versions**. This URL grants no permission by itself; existing room access is
+required, and recovery, import, and invitation parameters are not included.
+
+New PR descriptions include an **Open the collaborative room** link. Existing
+PR descriptions receive it on the next explicit snapshot save, preserving their
+notes and checklists. Opening the PR does not publish or change its description.
+Suggestion/viewer invitation tokens are never added to PRs.
+
+Owner-created invitation URLs remain visible after closing Share and reloading
+the same tab. They are retained only in that owner's tab session, not returned
+from server storage. Replaced, revoked, or expired links stop being displayed.
+If an active invitation was created elsewhere, Share reports that its URL is
+unavailable in this tab; replacing it creates a new URL and invalidates the old
+one. Suggestion participants and viewers can copy the normal room URL but cannot
+create, replace, or revoke invitations.
+
 ## Version History And Restore
 
 The history clock beside the document menus opens a read-only manuscript preview

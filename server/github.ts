@@ -96,6 +96,7 @@ interface GitCommitResponse {
 }
 
 interface GitPullRequest {
+  body?: string | null
   number: number
   html_url: string
   title: string
@@ -860,13 +861,24 @@ export const createRepositoryFilesSnapshot = async (
   }
 }
 
+const roomLinkBlock = (roomName: string) => {
+  const url = new URL(process.env.APP_URL ?? 'http://127.0.0.1:5173')
+  url.search = ''
+  url.hash = ''
+  url.username = ''
+  url.password = ''
+  url.searchParams.set('doc', roomName)
+  return `<!-- demystify-room:${roomName} -->\n[Open the collaborative room](<${url.href}>)\n\nRoom access is required; this link does not grant editing permissions.`
+}
+
 export const createRepositoryPullRequest = async (
   request: Request,
   target: RepositoryWriteTarget,
   title: string,
+  roomName?: string,
 ): Promise<RepositoryPullRequest> => {
   const { owner, repository, baseBranch: base, branchName: head } = target
-  const body = 'Collaborative MyST manuscript update created with DeMystify.'
+  const body = 'Collaborative MyST manuscript update created with DeMystify.' + (roomName ? `\n\n${roomLinkBlock(roomName)}` : '')
   const repositoryPath = `/repos/${owner}/${repository}`
   const repositoryDetails = await githubRequest<GitHubRepository>(request, repositoryPath)
   if (repositoryDetails.fork) {
@@ -890,7 +902,7 @@ export const createRepositoryPullRequest = async (
     if (!(error instanceof ApiError) || error.status !== 422) throw error
     const existing = await findRepositoryPullRequest(request, target)
     if (!existing) throw error
-    return existing
+    return roomName ? ensureRepositoryRoomLink(request, target, existing.number, roomName) : existing
   }
 }
 
@@ -907,11 +919,11 @@ export const findRepositoryPullRequest = async (
   return existing[0] ? toRepositoryPullRequest(existing[0]) : null
 }
 
-export const getRepositoryPullRequest = async (
+const getBoundPullRequest = async (
   request: Request,
   target: RepositoryWriteTarget,
   pullRequestNumber: number,
-): Promise<RepositoryPullRequest> => {
+): Promise<GitPullRequest> => {
   const { owner, repository, baseBranch, branchName } = target
   const pullRequest = await githubRequest<GitPullRequest>(
     request,
@@ -924,7 +936,22 @@ export const getRepositoryPullRequest = async (
   ) {
     throw new ApiError(409, 'The room pull request no longer matches its repository binding.')
   }
-  return toRepositoryPullRequest(pullRequest)
+  return pullRequest
+}
+
+export const getRepositoryPullRequest = async (request: Request, target: RepositoryWriteTarget, pullRequestNumber: number) =>
+  toRepositoryPullRequest(await getBoundPullRequest(request, target, pullRequestNumber))
+
+export const ensureRepositoryRoomLink = async (request: Request, target: RepositoryWriteTarget,
+  pullRequestNumber: number, roomName: string) => {
+  const current = await getBoundPullRequest(request, target, pullRequestNumber)
+  const marker = `<!-- demystify-room:${roomName} -->`
+  if (current.body?.includes(marker)) return toRepositoryPullRequest(current)
+  const body = `${current.body ?? ''}${current.body ? '\n\n' : ''}${roomLinkBlock(roomName)}`
+  const updated = await githubRequest<GitPullRequest>(request,
+    `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repository)}/pulls/${pullRequestNumber}`,
+    { method: 'PATCH', body: JSON.stringify({ body }) })
+  return toRepositoryPullRequest(updated)
 }
 
 export const updateRepositoryPullRequestTitle = async (

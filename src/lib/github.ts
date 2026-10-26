@@ -68,6 +68,16 @@ export const getRepositoryAssetBaseUrl = (binding: RepositoryBinding) => {
 export const getRepositoryGitHubUrl = (binding: RepositoryBinding) =>
   `https://github.com/${encodeURIComponent(binding.owner)}/${encodeURIComponent(binding.repository)}`
 
+export const getCollaborationRoomUrl = (roomName: string, currentUrl = window.location.href) => {
+  const url = new URL(currentUrl)
+  url.search = ''
+  url.hash = ''
+  url.username = ''
+  url.password = ''
+  url.searchParams.set('doc', roomName)
+  return url.href
+}
+
 export const getRepositoryFileGitHubUrl = (
   binding: RepositoryBinding,
   reference: string,
@@ -150,10 +160,12 @@ export interface CollaborationRoom {
   actorId: string
   ownedActorIds: string[]
   viewerLink: {
+    id?: string
     createdAt: string
     expiresAt: string | null
   } | null
   collaboratorLink: {
+    id?: string
     createdAt: string
     expiresAt: string | null
   } | null

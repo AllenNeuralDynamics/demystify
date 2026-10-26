@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   CircleUserRound,
+  Copy,
   ExternalLink,
   FilePlus2,
   FileText,
@@ -24,6 +25,7 @@ import {
   createPullRequest,
   getNewManuscriptRoomUrl,
   getRepositoryFileGitHubUrl,
+  getCollaborationRoomUrl,
   listRepositories,
   listRepositoryBranches,
   listRepositoryContents,
@@ -426,6 +428,8 @@ export const GitHubDialog = ({
               <section className="manuscript-versions" aria-label="Manuscript versions">
                 <dl>
                   <div><dt>Manuscript</dt><dd>{binding.path}</dd></div>
+                  <div><dt>Room link</dt><dd><div className="share-link-control"><input aria-label="Room link" readOnly value={getCollaborationRoomUrl(roomName)} onFocus={(event) => event.currentTarget.select()} />
+                    <button type="button" title="Copy room link" onClick={() => void navigator.clipboard.writeText(getCollaborationRoomUrl(roomName)).then(() => onNotice('Room link copied')).catch(() => onNotice('Could not copy the link'))}><Copy size={14} /></button></div></dd></div>
                   <div><dt>Room draft</dt><dd>{draftSaveStatus === 'saved' ? 'Saved to server' : draftSaveStatus === 'error' ? 'Server save failed' : 'Server save not confirmed'}</dd></div>
                   <div><dt>Source branch</dt><dd><GitBranch size={14} /> {binding.baseBranch}
                     <button className="icon-button" type="button" title="Choose another source branch" aria-expanded={branchSelectionOpen} onClick={() => setBranchSelectionOpen((current) => !current)}><ChevronDown size={14} /></button>

@@ -16,6 +16,7 @@ import {
   createRepositoryPullRequest,
   createRepositoryFilesSnapshot,
   createRepositorySnapshot,
+  ensureRepositoryRoomLink,
   findRepositoryPullRequest,
   getRepositoryPullRequest,
   getRepositoryPullRequestCommentSync,
@@ -222,12 +223,14 @@ export const toClientRoom = ({ room, role, actorId, ownedActorIds }: AuthorizedR
     ownedActorIds,
     viewerLink: role === 'editor' && viewerShare
       ? {
+          id: viewerShare.id,
           createdAt: viewerShare.createdAt,
           expiresAt: viewerShare.expiresAt,
         }
       : null,
     collaboratorLink: role === 'editor' && collaboratorShare
       ? {
+          id: collaboratorShare.id,
           createdAt: collaboratorShare.createdAt,
           expiresAt: collaboratorShare.expiresAt,
         }
@@ -1381,11 +1384,13 @@ export const createRoomRouter = (
       : await createRepositoryFilesSnapshot(request, binding, files, commitMessage)
     await options.markProposalCheckpointsSubmitted?.(roomName, snapshot.commitSha)
     let review = room.review
+    let needsRoomLink = Boolean(review)
     if (!binding.isFork) {
       const existingPullRequest =
         !review && snapshot.unchanged
           ? await findRepositoryPullRequest(request, binding)
           : null
+          needsRoomLink ||= Boolean(existingPullRequest)
       if (!review && snapshot.unchanged && !existingPullRequest) {
         response.json({ ...snapshot, review: null })
         return
@@ -1396,6 +1401,7 @@ export const createRoomRouter = (
               request,
               binding,
               `Update ${await options.roomTitle?.get(roomName) ?? getDocumentTitle(content)}`,
+              roomName,
             )
           return toRoomReview(pullRequest)
         })).review
@@ -1408,6 +1414,15 @@ export const createRoomRouter = (
       }
     }
 
+    if (needsRoomLink && review) {
+      try {
+        const linked = await ensureRepositoryRoomLink(request, binding, review.number, roomName)
+        review = (await roomStore.setReview(roomName, toRoomReview(linked, review))).review
+      } catch (error) {
+        throw new ApiError(502, 'The snapshot was committed, but its room link could not be added to the pull request. Retry Save to GitHub.',
+          { snapshot, cause: error instanceof Error ? error.message : String(error) })
+      }
+    }
     response.json({ ...snapshot, review })
   })
 
@@ -1421,7 +1436,7 @@ export const createRoomRouter = (
     const title = roomTitle ? `Update ${roomTitle}` : readBindingString(request.body.title, 'title').slice(0, 200)
 
     const updatedRoom = await roomStore.ensureReview(roomName, async () => {
-      const pullRequest = await createRepositoryPullRequest(request, binding, title)
+      const pullRequest = await createRepositoryPullRequest(request, binding, title, roomName)
       return toRoomReview(pullRequest)
     })
     response.json(updatedRoom.review)
