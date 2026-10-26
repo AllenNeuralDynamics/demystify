@@ -92,6 +92,7 @@ import {
   loadRepositoryProjectFiles,
   mirrorRoomComment,
   mirrorRoomCommentReply,
+  renameCollaborationRoom,
   startRoomRevision,
   syncRoomComments,
   type RepositoryBinding,
@@ -307,10 +308,18 @@ function App() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [roomTitleDraft, setRoomTitleDraft] = useState<{
+    title: string; expectedTitle: string | null; renamePullRequest: boolean; error: string | null
+  } | null>(null)
+  const [isRenamingRoom, setIsRenamingRoom] = useState(false)
+  const roomTitleDialogRef = useRef<HTMLDialogElement>(null)
+  const editingRoomTitle = roomTitleDraft !== null
+  useLayoutEffect(() => { if (editingRoomTitle) roomTitleDialogRef.current?.showModal() }, [editingRoomTitle])
   const [citationPickerOpen, setCitationPickerOpen] = useState(false)
   const [referenceManagerOpen, setReferenceManagerOpen] = useState(false)
   const [publicationMetadataOpen, setPublicationMetadataOpen] = useState(false)
   const blockingDialogOpen =
+    editingRoomTitle ||
     historyOpen ||
     citationPickerOpen ||
     referenceManagerOpen ||
@@ -706,9 +715,25 @@ function App() {
   )
 
   const title = useMemo(
-    () => getDocumentTitle(displayedContent),
-    [displayedContent],
+    () => collaboration.roomTitle ?? getDocumentTitle(displayedContent),
+    [collaboration.roomTitle, displayedContent],
   )
+  const beginRoomRename = () => {
+    if (!canManageRepository || effectiveReadOnly || !collaboration.isSynced) return
+    setRoomTitleDraft({ title, expectedTitle: collaboration.roomTitle, renamePullRequest: Boolean(roomAccess.review), error: null })
+  }
+  const renameRoom = async () => {
+    if (!roomTitleDraft || isRenamingRoom || !canManageRepository || effectiveReadOnly || !collaboration.isSynced) return
+    setIsRenamingRoom(true)
+    try {
+      const result = await renameCollaborationRoom(roomName, roomTitleDraft.title, roomTitleDraft.expectedTitle, roomTitleDraft.renamePullRequest)
+      roomAccess.applyReview(result.review)
+      setRoomTitleDraft(null)
+      showNotice(result.review && roomTitleDraft.renamePullRequest ? 'Room and pull request renamed' : 'Room renamed')
+    } catch (error) {
+      setRoomTitleDraft((current) => current ? { ...current, error: error instanceof Error ? error.message : 'Could not rename this room.' } : current)
+    } finally { setIsRenamingRoom(false) }
+  }
   const wordCount = useMemo(
     () => displayedContent.trim()
       ? displayedContent.trim().split(/\s+/).length
@@ -1771,7 +1796,9 @@ function App() {
           <div className="brand-mark" aria-label="DeMystify" role="img">D</div>
           <div className="document-chrome">
             <div className="document-heading">
-              <span className="document-title">{title}</span>
+              {isMaintainer ? <button className="document-title document-title-button" type="button" title="Rename room" aria-label={`Rename room: ${title}`}
+                disabled={!canManageRepository || effectiveReadOnly || !collaboration.isSynced} onClick={beginRoomRename}>{title}</button>
+                : <span className="document-title">{title}</span>}
               <span className={`sync-status ${isArchived ? 'archived' : collaboration.status !== 'connected' ? collaboration.status : sharedAccessRole || savedServerCopy ? 'viewer' : collaboration.status}`}>
                 <span className="status-dot" />
                 {isArchived
@@ -1798,9 +1825,11 @@ function App() {
                     ? 'The server confirmed persistent storage of the current changes.'
                     : 'Persistent server storage has not yet been confirmed.'}
                 >
-                  {displayedSaveStatus === 'saved'
+                  <span className="server-save-icon" aria-hidden="true">{displayedSaveStatus === 'saved' ? <Check size={13} />
+                    : displayedSaveStatus === 'error' ? <X size={13} /> : <LoaderCircle className="spin" size={13} />}</span>
+                  <span className="server-save-label">{displayedSaveStatus === 'saved'
                     ? 'Saved to server'
-                    : displayedSaveStatus === 'error' ? 'Save unconfirmed' : 'Saving...'}
+                    : displayedSaveStatus === 'error' ? 'Save unconfirmed' : 'Saving...'}</span>
                 </span>
               )}
             </div>
@@ -1813,6 +1842,7 @@ function App() {
                     icon: FilePlus2,
                     onSelect: createDocument,
                   },
+                  { label: 'Rename room', icon: PencilLine, disabled: !canManageRepository || effectiveReadOnly || !collaboration.isSynced, onSelect: beginRoomRename },
                   {
                     label: 'Download recovery file',
                     icon: Download,
@@ -3266,6 +3296,23 @@ function App() {
         roomName={roomName} binding={repositoryBinding}
         canRestore={!effectiveReadOnly && collaboration.isSynced && displayedSaveStatus === 'saved' && !visualDraftPending && activeSourceDraftPreview === null}
         onClose={() => setHistoryOpen(false)} onNotice={showNotice} /></Suspense>}
+
+      {roomTitleDraft && <dialog ref={roomTitleDialogRef} className="room-title-dialog" aria-label="Rename room"
+        onCancel={(event) => { event.preventDefault(); if (!isRenamingRoom) setRoomTitleDraft(null) }}>
+        <form onSubmit={(event) => { event.preventDefault(); void renameRoom() }}>
+          <header className="github-dialog-header"><h2>Rename room</h2><button className="icon-button" type="button" title="Close rename dialog" disabled={isRenamingRoom} onClick={() => setRoomTitleDraft(null)}><X size={17} /></button></header>
+          <div className="room-title-fields">
+            <label>Room title<input aria-label="Room title" autoFocus required maxLength={180} value={roomTitleDraft.title} disabled={isRenamingRoom}
+              onChange={(event) => setRoomTitleDraft({ ...roomTitleDraft, title: event.target.value, error: null })} /></label>
+            {roomAccess.review && <label className="room-title-pr"><input type="checkbox" checked={roomTitleDraft.renamePullRequest} disabled={isRenamingRoom}
+              onChange={(event) => setRoomTitleDraft({ ...roomTitleDraft, renamePullRequest: event.target.checked })} /> Update pull request #{roomAccess.review.number} title too</label>}
+            {(!roomAccess.review || roomTitleDraft.renamePullRequest) && <output aria-label="Pull request title">PR title: Update {roomTitleDraft.title.trim()}</output>}
+            {roomTitleDraft.error && <p className="github-error" role="alert">{roomTitleDraft.error}</p>}
+          </div>
+          <footer className="github-dialog-footer"><button className="button secondary-button" type="button" disabled={isRenamingRoom} onClick={() => setRoomTitleDraft(null)}>Cancel</button>
+            <button className="button primary-button" type="submit" disabled={isRenamingRoom || !roomTitleDraft.title.trim()}><PencilLine size={14} /> {isRenamingRoom ? 'Renaming...' : 'Rename'}</button></footer>
+        </form>
+      </dialog>}
 
       <GitHubDialog
         open={githubDialogOpen}

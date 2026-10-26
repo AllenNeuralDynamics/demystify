@@ -80,12 +80,30 @@
   white-space: nowrap;
 }
 
+.document-title-button { padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: text; font-family: inherit; }
+.document-title-button:hover:not(:disabled), .document-title-button:focus-visible { outline: 1px solid var(--line); outline-offset: 3px; border-radius: 3px; }
+.document-title-button:disabled { cursor: default; opacity: 1; }
+.room-title-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; }
+.room-title-dialog h2 { margin: 0; font-size: 17px; }
+.room-title-fields { display: grid; gap: 14px; padding: 6px 18px 18px; }
+.room-title-fields label { display: grid; gap: 6px; font-size: 12px; }
+.room-title-fields input:not([type="checkbox"]) { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 14px; }
+.room-title-fields .room-title-pr { display: flex; align-items: center; gap: 8px; }
+.room-title-fields output { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+
 .server-save-status.saved {
   color: var(--ui-accent-strong);
 }
 
 .server-save-status.error {
   color: #9b391e;
+}
+
+.server-save-icon { display: none; }
+@media (max-width: 600px) {
+  .server-save-status { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 18px; }
+  .server-save-label { display: none; }
+  .server-save-icon { display: inline-flex; }
 }
 
 .document-menu {

@@ -11,6 +11,7 @@ import {
   getMystConfigCandidatePaths,
   getMystProjectFilePaths,
   getRepositoryPullRequest,
+  updateRepositoryPullRequestTitle,
   getRepositoryPullRequestCommentSync,
   upsertRepositoryPullRequestComment,
   upsertRepositoryPullRequestCommentReply,
@@ -47,6 +48,27 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('room pull request titles', () => {
+  it('renames only the verified room PR and rejects a mismatched branch before PATCH', async () => {
+    const original = {
+      number: 12, html_url: 'https://github.com/researcher/paper/pull/12', title: 'Old title',
+      state: 'open', draft: true, created_at: '2026-10-25T10:00:00Z', updated_at: '2026-10-25T10:00:00Z',
+      head: { ref: target.branchName, repo: { full_name: 'researcher/paper' } }, base: { ref: target.baseBranch },
+    }
+    const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      jsonResponse(init?.method === 'PATCH' ? { ...original, title: 'Update Reviewer response' } : original))
+    vi.stubGlobal('fetch', fetch)
+    await expect(updateRepositoryPullRequestTitle(request, target, 12, 'Update Reviewer response'))
+      .resolves.toMatchObject({ title: 'Update Reviewer response' })
+    expect(fetch.mock.calls[1][1]?.method).toBe('PATCH')
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({ title: 'Update Reviewer response' })
+    fetch.mockClear()
+    fetch.mockImplementation(async () => jsonResponse({ ...original, head: { ref: 'another-room' } }))
+    await expect(updateRepositoryPullRequestTitle(request, target, 12, 'Wrong target')).rejects.toMatchObject({ status: 409 })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
 })
 
 describe('fetchGitHub', () => {

@@ -1,5 +1,39 @@
 import { authenticateMaintainer, createRoomName, expect, selectSourceDocument, test } from './support'
 
+test('room titles are shared and persistent without changing the manuscript', async ({ page }, testInfo) => {
+  const roomName = createRoomName(testInfo)
+  await authenticateMaintainer(page, roomName, testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+  const manuscript = () => source.evaluate((element) => {
+    let current: Element | null = element
+    while (current) {
+      const property = Object.keys(current).find((key) => key.startsWith('__reactFiber$'))
+      let fiber = property ? (current as unknown as Record<string, unknown>)[property] as {
+        memoizedProps?: { sharedText?: { toString: () => string } }; return?: unknown
+      } : null
+      for (let depth = 0; fiber && depth < 40; depth++, fiber = fiber.return as typeof fiber) {
+        if (fiber.memoizedProps?.sharedText) return fiber.memoizedProps.sharedText.toString()
+      }
+      current = current.parentElement
+    }
+    throw new Error('Shared manuscript unavailable')
+  })
+  const original = await manuscript()
+  await page.getByRole('button', { name: /^Rename room:/ }).click()
+  const rename = page.getByRole('dialog', { name: 'Rename room', exact: true })
+  await rename.getByRole('textbox', { name: 'Room title', exact: true }).fill('Reviewer response')
+  await expect(rename.getByRole('status', { name: 'Pull request title', exact: true })).toContainText('Update Reviewer response')
+  await page.screenshot({ path: testInfo.outputPath('rename-room.png') })
+  await rename.getByRole('button', { name: 'Rename', exact: true }).click()
+  await expect(rename).toHaveCount(0)
+  await expect(page.locator('.document-title')).toHaveText('Reviewer response')
+  expect(await manuscript()).toBe(original)
+  expect(new URL(page.url()).searchParams.get('doc')).toBe(roomName)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.locator('.document-title')).toHaveText('Reviewer response')
+  expect(await manuscript()).toBe(original)
+})
+
 test('loads the anonymous application shell', async ({ page }, testInfo) => {
   const roomName = createRoomName(testInfo)
   const [healthResponse, robotsResponse] = await Promise.all([

@@ -63,6 +63,77 @@ const closeServer = (server: ReturnType<typeof createServer>) =>
   )
 
 describe('room publication routes', () => {
+  it.each([true, false])('updates an existing PR title only when explicitly selected: %s', async (renamePullRequest) => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-pr-title-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    const roomName = 'bound-title-room'
+    const user = { id: 42, login: 'researcher' }
+    const binding: RoomBinding = { owner: 'researcher', repository: 'paper', fullName: 'researcher/paper', isFork: false,
+      parentFullName: null, path: 'paper.md', baseBranch: 'main', branchName: `demystify/${roomName.slice(0, 12)}` }
+    await store.claim(roomName, user)
+    await store.setBinding(roomName, user, binding)
+    await store.setReview(roomName, { number: 12, htmlUrl: 'https://github.com/researcher/paper/pull/12', title: 'Original PR',
+      state: 'draft', createdAt: '2026-10-25T10:00:00Z', updatedAt: '2026-10-25T10:00:00Z' })
+    let title: string | null = 'Old room'
+    let patches = 0
+    const originalFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('http://127.0.0.1:')) return originalFetch(input, init)
+      if (url.endsWith('/repos/researcher/paper')) return jsonResponse({ permissions: { push: true } })
+      if (url.endsWith('/pulls/12')) {
+        if (init?.method === 'PATCH') patches += 1
+        return jsonResponse({ number: 12, html_url: 'https://github.com/researcher/paper/pull/12',
+          title: init?.method === 'PATCH' ? 'Update Reviewer response' : 'Original PR', state: 'open', draft: true,
+          created_at: '2026-10-25T10:00:00Z', updated_at: '2026-10-25T10:00:00Z',
+          head: { ref: binding.branchName, repo: { full_name: binding.fullName } }, base: { ref: binding.baseBranch } })
+      }
+      throw new Error(`Unexpected GitHub request: ${url}`)
+    })
+    const { server, baseUrl } = await startRoomServer(store, { roomTitle: { get: async () => title,
+      set: async (_room, value) => { title = value } } })
+    try {
+      const response = await originalFetch(`${baseUrl}/api/rooms/${roomName}/title`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Reviewer response', expectedTitle: 'Old room', renamePullRequest }),
+      })
+      expect(response.status).toBe(200)
+      expect(patches).toBe(renamePullRequest ? 1 : 0)
+      await expect(response.json()).resolves.toMatchObject({ title: 'Reviewer response',
+        review: { title: renamePullRequest ? 'Update Reviewer response' : 'Original PR' } })
+    } finally { await closeServer(server) }
+  })
+
+  it('renames the room independently of its manuscript with validation, permission and stale-title checks', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'demystify-title-router-'))
+    temporaryDirectories.push(directory)
+    const store = new RoomStore(join(directory, 'rooms.json'))
+    await store.initialize()
+    await store.claim('editable-title-room', { id: 42, login: 'researcher' })
+    let title: string | null = null
+    const set = vi.fn(async (_room: string, value: string) => { title = value })
+    const { server, baseUrl, session } = await startRoomServer(store, { roomTitle: { get: async () => title, set } })
+    const rename = (value: string, expected: string | null = null) => fetch(`${baseUrl}/api/rooms/editable-title-room/title`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: value, expectedTitle: expected, renamePullRequest: false }),
+    })
+    try {
+      expect((await rename('   ')).status).toBe(400)
+      expect((await rename('First\nSecond')).status).toBe(400)
+      expect((await rename('a'.repeat(181))).status).toBe(400)
+      const response = await rename('  Reviewer response  ')
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ title: 'Reviewer response' })
+      expect(set).toHaveBeenCalledWith('editable-title-room', 'Reviewer response', null)
+      expect((await rename('Stale change')).status).toBe(409)
+      delete session.github
+      expect((await rename('Unauthorized', title)).status).toBe(401)
+      expect(set).toHaveBeenCalledOnce()
+    } finally { await closeServer(server) }
+  })
+
   it('authorizes history, validates names and revisions, and forwards server-issued restore checks', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-history-router-'))
     temporaryDirectories.push(directory)
@@ -240,7 +311,7 @@ describe('room publication routes', () => {
     }
   })
 
-  it('creates one draft PR on the first snapshot and reuses it', async () => {
+  it.each([null, 'Reviewer response'])('creates one draft PR using the room title or manuscript fallback: %s', async (roomTitle) => {
     const directory = await mkdtemp(join(tmpdir(), 'demystify-room-router-'))
     temporaryDirectories.push(directory)
     const store = new RoomStore(join(directory, 'rooms.json'))
@@ -305,12 +376,13 @@ describe('room publication routes', () => {
       }
       if (url.endsWith('/pulls') && init?.method === 'POST') {
         pullRequestCreates += 1
-        const body = JSON.parse(String(init.body)) as { draft: boolean }
+        const body = JSON.parse(String(init.body)) as { draft: boolean; title: string }
         expect(body.draft).toBe(true)
+        expect(body.title).toBe(`Update ${roomTitle ?? 'Test paper'}`)
         return jsonResponse({
           number: 17,
           html_url: 'https://github.com/researcher/paper/pull/17',
-          title: 'Update Test paper',
+          title: body.title,
           state: 'open',
           draft: true,
         })
@@ -319,7 +391,7 @@ describe('room publication routes', () => {
         return jsonResponse({
           number: 17,
           html_url: 'https://github.com/researcher/paper/pull/17',
-          title: 'Update Test paper',
+          title: `Update ${roomTitle ?? 'Test paper'}`,
           state: 'open',
           draft: true,
           merged_at: null,
@@ -334,6 +406,7 @@ describe('room publication routes', () => {
     })
 
     const { server, baseUrl } = await startRoomServer(store, {
+      roomTitle: { get: async () => roomTitle, set: async () => {} },
       getUnsubmittedProposalContributorNames: async () => ['Ada Reviewer', 'Lin Reviewer'],
       markProposalCheckpointsSubmitted: async (_roomName, commitSha) => {
         linkedCommitShas.push(commitSha)
