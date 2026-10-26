@@ -3,6 +3,7 @@ import {
   bindCollaborationRoom,
   createSnapshot,
   getNewManuscriptRoomUrl,
+  getCollaborationRoomUrl,
   getRepositoryFileGitHubUrl,
   getRepositoryGitHubUrl,
   loadRepositoryBibliography,
@@ -26,6 +27,11 @@ const binding: RepositoryBinding = {
 }
 
 describe('GitHub repository links', () => {
+  it('creates a normal room URL without invitation, recovery, import or navigation state', () => {
+    expect(getCollaborationRoomUrl('room-link-test', 'https://editor.example/?doc=old&serverCopy=1&recoverySession=private&import=github#collaborate=secret'))
+      .toBe('https://editor.example/?doc=room-link-test')
+  })
+
   it('carries a selected branch into new rooms and binding requests', async () => {
     const selected = { ...binding, baseBranch: 'revision/two' }
     expect(new URL(getNewManuscriptRoomUrl('https://editor.example/', 'new-room', selected)).searchParams.get('branch')).toBe('revision/two')

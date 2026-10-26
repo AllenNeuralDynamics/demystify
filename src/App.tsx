@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Copy,
   Download,
   Eye,
   ExternalLink,
@@ -87,6 +88,7 @@ import {
   decideLiveProposal,
   getRepositoryAssetBaseUrl,
   getRepositoryGitHubUrl,
+  getCollaborationRoomUrl,
   loadRepositoryFile,
   loadRepositoryBibliography,
   loadRepositoryProjectFiles,
@@ -1358,6 +1360,10 @@ function App() {
   const shareDocument = () => {
     setShareDialogOpen(true)
   }
+  const copyRoomLink = async () => {
+    try { await navigator.clipboard.writeText(getCollaborationRoomUrl(roomName)); showNotice('Room link copied') }
+    catch { setShareDialogOpen(true); showNotice('Could not copy the link. The room URL is available in Share.') }
+  }
 
   const closeHelpDialog = () => {
     setHelpOpen(false)
@@ -1842,6 +1848,7 @@ function App() {
                     icon: FilePlus2,
                     onSelect: createDocument,
                   },
+                  { label: 'Copy room link', icon: Copy, disabled: !roomAccess.isReady, onSelect: () => void copyRoomLink() },
                   { label: 'Rename room', icon: PencilLine, disabled: !canManageRepository || effectiveReadOnly || !collaboration.isSynced, onSelect: beginRoomRename },
                   {
                     label: 'Download recovery file',
@@ -2074,7 +2081,7 @@ function App() {
               </span>
             </button>
           ) : null}
-          {isMaintainer && !isArchived && (
+          {roomAccess.isReady && roomAccess.room && (
             <button className="button share-button" type="button" title="Share access" onClick={shareDocument}>
               <Share2 size={16} />
               <span>Share</span>
@@ -3280,12 +3287,12 @@ function App() {
         </div>
       )}
 
-      {isMaintainer && roomAccess.room && (
+      {roomAccess.room && (
         <ShareDialog
           open={shareDialogOpen}
           roomName={roomName}
           room={roomAccess.room}
-          canManageLinks={github.session?.user?.id === roomAccess.room.ownerId}
+          canManageLinks={canManageRepository && github.session?.user?.id === roomAccess.room.ownerId}
           onClose={() => setShareDialogOpen(false)}
           onRoomRefresh={refreshRoom}
           onNotice={showNotice}

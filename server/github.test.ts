@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createRepositoryFilesSnapshot,
   createRepositoryPullRequest,
+  ensureRepositoryRoomLink,
   findRepositoryMystConfig,
   findRepositoryProjectFiles,
   fetchGitHub,
@@ -331,6 +332,64 @@ project:
 })
 
 describe('createRepositoryPullRequest', () => {
+  it('adds the room link when retrying creation finds an existing PR', async () => {
+    const existing = { number: 17, title: 'Existing PR', state: 'open', draft: true,
+      html_url: 'https://github.com/researcher/paper/pull/17', body: 'Preserved description.',
+      head: { ref: target.branchName, repo: { full_name: 'researcher/paper' } }, base: { ref: target.baseBranch } }
+    const fetch = vi.fn().mockResolvedValueOnce(jsonResponse({ fork: false }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'A pull request already exists' }, 422))
+      .mockResolvedValueOnce(jsonResponse([existing]))
+      .mockResolvedValueOnce(jsonResponse(existing))
+      .mockResolvedValueOnce(jsonResponse(existing))
+    vi.stubGlobal('fetch', fetch)
+    await expect(createRepositoryPullRequest(request, target, 'Update paper', 'room-link-test'))
+      .resolves.toMatchObject({ number: 17 })
+    expect(fetch.mock.calls[4][1]?.method).toBe('PATCH')
+    const body = JSON.parse(String(fetch.mock.calls[4][1]?.body)).body as string
+    expect(body).toContain('Preserved description.')
+    expect(body).toContain('doc=room-link-test')
+  })
+
+  it('includes a canonical room link in the PR without access or recovery parameters', async () => {
+    const previous = process.env.APP_URL
+    process.env.APP_URL = 'https://editor.example/?serverCopy=1&recoverySession=private#collaborate=private-token'
+    const fetch = vi.fn().mockResolvedValueOnce(jsonResponse({ fork: false })).mockResolvedValueOnce(jsonResponse({
+      number: 17, html_url: 'https://github.com/researcher/paper/pull/17', title: 'Update paper', state: 'open', draft: true,
+    }))
+    vi.stubGlobal('fetch', fetch)
+    try {
+      await createRepositoryPullRequest(request, target, 'Update paper', 'room-link-test')
+      const body = JSON.parse(String(fetch.mock.calls[1][1]?.body)).body as string
+      expect(body).toContain('https://editor.example/?doc=room-link-test')
+      expect(body).toContain('does not grant editing permissions')
+      expect(body).not.toMatch(/private|serverCopy|recoverySession|collaborate=/)
+    } finally {
+      if (previous === undefined) delete process.env.APP_URL
+      else process.env.APP_URL = previous
+    }
+  })
+
+  it('appends a room link to an existing PR once without overwriting its description', async () => {
+    const original = '    Existing reviewer notes.\n\n- Preserve this checklist.\n  '
+    let body = original
+    const patches: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_input, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        body = JSON.parse(String(init.body)).body
+        patches.push(body)
+      }
+      return jsonResponse({ number: 17, title: 'Existing PR', state: 'open', draft: true,
+        html_url: 'https://github.com/researcher/paper/pull/17', body,
+        head: { ref: target.branchName, repo: { full_name: 'researcher/paper' } }, base: { ref: target.baseBranch } })
+    }))
+    await ensureRepositoryRoomLink(request, target, 17, 'room-link-test')
+    await ensureRepositoryRoomLink(request, target, 17, 'room-link-test')
+    expect(patches).toHaveLength(1)
+    expect(body.startsWith(original)).toBe(true)
+    expect(body).toContain('Existing reviewer notes.\n\n- Preserve this checklist.')
+    expect(body).toContain('doc=room-link-test')
+  })
+
   it('creates a new pull request as a draft', async () => {
     const fetchMock = vi
       .fn()

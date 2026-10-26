@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from 'react'
 import {
   createShareLink,
+  getCollaborationRoomUrl,
   revokeShareLink,
   type AnonymousShareRole,
   type CollaborationRoom,
@@ -28,20 +29,12 @@ interface ShareDialogProps {
   onNotice: (message: string) => void
 }
 
-const roomUrl = (roomName: string) => {
-  const url = new URL(window.location.href)
-  url.searchParams.set('doc', roomName)
-  url.searchParams.delete('revision')
-  url.hash = ''
-  return url.toString()
-}
-
 const anonymousUrl = (
   roomName: string,
   token: string,
   role: AnonymousShareRole,
 ) => {
-  const url = new URL(roomUrl(roomName))
+  const url = new URL(getCollaborationRoomUrl(roomName))
   url.hash = new URLSearchParams({
     [role === 'viewer' ? 'view' : 'collaborate']: token,
   }).toString()
@@ -62,6 +55,33 @@ const formatExpiry = (expiresAt: string | null) => {
 const shareRoleLabel = (role: AnonymousShareRole) =>
   role === 'viewer' ? 'Viewer' : 'Suggestion mode'
 
+interface StoredShareLink {
+  url: string
+  fingerprint: string
+  confirmedAt: string
+  expiresAt: string | null
+}
+type StoredShareLinks = Partial<Record<AnonymousShareRole, StoredShareLink>>
+const shareStorageKey = (roomName: string, ownerId: number) => `demystify.share-links:${JSON.stringify([roomName, ownerId])}`
+const readStoredLinks = (roomName: string, ownerId: number): StoredShareLinks => {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(shareStorageKey(roomName, ownerId)) ?? '{}') as Record<string, Partial<StoredShareLink>>
+    const links: StoredShareLinks = {}
+    for (const role of ['collaborator', 'viewer'] as const) {
+      const entry = value[role]
+      if (!entry || typeof entry.url !== 'string' || typeof entry.fingerprint !== 'string' ||
+        typeof entry.confirmedAt !== 'string' || Number.isNaN(Date.parse(entry.confirmedAt)) ||
+        (entry.expiresAt !== null && (typeof entry.expiresAt !== 'string' || Number.isNaN(Date.parse(entry.expiresAt))))) continue
+      const url = new URL(entry.url)
+      const token = new URLSearchParams(url.hash.slice(1)).get(role === 'viewer' ? 'view' : 'collaborate')
+      if (url.origin !== location.origin || url.searchParams.get('doc') !== roomName || !token || !/^[A-Za-z0-9_-]{43}$/.test(token)) continue
+      links[role] = { url: anonymousUrl(roomName, token, role), fingerprint: entry.fingerprint,
+        confirmedAt: entry.confirmedAt, expiresAt: entry.expiresAt }
+    }
+    return links
+  } catch { return {} }
+}
+
 export const ShareDialog = ({
   open,
   roomName,
@@ -75,7 +95,26 @@ export const ShareDialog = ({
     collaborator: 30,
     viewer: 30,
   })
-  const [generatedUrls, setGeneratedUrls] = useState<Partial<Record<AnonymousShareRole, string>>>({})
+  const scope = JSON.stringify([roomName, room.ownerId])
+  const [clock, setClock] = useState(Date.now)
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    void Promise.resolve().then(() => { if (active) setClock(Date.now()) })
+    const timer = window.setInterval(() => setClock(Date.now()), 10_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [open])
+  const [storedLinks, setStoredLinks] = useState(() => ({ scope,
+    links: canManageLinks ? readStoredLinks(roomName, room.ownerId) : {} as StoredShareLinks }))
+  const links = canManageLinks && storedLinks.scope === scope ? storedLinks.links : {}
+  const generatedUrls = Object.fromEntries((['collaborator', 'viewer'] as const).flatMap((role) => {
+    const entry = links[role]
+    const metadata = role === 'viewer' ? room.viewerLink : room.collaboratorLink
+    if (!entry || (entry.expiresAt && Date.parse(entry.expiresAt) <= clock)) return []
+    const matching = metadata && entry.fingerprint === (metadata.id ?? metadata.createdAt)
+    const pendingRefresh = Date.parse(room.updatedAt) < Date.parse(entry.confirmedAt)
+    return matching || pendingRefresh ? [[role, entry.url]] : []
+  })) as Partial<Record<AnonymousShareRole, string>>
   const [workingRole, setWorkingRole] = useState<AnonymousShareRole | null>(null)
   const [copied, setCopied] = useState<'maintainer' | 'collaborator' | 'viewer' | null>(null)
 
@@ -83,7 +122,6 @@ export const ShareDialog = ({
     if (!open) return
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setGeneratedUrls({})
       setCopied(null)
       onClose()
     }
@@ -94,7 +132,6 @@ export const ShareDialog = ({
   if (!open) return null
 
   const close = () => {
-    setGeneratedUrls({})
     setCopied(null)
     onClose()
   }
@@ -109,14 +146,19 @@ export const ShareDialog = ({
     }
   }
 
+  const storeLinks = (values: StoredShareLinks) => {
+    setStoredLinks({ scope, links: values })
+    try { sessionStorage.setItem(shareStorageKey(roomName, room.ownerId), JSON.stringify(values)) }
+    catch { onNotice('The link is visible now, but this tab could not retain it across reloads.') }
+  }
+
   const generateLink = async (role: AnonymousShareRole) => {
+    if (!canManageLinks) return
     setWorkingRole(role)
     try {
       const result = await createShareLink(roomName, expirations[role], role)
-      setGeneratedUrls((current) => ({
-        ...current,
-        [role]: anonymousUrl(roomName, result.token, role),
-      }))
+      storeLinks({ ...links, [role]: { url: anonymousUrl(roomName, result.token, role),
+        fingerprint: result.link.id ?? result.link.createdAt, confirmedAt: result.link.createdAt, expiresAt: result.link.expiresAt } })
       await onRoomRefresh()
       const existing = role === 'viewer' ? room.viewerLink : room.collaboratorLink
       onNotice(`${shareRoleLabel(role)} link ${existing ? 'replaced' : 'created'}`)
@@ -128,10 +170,11 @@ export const ShareDialog = ({
   }
 
   const revoke = async (role: AnonymousShareRole) => {
+    if (!canManageLinks) return
     setWorkingRole(role)
     try {
       await revokeShareLink(roomName, role)
-      setGeneratedUrls((current) => ({ ...current, [role]: undefined }))
+      storeLinks({ ...links, [role]: undefined })
       await onRoomRefresh()
       onNotice(`${shareRoleLabel(role)} access revoked`)
     } catch (error) {
@@ -167,11 +210,11 @@ export const ShareDialog = ({
           <section className="share-access-row maintainer-access-row">
             <div className="share-access-icon maintainer"><ShieldCheck size={16} /></div>
             <div className="share-access-copy">
-              <strong>Maintainer</strong>
-              <span>Share this room URL with repository writers. The link grants no authority by itself; GitHub sign-in and write permission are required to publish or manage sharing.</span>
+              <strong>Room link</strong>
+              <span>The link grants no authority by itself. Existing room access is required; publishing and sharing management remain restricted.</span>
               <div className="share-link-control maintainer-link-control">
-                <input aria-label="Maintainer link" readOnly value={roomUrl(roomName)} />
-                <button type="button" title="Copy maintainer link" onClick={() => void copy('maintainer', roomUrl(roomName))}>
+                <input aria-label="Room link" readOnly value={getCollaborationRoomUrl(roomName)} onFocus={(event) => event.currentTarget.select()} />
+                <button type="button" title="Copy room link" onClick={() => void copy('maintainer', getCollaborationRoomUrl(roomName))}>
                   {copied === 'maintainer' ? <Check size={15} /> : <Copy size={15} />}
                 </button>
               </div>
@@ -186,7 +229,7 @@ export const ShareDialog = ({
 
               {generatedUrls.collaborator && (
                 <div className="share-link-control generated-collaborator-link">
-                  <input aria-label="Suggestion link" readOnly value={generatedUrls.collaborator} />
+                  <input aria-label="Suggestion link" readOnly value={generatedUrls.collaborator} onFocus={(event) => event.currentTarget.select()} />
                   <button type="button" title="Copy suggestion link" onClick={() => void copy('collaborator', generatedUrls.collaborator as string)}>
                     {copied === 'collaborator' ? <Check size={15} /> : <Copy size={15} />}
                   </button>
@@ -196,10 +239,11 @@ export const ShareDialog = ({
               {room.collaboratorLink && (
                 <div className="viewer-link-status">
                   <span className="viewer-status-dot" />
-                  <span>Active</span>
+                  <span>{room.collaboratorLink.expiresAt && Date.parse(room.collaboratorLink.expiresAt) <= clock ? 'Expired' : 'Active'}</span>
                   <span>{formatExpiry(room.collaboratorLink.expiresAt)}</span>
                 </div>
               )}
+              {canManageLinks && room.collaboratorLink && !generatedUrls.collaborator && <p className="share-owner-note" role="status">Active link URL unavailable in this tab.</p>}
 
               {canManageLinks ? (
                 <div className="viewer-link-actions">
@@ -247,7 +291,7 @@ export const ShareDialog = ({
 
               {generatedUrls.viewer && (
                 <div className="share-link-control generated-viewer-link">
-                  <input aria-label="Viewer link" readOnly value={generatedUrls.viewer} />
+                  <input aria-label="Viewer link" readOnly value={generatedUrls.viewer} onFocus={(event) => event.currentTarget.select()} />
                   <button type="button" title="Copy viewer link" onClick={() => void copy('viewer', generatedUrls.viewer as string)}>
                     {copied === 'viewer' ? <Check size={15} /> : <Copy size={15} />}
                   </button>
@@ -257,10 +301,11 @@ export const ShareDialog = ({
               {room.viewerLink && (
                 <div className="viewer-link-status">
                   <span className="viewer-status-dot" />
-                  <span>Active</span>
+                  <span>{room.viewerLink.expiresAt && Date.parse(room.viewerLink.expiresAt) <= clock ? 'Expired' : 'Active'}</span>
                   <span>{formatExpiry(room.viewerLink.expiresAt)}</span>
                 </div>
               )}
+              {canManageLinks && room.viewerLink && !generatedUrls.viewer && <p className="share-owner-note" role="status">Active link URL unavailable in this tab.</p>}
 
               {canManageLinks ? (
                 <div className="viewer-link-actions">
