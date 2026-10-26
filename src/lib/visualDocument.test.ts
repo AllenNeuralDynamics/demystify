@@ -21,6 +21,25 @@ import {
 vi.mock('diff', { spy: true })
 
 describe('continuous visual document', () => {
+  it('wraps source-formatted prose without exposing soft source newlines as visible breaks', () => {
+    const source = 'A paragraph wrapped in the source\ncontinues across the available width with **formatted\nwords**.'
+    const model = createVisualDocument(source)
+    expect(model.firstChild?.textContent).toBe('A paragraph wrapped in the source continues across the available width with formatted words.')
+    expect(serializeVisualDocument(model)).toBe(source)
+    const index = source.indexOf('continues')
+    expect(visualPositionToSource(model, sourcePositionToVisual(model, index))).toBe(index)
+  })
+
+  it('retains deliberate Markdown hard breaks while normalizing soft wrapping', () => {
+    const source = 'A deliberate break.  \nNext line with a soft\ncontinuation.'
+    const model = createVisualDocument(source)
+    const breaks: string[] = []
+    model.descendants((node) => { if (node.type.name === 'hard_break') breaks.push(node.type.name) })
+    expect(breaks).toHaveLength(1)
+    expect(model.firstChild?.textContent).toContain('Next line with a soft continuation.')
+    expect(serializeVisualDocument(model)).toBe(source)
+  })
+
   it('preserves raw HTML object rendering when source-position metadata is enabled', () => {
     const source = '# Before\n\n<div class="scroll-test-spacer" style="height: 900px">Rendered spacing</div>\n\n## After'
     const model = createVisualDocument(source)

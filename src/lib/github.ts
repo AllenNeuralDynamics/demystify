@@ -189,6 +189,11 @@ const apiRequest = async <Result>(path: string, init?: RequestInit): Promise<Res
 
 export const getGitHubSession = () => apiRequest<GitHubSession>('/api/auth/session')
 
+export const renameCollaborationRoom = (roomName: string, title: string, expectedTitle: string | null, renamePullRequest: boolean) =>
+  apiRequest<{ title: string; review: RoomReview | null }>(`/api/rooms/${encodeURIComponent(roomName)}/title`, {
+    method: 'PUT', body: JSON.stringify({ title, expectedTitle, renamePullRequest }),
+  })
+
 export const listDocumentVersions = (roomName: string, before?: number) =>
   apiRequest<VersionPage>(`/api/rooms/${encodeURIComponent(roomName)}/versions${before === undefined ? '' : `?before=${before}`}`, { cache: 'no-store' })
 export const previewDocumentVersion = (roomName: string, id: string) =>

@@ -1,5 +1,6 @@
 import { createDurabilityHandler } from './collaboration-durability.js'
 import { DocumentHistory } from './document-history.js'
+import { normalizeRoomTitle } from '../src/lib/sourceText.js'
 import 'dotenv/config'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
@@ -168,7 +169,24 @@ const scheduleGuestExpiry = (
   closeWhenExpired()
 }
 
+const getDocumentRoomTitle = (document: Parameters<ReadyYjsPersistence['flush']>[1]) => {
+  return normalizeRoomTitle(document.getMap('metadata').get('roomTitle'))
+}
 const lifecycleOptions = {
+  roomTitle: {
+    get: async (roomName: string) => {
+      const document = getYDoc(roomName)
+      await yjsPersistence!.waitForHydration(document)
+      return getDocumentRoomTitle(document)
+    },
+    set: async (roomName: string, title: string, expectedTitle: string | null) => {
+      const document = getYDoc(roomName)
+      await yjsPersistence!.waitForHydration(document)
+      if (getDocumentRoomTitle(document) !== expectedTitle) throw new ApiError(409, 'The room title changed. Reopen Rename room and try again.')
+      document.transact(() => document.getMap('metadata').set('roomTitle', title))
+      await yjsPersistence!.flush(roomName, document)
+    },
+  },
   history: {
     list: (roomName: string, before?: number) => documentHistory.list(roomName, getYDoc(roomName), before),
     preview: (roomName: string, id: string) => documentHistory.preview(roomName, getYDoc(roomName), id),

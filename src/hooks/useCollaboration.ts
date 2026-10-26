@@ -18,6 +18,7 @@ import { resolveCollaboratorCursor } from '../lib/collaboratorPresence'
 import { collaborationRecoveryKey } from '../lib/collaborationRecovery'
 import {
   normalizeSourceText,
+  normalizeRoomTitle,
   serializeSourceText,
   type SourceLineEnding,
 } from '../lib/sourceText'
@@ -169,6 +170,7 @@ export const useCollaboration = (
 ) => {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   const [content, setContent] = useState('')
+  const [roomTitle, setRoomTitle] = useState<string | null>(null)
   const [workingContent, setWorkingContent] = useState('')
   const [bibliography, setBibliography] = useState('')
   const [bibliographyPath, setBibliographyPath] = useState('references.bib')
@@ -266,6 +268,7 @@ export const useCollaboration = (
       Array.from(projectFileMap.entries(), ([path, fileText]) => [path, fileText.toString()]),
     ))
     const updateMetadata = () => {
+      setRoomTitle(normalizeRoomTitle(metadata.get('roomTitle')))
       setIsBibliographyInitialized(metadata.get('bibliographyInitialized') === true)
       const bibliographySourcePath = metadata.get('bibliographyPath')
       setBibliographyPath(
@@ -1117,6 +1120,7 @@ export const useCollaboration = (
     sharedBibliography: session?.bibliography ?? null,
     provider: session?.provider ?? null,
     content,
+    roomTitle,
     workingContent: isWorkingContentInitialized ? workingContent : content,
     bibliography,
     bibliographyPath,

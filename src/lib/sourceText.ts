@@ -1,5 +1,16 @@
 export type SourceLineEnding = 'lf' | 'crlf' | 'cr'
 
+export const normalizeRoomTitle = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null
+  const title = value.trim()
+  if (!title || title.length > 180) return null
+  for (const character of title) {
+    const code = character.charCodeAt(0)
+    if (code < 32 || code === 127) return null
+  }
+  return title
+}
+
 export interface NormalizedSourceText {
   content: string
   lineEnding: SourceLineEnding

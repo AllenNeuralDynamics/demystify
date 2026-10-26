@@ -927,6 +927,20 @@ export const getRepositoryPullRequest = async (
   return toRepositoryPullRequest(pullRequest)
 }
 
+export const updateRepositoryPullRequestTitle = async (
+  request: Request,
+  target: RepositoryWriteTarget,
+  pullRequestNumber: number,
+  title: string,
+) => {
+  const current = await getRepositoryPullRequest(request, target, pullRequestNumber)
+  if (current.state === 'closed' || current.state === 'merged') throw new ApiError(409, 'Archived pull requests cannot be renamed from this room.')
+  const pullRequest = await githubRequest<GitPullRequest>(request,
+    `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repository)}/pulls/${pullRequestNumber}`,
+    { method: 'PATCH', body: JSON.stringify({ title }) })
+  return toRepositoryPullRequest(pullRequest)
+}
+
 const getCommentMarker = (commentId: string) =>
   `<!-- demystify-comment:${commentId} -->`
 

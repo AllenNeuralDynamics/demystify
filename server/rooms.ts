@@ -9,6 +9,7 @@ import { dirname } from 'node:path'
 import { Router, type Request } from 'express'
 import type { Pool, PoolClient } from 'pg'
 import type { DocumentVersion, VersionAuthor, VersionPage, VersionPreview } from '../src/lib/documentHistory.js'
+import { normalizeRoomTitle } from '../src/lib/sourceText.js'
 import { searchCrossrefWorks } from './citations.js'
 import {
   ApiError,
@@ -22,6 +23,7 @@ import {
   verifyRepositoryBranch,
   upsertRepositoryPullRequestComment,
   upsertRepositoryPullRequestCommentReply,
+  updateRepositoryPullRequestTitle,
   type RepositoryPullRequest,
   type RepositoryPullRequestCommentInput,
 } from './github.js'
@@ -103,6 +105,10 @@ export interface RoomStoreLike {
 }
 
 export interface RoomLifecycleOptions {
+  roomTitle?: {
+    get: (roomName: string) => Promise<string | null>
+    set: (roomName: string, title: string, expectedTitle: string | null) => Promise<void>
+  }
   history?: {
     list: (roomName: string, before?: number) => Promise<VersionPage>
     preview: (roomName: string, id: string) => Promise<VersionPreview>
@@ -1003,6 +1009,34 @@ export const createRoomRouter = (
 ) => {
   const router = Router()
   const commentMirrorQueues = new Map<string, Promise<void>>()
+  const titleQueues = new Map<string, Promise<unknown>>()
+
+  router.put('/rooms/:roomName/title', async (request, response) => {
+    const roomName = readRoomNameParameter(request)
+    const room = requireWritableRoom(await authorizeRoomRequest(request, roomStore, roomName, options))
+    const title = normalizeRoomTitle(request.body.title)
+    if (!title) {
+      throw new ApiError(400, 'Room titles must contain 1 to 180 characters on one line.')
+    }
+    const expected = request.body.expectedTitle
+    if (expected !== null && typeof expected !== 'string') throw new ApiError(400, 'Refresh the room before renaming it.')
+    if (typeof request.body.renamePullRequest !== 'boolean') throw new ApiError(400, 'Choose whether to rename the pull request.')
+    const titles = options.roomTitle
+    if (!titles) throw new ApiError(503, 'Room renaming is unavailable.')
+    const operation = (titleQueues.get(roomName) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      if (await titles.get(roomName) !== expected) throw new ApiError(409, 'The room title changed. Reopen Rename room and try again.')
+      let review = room.review
+      if (request.body.renamePullRequest && review) {
+        const pullRequest = await updateRepositoryPullRequestTitle(request, requireBinding(room), review.number, `Update ${title}`)
+        review = (await roomStore.setReview(roomName, toRoomReview(pullRequest, review))).review
+      }
+      await titles.set(roomName, title, expected)
+      return { title, review }
+    })
+    titleQueues.set(roomName, operation)
+    try { response.set('Cache-Control', 'no-store').json(await operation) }
+    finally { if (titleQueues.get(roomName) === operation) titleQueues.delete(roomName) }
+  })
 
   const historyAccess = async (request: Request, writable = false) => {
     const roomName = readRoomNameParameter(request)
@@ -1361,7 +1395,7 @@ export const createRoomRouter = (
           const pullRequest = existingPullRequest ?? await createRepositoryPullRequest(
               request,
               binding,
-              `Update ${getDocumentTitle(content)}`,
+              `Update ${await options.roomTitle?.get(roomName) ?? getDocumentTitle(content)}`,
             )
           return toRoomReview(pullRequest)
         })).review
@@ -1383,7 +1417,8 @@ export const createRoomRouter = (
       await authorizeRoomRequest(request, roomStore, roomName, options),
     )
     const binding = requireBinding(room)
-    const title = readBindingString(request.body.title, 'title').slice(0, 200)
+    const roomTitle = await options.roomTitle?.get(roomName)
+    const title = roomTitle ? `Update ${roomTitle}` : readBindingString(request.body.title, 'title').slice(0, 200)
 
     const updatedRoom = await roomStore.ensureReview(roomName, async () => {
       const pullRequest = await createRepositoryPullRequest(request, binding, title)

@@ -4,6 +4,53 @@ import { authenticateMaintainer, createRoomName, expect, selectSourceDocument, s
 
 const paneToolbarSource = '# Pane toolbars\n\nSource target.\n\nVisual target.\n\n$$\nx^2\n$$\n\nAfter.'
 
+test('Visual prose uses the available width before the first edit', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText('# Wrapping\n\nA short line\ncontinues naturally across the paragraph width without a premature break.\n')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const paragraph = page.getByRole('textbox', { name: 'Formatted manuscript', exact: true }).locator('p').first()
+  await expect(paragraph).toContainText('A short line continues naturally')
+  const geometry = await paragraph.evaluate((element) => {
+    const node = element.firstChild!
+    const first = document.createRange()
+    first.setStart(node, 0)
+    first.setEnd(node, 1)
+    const next = document.createRange()
+    const offset = node.textContent!.indexOf('continues')
+    next.setStart(node, offset)
+    next.setEnd(node, offset + 1)
+    return { first: first.getBoundingClientRect().top, continuation: next.getBoundingClientRect().top }
+  })
+  expect(Math.abs(geometry.first - geometry.continuation)).toBeLessThan(2)
+})
+
+test('opening and cancelling a Visual link form preserves the reading position away from the caret', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
+  await source.focus()
+  await selectSourceDocument(source)
+  await page.keyboard.insertText('# Stable reading\n\nTop caret paragraph.\n\n' +
+    '<div class="scroll-test-spacer" style="height: 2400px">Reading position</div>\n\nEnd paragraph.\n')
+  await expect(page.getByRole('status', { name: 'Server save status' })).toHaveAttribute('data-save-state', 'saved')
+  await page.getByTitle('Visual editor', { exact: true }).click()
+  const formatted = page.getByRole('textbox', { name: 'Formatted manuscript', exact: true })
+  await formatted.locator('p').first().click()
+  const pane = page.locator('.preview-pane')
+  await pane.evaluate((element) => { element.scrollTop = element.scrollHeight * 0.55 })
+  const before = await pane.evaluate((element) => element.scrollTop)
+  expect(before).toBeGreaterThan(1000)
+  await page.getByRole('toolbar', { name: 'Visual editing tools', exact: true }).getByTitle('Link', { exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit link', exact: true })).toBeVisible()
+  expect(Math.abs(await pane.evaluate((element) => element.scrollTop) - before)).toBeLessThan(3)
+  await page.getByTitle('Cancel link edit', { exact: true }).click()
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  expect(Math.abs(await pane.evaluate((element) => element.scrollTop) - before)).toBeLessThan(3)
+  await expect(formatted).toBeFocused()
+})
+
 for (const mode of ['Source only', 'Visual editor', 'Split view']) {
   test(`pane editing controls stay scoped in ${mode}`, async ({ page }, testInfo) => {
     test.skip(mode === 'Split view' && testInfo.project.name.startsWith('mobile'), 'Two visible panes require desktop space')

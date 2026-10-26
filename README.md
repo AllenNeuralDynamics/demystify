@@ -100,6 +100,14 @@ GitHub credentials remain on the server. The browser receives only user/reposito
 
 ## Manuscript Versions
 
+Maintainers can click the title in the document header, or use **File -> Rename
+room**, to give a room its own shared name. This does not change the manuscript's
+heading, room ID, sharing links, or branch binding. The name persists across
+reloads, and new pull requests use `Update <room title>`. For an existing PR,
+the rename form previews the proposed title and offers an explicit checkbox to
+update it too. Leaving that unchecked preserves the existing PR title. Archived
+and read-only rooms cannot rename; stale rename forms must be reopened.
+
 The sidebar shows the manuscript's source branch and its separate GitHub draft
 branch. Select **Manuscript versions** beside the repository to inspect the file,
 room save status, branch names, and pull request. A bound room does not reopen the
