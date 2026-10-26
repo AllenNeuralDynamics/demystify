@@ -32,8 +32,8 @@ test('opening and cancelling a Visual link form preserves the reading position a
   const source = page.getByRole('textbox', { name: 'MyST source', exact: true })
   await source.focus()
   await selectSourceDocument(source)
-  const paragraphs = Array.from({ length: 60 }, (_, index) => `Paragraph ${index}. ${'A long manuscript remains stable while its forms are used. '.repeat(8)}`)
-  await page.keyboard.insertText(`# Stable reading\n\nTop caret paragraph.\n\n${paragraphs.join('\n\n')}\n`)
+  await page.keyboard.insertText('# Stable reading\n\nTop caret paragraph.\n\n' +
+    '<div class="scroll-test-spacer" style="height: 2400px">Reading position</div>\n\nEnd paragraph.\n')
   await expect(page.getByRole('status', { name: 'Server save status' })).toHaveAttribute('data-save-state', 'saved')
   await page.getByTitle('Visual editor', { exact: true }).click()
   const formatted = page.getByRole('textbox', { name: 'Formatted manuscript', exact: true })
