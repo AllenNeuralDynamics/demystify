@@ -151,7 +151,7 @@ const toProseMirrorNodes = (
   marks: Mark[] = [],
 ): ProseMirrorNode[] => inline.flatMap((node) => {
   if (node.type === 'text') {
-    return node.value ? [visualInlineSchema.text(node.value, marks)] : []
+    return node.value ? [visualInlineSchema.text(node.value.replace(/\r\n?|\n/g, ' '), marks)] : []
   }
   if (node.type === 'strong' || node.type === 'emphasis') {
     const mark = visualInlineSchema.marks[node.type].create()
