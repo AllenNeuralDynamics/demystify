@@ -691,6 +691,11 @@ test('only authors edit comments and replies while everyone can reply', async ({
     await expect(secondView).toContainText('Author-edited comment text.')
     await expect(secondView).toContainText('edited')
 
+    await page.getByRole('tab', { name: 'For you', exact: true }).click()
+    await expect(maintainerView).toHaveCount(0)
+    await page.getByRole('tab', { name: 'All comments', exact: true }).click()
+    await expect(maintainerView).toBeVisible()
+
     await secondView.click()
     await expect(secondView).toHaveAttribute('aria-expanded', 'true')
     await secondView.getByRole('combobox', { name: /Reply to comment by Reviewer A/ })
@@ -746,10 +751,9 @@ test('only authors edit comments and replies while everyone can reply', async ({
     await maintainerView.click()
     await expect(maintainerView).toContainText(/@e2e-editor-\d+ please review this\./)
     await expect(secondView.getByText('Queued for maintainer', { exact: true })).toHaveCount(1)
-    await page.getByTitle('Search and filter comments').click()
-    await page.getByRole('button', { name: 'For you', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'For you', exact: true }))
-      .toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('tab', { name: 'For you', exact: true }).click()
+    await expect(page.getByRole('tab', { name: 'For you', exact: true }))
+      .toHaveAttribute('aria-selected', 'true')
     await expect(maintainerView).toBeVisible()
   } finally {
     await first.context.close()
