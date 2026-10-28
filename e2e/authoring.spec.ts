@@ -564,6 +564,49 @@ test('uses neutral document text and blue focus for live editing', async ({ page
   }
 })
 
+test('keeps comment audience tabs keyboard accessible in a bounded panel', async ({ page }, testInfo) => {
+  await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
+  await page.getByTitle('Open comments').click()
+  const allComments = page.getByRole('tab', { name: 'All comments', exact: true })
+  const forYou = page.getByRole('tab', { name: 'For you', exact: true })
+  const panel = page.getByRole('complementary', { name: 'Comments', exact: true })
+  await expect(allComments).toHaveAttribute('aria-selected', 'true')
+  await expect(forYou).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Search review' })).toHaveCount(0)
+  const initialBounds = await panel.boundingBox()
+  expect(initialBounds).not.toBeNull()
+  await allComments.focus()
+  await allComments.press('ArrowRight')
+  await expect(forYou).toBeFocused()
+  await expect(forYou).toHaveAttribute('aria-selected', 'true')
+  await expect(allComments).toHaveAttribute('tabindex', '-1')
+  await expect(page.getByRole('tabpanel', { name: 'For you', exact: true })).toBeVisible()
+  await page.getByTitle('Search and filter comments').click()
+  await expect(page.getByRole('searchbox', { name: 'Search review' })).toBeVisible()
+  await expect(forYou).toHaveAttribute('aria-selected', 'true')
+  await page.getByTitle('Search and filter comments').click()
+  await forYou.focus()
+  await forYou.press('Home')
+  await expect(allComments).toBeFocused()
+  await expect(allComments).toHaveAttribute('aria-selected', 'true')
+  await allComments.press('End')
+  await expect(forYou).toHaveAttribute('aria-selected', 'true')
+  await forYou.press('ArrowLeft')
+  await expect(allComments).toBeFocused()
+  await expect(allComments).toHaveAttribute('aria-selected', 'true')
+  const viewport = page.viewportSize()!
+  const finalBounds = (await panel.boundingBox())!
+  expect(finalBounds.width).toBe(initialBounds!.width)
+  expect(finalBounds.width).toBeLessThanOrEqual(testInfo.project.use.isMobile ? viewport.width : 400)
+  expect(finalBounds.x).toBeGreaterThanOrEqual(0)
+  expect(finalBounds.x + finalBounds.width).toBeLessThanOrEqual(viewport.width)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width)
+  for (const tab of [allComments, forYou]) {
+    expect(await tab.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  }
+  await page.screenshot({ path: testInfo.outputPath('comment-audience-tabs.png') })
+})
+
 test('keeps document comments attached to the selected passage through replies and resolution', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Contextual comment workflow runs once')
   await authenticateMaintainer(page, createRoomName(testInfo), testInfo)
@@ -605,6 +648,7 @@ test('keeps document comments attached to the selected passage through replies a
   await mark.press('Enter')
   await expect(page.locator('.document-panes')).toHaveClass(/view-preview/)
   await expect(thread).toHaveAttribute('aria-expanded', 'true')
+  await expect(thread).toHaveCSS('border-right-color', 'rgb(26, 115, 232)')
   await expect.poll(async () => {
     const highlight = await mark.boundingBox()
     const card = await thread.boundingBox()

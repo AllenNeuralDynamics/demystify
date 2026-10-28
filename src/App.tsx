@@ -747,6 +747,11 @@ function App() {
     () => sharedComments.filter((comment) => !comment.resolved).length,
     [sharedComments],
   )
+  const selectCommentAudience = (forYou: boolean) => {
+    setContextualComments(false)
+    setReviewForMe(forYou)
+    setReviewVisibleLimit(reviewBatchSize)
+  }
   const filteredReviewComments = useMemo(
     () => filterReviewThreads(sharedComments, sharedCommentMessages, {
       query: reviewQuery,
@@ -2681,6 +2686,43 @@ function App() {
                     </button>
                   </div>
                 </div>
+                <div
+                  className="comment-tabs"
+                  role="tablist"
+                  aria-label="Comment audience"
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                    event.preventDefault()
+                    const forYou = event.key === 'Home' ? false : event.key === 'End' ? true : !reviewForMe
+                    selectCommentAudience(forYou)
+                    event.currentTarget.querySelector<HTMLButtonElement>(`[data-for-you="${forYou}"]`)?.focus({ preventScroll: true })
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    id="comments-all-tab"
+                    aria-selected={!reviewForMe}
+                    aria-controls="comments-thread-panel"
+                    data-for-you="false"
+                    tabIndex={reviewForMe ? -1 : 0}
+                    onClick={() => selectCommentAudience(false)}
+                  >
+                    All comments
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="comments-for-you-tab"
+                    aria-selected={reviewForMe}
+                    aria-controls="comments-thread-panel"
+                    data-for-you="true"
+                    tabIndex={reviewForMe ? 0 : -1}
+                    onClick={() => selectCommentAudience(true)}
+                  >
+                    For you
+                  </button>
+                </div>
                 <div className="comments-toolbar">
                   <select
                     aria-label="Review status"
@@ -2711,19 +2753,6 @@ function App() {
                       }}
                     />
                   </label>
-                  <div className="review-filter-row">
-                    <button
-                      aria-pressed={reviewForMe}
-                      className="review-for-me"
-                      type="button"
-                      onClick={() => {
-                        setReviewForMe((current) => !current)
-                        setReviewVisibleLimit(reviewBatchSize)
-                      }}
-                    >
-                      For you
-                    </button>
-                  </div>
                   <div className="review-type-row" role="group" aria-label="Review type">
                     {(['all', 'comments', 'suggestions'] as const).map((type) => (
                       <button
@@ -2743,7 +2772,14 @@ function App() {
                     </span>
                   </div>
                 </div>}
-                <div className="comment-list" ref={commentRailRef}>
+                <div
+                  className="comment-list"
+                  id="comments-thread-panel"
+                  role="tabpanel"
+                  aria-labelledby={reviewForMe ? 'comments-for-you-tab' : 'comments-all-tab'}
+                  tabIndex={0}
+                  ref={commentRailRef}
+                >
                   {commentComposerOpen && (
                   <div className="comment-composer">
                     <div className="comment-meta">
